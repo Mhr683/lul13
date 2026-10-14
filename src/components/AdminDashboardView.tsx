@@ -47,6 +47,7 @@ import {
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AdminTeamPanel } from './AdminTeamPanel';
+import { StoreTextsPanel } from './StoreTextsPanel';
 import {
   Product,
   Order,
@@ -62,7 +63,7 @@ import {
   SUPPLIER_OPTIONS,
   generateCourierTrackingUrl,
 } from '../services/shippingService';
-import { SAMPLE_CSV_TEMPLATE, IMG_HANDBAG } from '../data/seedData';
+import { SAMPLE_CSV_TEMPLATE } from '../data/seedData';
 import { formatDualPrice, formatPKR, USD_TO_PKR_RATE, EmailNotificationService, sanitizeDocId, sanitizeSku, sanitizeSlug } from '../services/abstractions';
 import { canExecuteAITool } from '../ai/permissions';
 import {
@@ -116,6 +117,11 @@ export interface ParsedCsvRow {
   compareAtPrice?: number;
   costPrice?: number;
   primaryImage?: string;
+  supplierName?: string;
+  supplierCostPrice?: number;
+  supplierProductUrl?: string;
+  supplierSku?: string;
+  weightKg?: number;
   valid: boolean;
   errors: string[];
   warnings: string[];
@@ -123,13 +129,13 @@ export interface ParsedCsvRow {
 }
 
 const DEMO_AI_COMMANDS = [
-  'Create a new luxury black leather handbag product. Price $1290. Generate the complete listing and SEO content.',
+  'Create a new product "Wireless Earbuds A9 Pro", price PKR 2,499, category Electronics. Generate the listing and SEO content.',
   'Find products with stock below 5.',
-  'Increase the price of all products in the Leather Goods category by 10%.',
+  'Increase the price of all products in the Kitchen & Lifestyle category by 10%.',
   'Find products without SEO descriptions and generate SEO metadata for them.',
-  'Create a 20% discount coupon SUMMER20 for orders above $250.',
+  'Create a 10% discount coupon EID10 for orders above PKR 3,000.',
   'Show orders that have not shipped.',
-  'Rewrite all descriptions in the Fragrance category in a Luxury tone.',
+  'Rewrite all descriptions in the Personal Care & Beauty category in simple, friendly English.',
   'Analyze today’s store sales and best-selling categories.',
 ];
 
@@ -1358,7 +1364,7 @@ export const AdminDashboardView: React.FC<{
               total: selectedAdminOrder.total,
             }
           : null,
-        aiTone: settings.aiTone || 'Luxury',
+        aiTone: settings.aiTone || 'Professional',
       };
 
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
@@ -1610,6 +1616,26 @@ export const AdminDashboardView: React.FC<{
       'src',
     ]);
 
+    // Dropshipping columns (admin-only, stored in product_private)
+    const supplierNameIdx = findColIndex(['supplier', 'suppliername', 'dropshipper', 'source']);
+    const supplierCostIdx = findColIndex([
+      'suppliercost',
+      'supplierprice',
+      'suppliercostprice',
+      'wholesaleprice',
+      'dropshipprice',
+    ]);
+    const supplierUrlIdx = findColIndex([
+      'supplierlink',
+      'supplierurl',
+      'supplierproducturl',
+      'sourcelink',
+      'sourceurl',
+      'productlink',
+    ]);
+    const supplierSkuIdx = findColIndex(['suppliersku', 'suppliercode', 'sourcesku']);
+    const weightIdx = findColIndex(['weightkg', 'weight']);
+
     // Auto-detect currency if not explicitly forced by button click
     let activeCurrency: 'PKR' | 'USD' | 'DIRECT' = forcedCurrency || csvCurrency;
     if (!forcedCurrency) {
@@ -1740,6 +1766,22 @@ export const AdminDashboardView: React.FC<{
       const seoTitle = (seoTitleIdx !== -1 && cells[seoTitleIdx]?.trim()) || '';
       const seoDescription = (seoDescIdx !== -1 && cells[seoDescIdx]?.trim()) || '';
       const costPrice = costPriceIdx !== -1 ? parseNumericPrice(cells[costPriceIdx] || '') : undefined;
+      const cellText = (idx: number) => (idx !== -1 ? (cells[idx] || '').trim() : '');
+      const rawSupplierName = cellText(supplierNameIdx);
+      const supplierName =
+        SUPPLIER_OPTIONS.find((s) => s.toLowerCase() === rawSupplierName.toLowerCase()) || rawSupplierName || undefined;
+      const supplierCostRaw =
+        supplierCostIdx !== -1 ? parseNumericPrice(cells[supplierCostIdx] || '') : costPrice;
+      const supplierCostPrice =
+        supplierCostRaw !== undefined && !isNaN(supplierCostRaw) && supplierCostRaw > 0
+          ? activeCurrency === 'USD'
+            ? Math.round(supplierCostRaw * (settings.usdToPkrRate || USD_TO_PKR_RATE))
+            : supplierCostRaw
+          : undefined;
+      const supplierProductUrl = /^https?:\/\//i.test(cellText(supplierUrlIdx)) ? cellText(supplierUrlIdx) : undefined;
+      const supplierSku = cellText(supplierSkuIdx) || undefined;
+      const weightRaw = weightIdx !== -1 ? parseFloat((cells[weightIdx] || '').replace(/[^0-9.]/g, '')) : NaN;
+      const weightKg = !isNaN(weightRaw) && weightRaw > 0 ? weightRaw : undefined;
 
       // Extract image URL (WooCommerce multiple comma-separated images)
       let primaryImage: string | undefined = undefined;
@@ -1809,6 +1851,11 @@ export const AdminDashboardView: React.FC<{
         ...(finalCompareAt && !isNaN(finalCompareAt) ? { compareAtPrice: finalCompareAt } : {}),
         ...(costPrice && !isNaN(costPrice) ? { costPrice } : {}),
         ...(primaryImage ? { primaryImage } : {}),
+        ...(supplierName ? { supplierName } : {}),
+        ...(supplierCostPrice ? { supplierCostPrice } : {}),
+        ...(supplierProductUrl ? { supplierProductUrl } : {}),
+        ...(supplierSku ? { supplierSku } : {}),
+        ...(weightKg ? { weightKg } : {}),
         valid: errors.length === 0,
         errors,
         warnings,
@@ -1840,7 +1887,7 @@ export const AdminDashboardView: React.FC<{
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ rows: baseRows, tone: settings.aiTone || 'Luxury' }),
+        body: JSON.stringify({ rows: baseRows, tone: settings.aiTone || 'Professional' }),
       });
       const data = await res.json();
       if (Array.isArray(data.enriched)) {
@@ -1971,7 +2018,7 @@ export const AdminDashboardView: React.FC<{
         const cleanName = (row.name && row.name !== 'Untitled Product' ? row.name : `Catalog Piece #${row.rowNumber}`).slice(0, 190);
         const cleanPrice = !isNaN(row.price) && row.price > 0 ? row.price : 10;
         const cleanStock = !isNaN(row.stock) && row.stock >= 0 ? Math.round(row.stock) : 15;
-        const finalImage = (row.primaryImage && localImageMap[row.primaryImage]) ? localImageMap[row.primaryImage] : (row.primaryImage || IMG_HANDBAG);
+        const finalImage = (row.primaryImage && localImageMap[row.primaryImage]) ? localImageMap[row.primaryImage] : (row.primaryImage || '');
 
         try {
           const existing = products.find((p) => p.sku.toLowerCase() === cleanSku.toLowerCase());
@@ -1983,8 +2030,20 @@ export const AdminDashboardView: React.FC<{
             name: cleanName,
             slug: sanitizeSlug(cleanName || prodId),
             price: cleanPrice,
-            compareAtPrice: row.compareAtPrice ? Math.max(0, Number(row.compareAtPrice)) : Math.round(cleanPrice * 1.15),
-            costPrice: row.costPrice ? Math.max(0, Number(row.costPrice)) : Math.round(cleanPrice * 0.35),
+            // Only show a crossed-out price when the CSV really has one (no invented discounts)
+            compareAtPrice: row.compareAtPrice && row.compareAtPrice > cleanPrice ? Math.round(Number(row.compareAtPrice)) : 0,
+            // Supplier data is split into product_private when saved
+            ...(row.costPrice ? { costPrice: Math.max(0, Number(row.costPrice)) } : {}),
+            supplierName: row.supplierName || existing?.supplierName || 'Own Stock',
+            ...(row.supplierCostPrice
+              ? { supplierCostPrice: row.supplierCostPrice }
+              : existing?.supplierCostPrice
+              ? { supplierCostPrice: existing.supplierCostPrice }
+              : {}),
+            ...(row.supplierProductUrl || existing?.supplierProductUrl
+              ? { supplierProductUrl: row.supplierProductUrl || existing?.supplierProductUrl }
+              : {}),
+            ...(row.supplierSku || existing?.supplierSku ? { supplierSku: row.supplierSku || existing?.supplierSku } : {}),
             stock: cleanStock,
             reservedStock: 0,
             lowStockThreshold: 5,
@@ -1999,12 +2058,12 @@ export const AdminDashboardView: React.FC<{
             newArrival: true,
             seoTitle: (row.seoTitle || `${cleanName} | ${settings.storeName || 'Store'}`).slice(0, 150),
             seoDescription: (row.seoDescription || `Discover ${cleanName} from our store.`).slice(0, 310),
-            seoKeywords: `${(row.category || 'luxury').toLowerCase()}, catalog`,
+            seoKeywords: `${(row.category || 'general').toLowerCase()}, ${(settings.storeName || 'store').toLowerCase()}`,
             primaryImage: finalImage.slice(0, 980),
-            rating: 5.0,
-            reviewCount: 1,
-            weightKg: 0.8,
-            dimensions: 'Standard Edition',
+            rating: existing?.rating ?? 0,
+            reviewCount: existing?.reviewCount ?? 0,
+            weightKg: row.weightKg || existing?.weightKg || 0.5,
+            dimensions: existing?.dimensions || '20cm x 15cm x 10cm',
             createdAt: existing?.createdAt || now,
             updatedAt: now,
           };
@@ -2402,7 +2461,7 @@ export const AdminDashboardView: React.FC<{
                     </p>
                   </div>
                   <span className="text-xs font-mono text-[#C5A059]">
-                    Tone: {settings.aiTone || 'Luxury'}
+                    Tone: {settings.aiTone || 'Professional'}
                   </span>
                 </div>
 
@@ -2727,8 +2786,85 @@ export const AdminDashboardView: React.FC<{
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const visibleIds = products
+                        .filter((p) => supplierFilter === 'ALL' || (p.supplierName || 'Own Stock') === supplierFilter)
+                        .filter(
+                          (p) =>
+                            !productSearch.trim() ||
+                            p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+                            p.sku.toLowerCase().includes(productSearch.toLowerCase()) ||
+                            p.category.toLowerCase().includes(productSearch.toLowerCase()) ||
+                            p.status.toLowerCase().includes(productSearch.toLowerCase())
+                        )
+                        .map((p) => p.id);
+                      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedProductIds.includes(id));
+                      setSelectedProductIds(allSelected ? [] : visibleIds);
+                    }}
+                    className="px-3 py-2 border border-black/[0.12] bg-white text-xs text-[#141413] cursor-pointer"
+                  >
+                    Select all / none
+                  </button>
                   {selectedProductIds.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          const input = window.prompt(
+                            `${selectedProductIds.length} products ka stock kitna rakhna hai? (dropshipping ke liye 100 jaisa number rakhein)`,
+                            '100'
+                          );
+                          const qty = input === null ? NaN : Math.round(Number(input));
+                          if (isNaN(qty) || qty < 0) return;
+                          for (const id of selectedProductIds) {
+                            const p = products.find((item) => item.id === id);
+                            if (p) await saveProduct({ ...p, stock: qty }, 'BULK_SET_STOCK');
+                          }
+                          showToast(`Stock set to ${qty} for ${selectedProductIds.length} products.`);
+                          setSelectedProductIds([]);
+                        }}
+                        className="px-3 py-2 bg-[#F5F4F0] text-xs text-[#141413] hover:bg-[#EBEAE5] cursor-pointer"
+                      >
+                        Set Stock ({selectedProductIds.length})
+                      </button>
+                      <select
+                        defaultValue=""
+                        onChange={async (e) => {
+                          const supplier = e.target.value;
+                          e.target.value = '';
+                          if (!supplier) return;
+                          for (const id of selectedProductIds) {
+                            const p = products.find((item) => item.id === id);
+                            if (p) await saveProduct({ ...p, supplierName: supplier }, 'BULK_SET_SUPPLIER');
+                          }
+                          showToast(`Supplier set to ${supplier} for ${selectedProductIds.length} products.`);
+                          setSelectedProductIds([]);
+                        }}
+                        className="px-3 py-2 bg-[#F5F4F0] text-xs text-[#141413] cursor-pointer"
+                        aria-label="Set supplier for selected products"
+                      >
+                        <option value="">Set Supplier ({selectedProductIds.length})...</option>
+                        {SUPPLIER_OPTIONS.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm('Selected products se crossed-out (purani) price hata dein?')) return;
+                          for (const id of selectedProductIds) {
+                            const p = products.find((item) => item.id === id);
+                            if (p) await saveProduct({ ...p, compareAtPrice: 0 }, 'BULK_CLEAR_COMPARE_PRICE');
+                          }
+                          showToast(`Removed crossed-out price from ${selectedProductIds.length} products.`);
+                          setSelectedProductIds([]);
+                        }}
+                        className="px-3 py-2 bg-[#F5F4F0] text-xs text-[#141413] hover:bg-[#EBEAE5] cursor-pointer"
+                      >
+                        Remove Old Price ({selectedProductIds.length})
+                      </button>
                       <button
                         onClick={async () => {
                           for (const id of selectedProductIds) {
@@ -2768,6 +2904,7 @@ export const AdminDashboardView: React.FC<{
                       <button
                         onClick={async () => {
                           const count = selectedProductIds.length;
+                          if (!window.confirm(`${count} products hamesha ke liye delete kar dein?`)) return;
                           for (const id of selectedProductIds) {
                             await removeProduct(id);
                           }
@@ -2786,10 +2923,11 @@ export const AdminDashboardView: React.FC<{
                   onClick={() =>
                     setEditingProduct({
                       name: '',
-                      sku: `AA-NEW-${Math.floor(100 + Math.random() * 899)}`,
-                      price: 950,
-                      stock: 15,
-                      category: 'Leather Goods',
+                      sku: `SKU-${Math.floor(1000 + Math.random() * 8999)}`,
+                      price: 0,
+                      stock: 100,
+                      category: '',
+                      supplierName: 'Own Stock',
                       brand: settings.storeName || 'Store Brand',
                       status: 'ACTIVE',
                       shortDescription: '',
@@ -2935,7 +3073,9 @@ export const AdminDashboardView: React.FC<{
                               {p.status === 'ARCHIVED' ? 'Restore' : 'Archive'}
                             </button>
                             <button
-                              onClick={() => removeProduct(p.id)}
+                              onClick={() => {
+                                if (window.confirm(`"${p.name}" delete kar dein?`)) removeProduct(p.id);
+                              }}
                               className="px-2 py-1 text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
                               aria-label="Delete"
                             >
@@ -3577,7 +3717,7 @@ export const AdminDashboardView: React.FC<{
                     Name / Title *
                   </span>
                   <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono text-[11px]">
-                    Price * ($ / PKR)
+                    Price * (PKR)
                   </span>
                   <span className="px-2 py-0.5 bg-black/[0.04] border border-black/[0.12] text-[#454441] font-mono text-[11px]">
                     SKU (Auto-created if omitted)
@@ -3594,6 +3734,20 @@ export const AdminDashboardView: React.FC<{
                   <span className="px-2 py-0.5 bg-black/[0.04] border border-black/[0.12] text-[#454441] font-mono text-[11px]">
                     Description
                   </span>
+                  {['Image', 'Compare_at_price', 'Weight'].map((col) => (
+                    <span key={col} className="px-2 py-0.5 bg-black/[0.04] border border-black/[0.12] text-[#454441] font-mono text-[11px]">
+                      {col}
+                    </span>
+                  ))}
+                  {['Supplier', 'Supplier_cost', 'Supplier_link', 'Supplier_sku'].map((col) => (
+                    <span
+                      key={col}
+                      className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-900 font-mono text-[11px]"
+                      title="Private: only admins see supplier data"
+                    >
+                      {col}
+                    </span>
+                  ))}
                 </div>
                 {csvUploadedFileName && (
                   <div className="flex items-center gap-2 text-xs font-mono text-[#C5A059]">
@@ -5943,6 +6097,9 @@ export const AdminDashboardView: React.FC<{
 
               {/* 0. Admins & owner login */}
               <AdminTeamPanel />
+
+              {/* 0b. Customer-facing home page texts */}
+              <StoreTextsPanel />
 
               {/* 1. Merchant Identity & Dual-Currency */}
               <div className="space-y-4">

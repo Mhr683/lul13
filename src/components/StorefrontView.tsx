@@ -200,7 +200,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         },
       });
     } else {
-      document.title = `${settings.storeName} — Bespoke Luxury Goods & AI-Operated Commerce`;
+      document.title = `${settings.storeName} — Online Shopping in Pakistan`;
     }
   }, [subView, selectedProduct, settings.storeName]);
 
@@ -898,12 +898,12 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FBFBF9] text-[#141413]">
+    <div className="min-h-screen flex flex-col bg-[#FBFBF9] text-[#141413] overflow-x-clip">
       {/* Slim Announcement Bar with 24/7 Helpline */}
       <div className="bg-[#141413] text-[#FBFBF9] text-xs py-2 px-6 flex flex-wrap items-center justify-between gap-2 tracking-wide">
         <span className="truncate">
-          Complimentary Insured Courier on Orders Above PKR {(settings.domesticFreeShippingThreshold || 10000).toLocaleString()} · Code{' '}
-          <strong className="font-mono font-medium text-amber-300">ATELIER15</strong>
+          {settings.announcementText ||
+            `Free delivery on orders above PKR ${(settings.domesticFreeShippingThreshold || 10000).toLocaleString()} · Cash on Delivery available`}
         </span>
         <div className="flex items-center gap-3 text-[11px] shrink-0">
           <button
@@ -915,7 +915,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
             className="text-white/80 hover:text-white flex items-center gap-1 cursor-pointer"
           >
             <Headphones className="w-3 h-3 text-emerald-400" />
-            <span>24/7 AI Concierge</span>
+            <span>Help &amp; Support</span>
           </button>
           <span className="text-white/30">|</span>
           <button
@@ -934,18 +934,19 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
       {/* Top Bar Contract: Zone 1 Brand Wordmark | Zone 2 Dropdown Nav Links | Zone 3 Actions */}
       <header className="sticky top-0 z-30 bg-[#FBFBF9]/95 backdrop-blur-md border-b border-black/[0.07]">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 sm:gap-6">
-          {/* Mobile Menu Hamburger */}
+        {/* Row 1: brand | search | actions */}
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 sm:gap-5">
+          {/* Mobile / tablet menu hamburger (the nav row only shows on large screens) */}
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
-            className="md:hidden p-2 text-neutral-700 hover:text-black cursor-pointer"
+            className="lg:hidden p-2 -ml-2 text-neutral-700 hover:text-black cursor-pointer"
             aria-label="Open Navigation Menu"
           >
             <Menu className="w-5 h-5" />
           </button>
 
-          {/* Zone 1: Single Text Element Brand Wordmark */}
+          {/* Brand wordmark */}
           <button
             onClick={() => {
               setActiveCategory('ALL');
@@ -953,13 +954,86 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               setActiveCollection('ALL');
               setSubView('HOME');
             }}
-            className="text-xl sm:text-2xl font-display font-semibold tracking-tight text-[#141413] whitespace-nowrap shrink-0 cursor-pointer"
+            className="text-xl sm:text-2xl font-display font-semibold tracking-tight text-[#141413] whitespace-nowrap shrink-0 cursor-pointer max-w-[45vw] truncate"
           >
             {settings.storeName}
           </button>
 
-          {/* Zone 2: Clean Typography Nav Links with Video-Styled Dropdowns */}
-          <nav className="hidden md:flex items-center">
+          {/* Global search */}
+          <div className="flex-1 max-w-xl mx-2 hidden sm:block min-w-0">
+            <GlobalHeaderSearch
+              products={products}
+              categories={categories}
+              onSelectProduct={handleSelectProduct}
+              onViewAllResults={(q, cat) => {
+                setSearchQuery(q);
+                if (cat) setActiveCategory(cat);
+                setSubView('CATALOG');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+          </div>
+
+          {/* Primary actions */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setHelplineInitialTab('AI_CHAT');
+                setIsHelplineOpen(true);
+              }}
+              className="hidden sm:flex px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-full text-xs font-semibold items-center gap-1.5 transition-colors cursor-pointer"
+              title="Helpline (AI Chat, WhatsApp, Email)"
+            >
+              <Headphones className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+              <span className="hidden xl:inline">Helpline</span>
+            </button>
+
+            <button
+              onClick={() => setSubView('WISHLIST')}
+              aria-label="Wishlist"
+              className="p-2 text-[#575653] hover:text-[#141413] transition-colors relative cursor-pointer flex items-center"
+            >
+              <Heart className="w-5 h-5 stroke-[1.5]" />
+              {wishlist.length > 0 && (
+                <span className="ml-0.5 text-xs font-mono tabular-nums text-[#141413]">{wishlist.length}</span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setCartDrawerOpen(true)}
+              className="px-3 py-2 bg-[#141413] text-[#FBFBF9] text-xs font-medium flex items-center gap-1.5 hover:bg-[#2A2A28] transition-colors whitespace-nowrap cursor-pointer"
+              aria-label="Shopping bag"
+            >
+              <ShoppingBag className="w-4 h-4 stroke-[1.5]" />
+              <span className="hidden sm:inline">Bag</span>
+              <span className="font-mono tabular-nums">({cartCount})</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (!firebaseUser) {
+                  setAuthModalOpen(true);
+                } else {
+                  setSubView('ACCOUNT');
+                }
+              }}
+              className="px-2.5 sm:px-3 py-2 border border-[#141413] text-[#141413] text-xs font-medium hover:bg-[#141413] hover:text-[#FBFBF9] transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+              title={firebaseUser ? 'My account' : 'Login / Sign up'}
+              aria-label={firebaseUser ? 'My account' : 'Login / Sign up'}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline max-w-[90px] truncate">
+                {firebaseUser ? (userProfile?.name || 'Account').split(' ')[0] : 'Login'}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2 (large screens): navigation links + track order */}
+        <div className="hidden lg:block border-t border-black/[0.05]">
+          <div className="max-w-[1400px] mx-auto px-6 h-12 flex items-center justify-between gap-4">
+          <nav className="flex items-center min-w-0">
             <HeaderNavDropdowns
               activeCategory={activeCategory}
               activeSubcategory={activeSubcategory}
@@ -1001,90 +1075,20 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
             />
           </nav>
 
-          {/* Dedicated "Track an order" outline pill button */}
-          <button
-            type="button"
-            onClick={() => {
-              setSubView('ORDER_TRACKING');
-              window.history.pushState(null, '', '#track');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            className="hidden xl:inline-flex items-center px-3.5 py-1.5 border border-neutral-300 rounded-full text-xs font-medium text-neutral-800 hover:border-black hover:text-black transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
-          >
-            Track an order
-          </button>
-
-          {/* Zone 2.5: Global Search Component (Find items by name, category, or description) */}
-          <div className="flex-1 max-w-xs md:max-w-sm lg:max-w-md mx-2 hidden sm:block">
-            <GlobalHeaderSearch
-              products={products}
-              categories={categories}
-              onSelectProduct={handleSelectProduct}
-              onViewAllResults={(q, cat) => {
-                setSearchQuery(q);
-                if (cat) setActiveCategory(cat);
-                setSubView('CATALOG');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-            />
-          </div>
-
-          {/* Zone 3: Primary Actions */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Universal PWA Install Button for PC, Laptop, Android & iPhone */}
-            <PWAInstallButton variant="header" />
-
-            {/* 24/7 Helpline & Concierge Button */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => {
-                setHelplineInitialTab('AI_CHAT');
-                setIsHelplineOpen(true);
+                setSubView('ORDER_TRACKING');
+                window.history.pushState(null, '', '#track');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="px-2.5 sm:px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-              title="24/7 Client Helpline (AI Chat, WhatsApp, Email)"
+              className="inline-flex items-center px-3.5 py-1.5 border border-neutral-300 rounded-full text-xs font-medium text-neutral-800 hover:border-black hover:text-black transition-colors whitespace-nowrap cursor-pointer"
             >
-              <Headphones className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-              <span className="hidden md:inline">Helpline</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Track an order
             </button>
-
-            <button
-              onClick={() => setSubView('WISHLIST')}
-              aria-label="Wishlist"
-              className="p-2 text-[#575653] hover:text-[#141413] transition-colors relative cursor-pointer"
-            >
-              <Heart className="w-5 h-5 stroke-[1.5]" />
-              {wishlist.length > 0 && (
-                <span className="ml-1 text-xs font-mono tabular-nums text-[#141413]">
-                  ({wishlist.length})
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setCartDrawerOpen(true)}
-              className="px-3.5 py-2 bg-[#141413] text-[#FBFBF9] text-xs font-medium flex items-center gap-2 hover:bg-[#2A2A28] transition-colors whitespace-nowrap cursor-pointer"
-            >
-              <ShoppingBag className="w-4 h-4 stroke-[1.5]" />
-              <span>Bag</span>
-              <span className="font-mono tabular-nums">({cartCount})</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (!firebaseUser) {
-                  setAuthModalOpen(true);
-                } else {
-                  setSubView('ACCOUNT');
-                }
-              }}
-              className="px-3 py-2 border border-[#141413] text-[#141413] text-xs font-medium hover:bg-[#141413] hover:text-[#FBFBF9] transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5"
-              title={firebaseUser ? 'My account' : 'Login / Sign up'}
-            >
-              <User className="w-3.5 h-3.5" />
-              <span>{firebaseUser ? (userProfile?.name || 'Account').split(' ')[0] : 'Login'}</span>
-            </button>
+            <PWAInstallButton variant="header" />
+          </div>
           </div>
         </div>
 
@@ -1110,7 +1114,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
       {/* Mobile Slide-Over Navigation Drawer with Accordion Sections */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex md:hidden">
+        <div className="fixed inset-0 z-50 flex lg:hidden">
           <div
             className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
             onClick={() => setMobileMenuOpen(false)}
@@ -1140,6 +1144,35 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                 className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-black"
               >
                 Home
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  if (firebaseUser) {
+                    setSubView('ACCOUNT');
+                  } else {
+                    setAuthModalOpen(true);
+                  }
+                }}
+                className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
+              >
+                <span>{firebaseUser ? 'My Account' : 'Login / Sign up'}</span>
+                <User className="w-4 h-4 text-neutral-500" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setHelplineInitialTab('AI_CHAT');
+                  setIsHelplineOpen(true);
+                }}
+                className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
+              >
+                <span>Helpline</span>
+                <Headphones className="w-4 h-4 text-emerald-600" />
               </button>
 
               {MAIN_NAV_SECTIONS.map((section) => {
@@ -1309,17 +1342,20 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               <X className="w-5 h-5" />
             </button>
             <div className="text-xs uppercase tracking-widest text-[#8C6D46] font-semibold">
-              Maison & Provenance
+              About us
             </div>
             <h3 className="text-2xl font-display font-medium text-black">
               About {settings.storeName}
             </h3>
-            <p className="text-sm text-neutral-600 leading-relaxed">
-              Founded on principles of artisanal permanence and uncompromising luxury craftsmanship, {settings.storeName} curates bespoke tailored apparel, fine Swiss horology, botanical extraits, and heirloom objects for collectors and patrons.
-            </p>
-            <p className="text-sm text-neutral-600 leading-relaxed">
-              Every acquisition is packed with white-glove care, backed by our authenticity guarantee, with live courier tracking and 24/7 dedicated client concierge assistance.
-            </p>
+            {(settings.aboutText ||
+              `${settings.storeName} is an online store delivering useful everyday products across Pakistan.\nOrder online, pay Cash on Delivery or by bank transfer, and track your parcel with the courier tracking number we share once it is dispatched.`)
+              .split('\n')
+              .filter((line) => line.trim())
+              .map((line, i) => (
+                <p key={i} className="text-sm text-neutral-600 leading-relaxed">
+                  {line}
+                </p>
+              ))}
             <div className="pt-3 border-t border-neutral-100 flex justify-end">
               <button
                 type="button"
@@ -1343,13 +1379,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               <div className="max-w-[1360px] mx-auto px-6 py-12 lg:py-20 grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
                 <div className="lg:col-span-5 space-y-6">
                   <div className="text-xs tracking-widest uppercase text-[#8C6D46] font-medium">
-                    Autumn / Winter Architectural Collection · Florence & Geneva
+                    {settings.heroEyebrow || 'Cash on Delivery · All over Pakistan'}
                   </div>
                   <h1 className="text-4xl sm:text-5xl lg:text-[54px] font-display font-medium leading-[1.08] tracking-tight text-[#141413]">
-                    Objects of Permanent Quiet & Precision.
+                    {settings.heroTitle || settings.tagline || `Welcome to ${settings.storeName || 'our store'}`}
                   </h1>
                   <p className="text-base text-[#575653] leading-relaxed max-w-xl">
-                    Hand-stitched French box calfskin, grade-5 titanium flyback chronographs, and carved Roman travertine luminaires—crafted in numbered editions.
+                    {settings.heroSubtitle ||
+                      'Quality products at fair prices, delivered to your door. Order now and pay when your parcel arrives.'}
                   </p>
                   <div className="flex flex-wrap items-center gap-4 pt-2">
                     <button
@@ -1359,32 +1396,54 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       }}
                       className="px-6 py-3.5 bg-[#141413] text-[#FBFBF9] text-sm font-medium flex items-center gap-3 hover:bg-[#2A2A28] transition-colors whitespace-nowrap cursor-pointer"
                     >
-                      <span>Explore Collection</span>
+                      <span>Shop Now</span>
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
-                  <div className="pt-4 border-t border-black/[0.06] flex items-center gap-6 text-xs text-[#575653]">
-                    <span>Full-Grain Tuscan Leather</span>
-                    <span aria-hidden="true">·</span>
-                    <span>Swiss Automatic Calibres</span>
-                    <span aria-hidden="true">·</span>
-                    <span>Quality Guarantee</span>
+                  <div className="pt-4 border-t border-black/[0.06] flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-[#575653]">
+                    {(settings.heroHighlights || 'Cash on Delivery|Nationwide Delivery|Easy Returns')
+                      .split('|')
+                      .map((h) => h.trim())
+                      .filter(Boolean)
+                      .map((h, i) => (
+                        <React.Fragment key={h}>
+                          {i > 0 && <span aria-hidden="true">·</span>}
+                          <span>{h}</span>
+                        </React.Fragment>
+                      ))}
                   </div>
                 </div>
 
                 <div className="lg:col-span-7">
-                  <div className="aspect-[16/9] w-full overflow-hidden bg-[#F3F2EE] relative">
-                    <ProductImage
-                      src={HERO_IMAGE_PATH}
-                      alt="Store Collection"
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent flex items-end p-6">
-                      <div className="text-[#FBFBF9] text-xs tracking-wide">
-                        Featured Study: Solstice Travertine Luminaire & Valadier Bridle Weekender — Milan Residence
-                      </div>
-                    </div>
-                  </div>
+                  {(() => {
+                    // Admin-chosen banner, otherwise the first featured / active product photo
+                    const heroProduct =
+                      products.find((p) => p.status === 'ACTIVE' && p.featured && p.primaryImage) ||
+                      products.find((p) => p.status === 'ACTIVE' && p.primaryImage);
+                    const heroSrc = settings.heroImageUrl || heroProduct?.primaryImage || HERO_IMAGE_PATH;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!settings.heroImageUrl && heroProduct) handleSelectProduct(heroProduct);
+                          else {
+                            setActiveCategory('ALL');
+                            setSubView('CATALOG');
+                          }
+                        }}
+                        className="block aspect-[16/9] w-full overflow-hidden bg-[#F3F2EE] relative cursor-pointer"
+                      >
+                        <ProductImage src={heroSrc} alt={heroProduct?.name || settings.storeName} className="w-full h-full object-cover" />
+                        {!settings.heroImageUrl && heroProduct && (
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent flex items-end p-6">
+                            <div className="text-[#FBFBF9] text-sm font-medium tracking-wide text-left">
+                              {heroProduct.name} · {formatPKR(heroProduct.price)}
+                            </div>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             </section>
@@ -1394,10 +1453,10 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
                 <div>
                   <div className="text-xs uppercase tracking-widest text-[#8C6D46] mb-2">
-                    Curated Editions
+                    Our Products
                   </div>
                   <h2 className="text-3xl sm:text-4xl font-display font-medium text-[#141413]">
-                    Signature Pieces
+                    Featured Products
                   </h2>
                 </div>
 
@@ -1415,7 +1474,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         : 'text-black hover:bg-black/10'
                     }`}
                   >
-                    All Editions ({products.filter((p) => p.status === 'ACTIVE').length})
+                    All Products ({products.filter((p) => p.status === 'ACTIVE').length})
                   </button>
                   {categories.map((cat) => (
                     <button
@@ -1540,29 +1599,40 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
                 <div className="lg:col-span-5 space-y-4">
                   <div className="text-xs uppercase tracking-widest text-[#8C6D46]">
-                    01. Architectural Provenance
+                    Why shop with us
                   </div>
                   <h2 className="text-3xl font-display font-medium text-[#141413]">
-                    Engineered for Multi-Decade Patina, Verified by Collectors.
+                    Easy ordering, delivered across Pakistan.
                   </h2>
-                  <p className="text-sm text-[#575653] leading-relaxed">
-                    Every piece is serialized and accompanied by a digital certificate of origin. Our workshops in Florence, La Chaux-de-Fonds, and Grasse operate on strict small-batch tolerances.
-                  </p>
-                  <div className="grid grid-cols-2 gap-6 pt-4 border-t border-black/[0.07]">
-                    <div>
-                      <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
-                        72 hrs
-                      </div>
-                      <div className="text-xs text-[#575653] mt-1">
-                        Chronometer power reserve tested across 5 positions
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-4 border-t border-black/[0.07] text-sm">
+                    <div className="flex gap-3">
+                      <Truck className="w-5 h-5 text-[#8C6D46] shrink-0" />
+                      <div>
+                        <div className="font-semibold text-[#141413]">Cash on Delivery</div>
+                        <div className="text-xs text-[#575653] mt-0.5">Pay when the parcel reaches you.</div>
                       </div>
                     </div>
-                    <div>
-                      <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
-                        99.4%
+                    <div className="flex gap-3">
+                      <Package className="w-5 h-5 text-[#8C6D46] shrink-0" />
+                      <div>
+                        <div className="font-semibold text-[#141413]">Track your order</div>
+                        <div className="text-xs text-[#575653] mt-0.5">Courier tracking number shared on dispatch.</div>
                       </div>
-                      <div className="text-xs text-[#575653] mt-1">
-                        Client retention & undamaged courier delivery rate in 2026
+                    </div>
+                    <div className="flex gap-3">
+                      <MessageCircle className="w-5 h-5 text-[#8C6D46] shrink-0" />
+                      <div>
+                        <div className="font-semibold text-[#141413]">WhatsApp support</div>
+                        <div className="text-xs text-[#575653] mt-0.5">
+                          {settings.helplineWhatsAppFormatted || settings.helplineWhatsApp || 'Message us any time.'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <RotateCcw className="w-5 h-5 text-[#8C6D46] shrink-0" />
+                      <div>
+                        <div className="font-semibold text-[#141413]">Returns</div>
+                        <div className="text-xs text-[#575653] mt-0.5">As per our refund &amp; return policy.</div>
                       </div>
                     </div>
                   </div>
@@ -1578,7 +1648,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         <div className="flex items-center gap-2 text-xs text-[#8C6D46]">
                           <span className="font-mono tabular-nums">{rev.rating}.0 / 5.0</span>
                           <span aria-hidden="true">·</span>
-                          <span>Verified Acquisition</span>
+                          <span>Customer review</span>
                         </div>
                         <h3 className="text-sm font-semibold text-[#141413]">{rev.title}</h3>
                         <p className="text-xs text-[#575653] leading-relaxed">“{rev.comment}”</p>
@@ -1587,7 +1657,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         {rev.authorName}
                         {rev.productName && (
                           <span className="block text-[11px] text-[#787774] font-normal mt-0.5">
-                            Piece: {rev.productName}
+                            Product: {rev.productName}
                           </span>
                         )}
                       </footer>
@@ -1792,7 +1862,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             : 'text-[#575653] hover:text-[#141413]'
                         }`}
                       >
-                        {b === 'ALL' ? 'All Maisons' : b}
+                        {b === 'ALL' ? 'All Brands' : b}
                       </button>
                     ))}
                   </div>
@@ -1988,34 +2058,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     {selectedProduct.description}
                   </p>
 
-                  {/* Variant Selector */}
-                  <div className="space-y-2 pt-2">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-[#141413]">
-                      Finish / Edition Specification
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        'Obsidian / Brushed Brass',
-                        'Espresso / Palladium',
-                        'Travertine Natural',
-                        'Collector Numbered Edition',
-                      ].map((variant) => (
-                        <button
-                          key={variant}
-                          type="button"
-                          onClick={() => setSelectedVariant(variant)}
-                          className={`px-3 py-2 text-xs text-left border transition-colors truncate cursor-pointer ${
-                            selectedVariant === variant
-                              ? 'border-[#141413] bg-[#141413] text-[#FBFBF9] font-medium'
-                              : 'border-black/15 text-[#575653] hover:border-[#141413]'
-                          }`}
-                        >
-                          {variant}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
                   {/* Quantity + Primary Buy Actions */}
                   <div className="space-y-3 pt-2">
                     <div className="flex items-center justify-between text-xs">
@@ -2085,23 +2127,38 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       }}
                       className="w-full py-3 border border-[#141413] text-[#141413] text-xs font-semibold uppercase tracking-widest hover:bg-[#141413] hover:text-[#FBFBF9] transition-colors cursor-pointer"
                     >
-                      Immediate Express Acquisition
+                      Buy Now
                     </button>
                   </div>
 
-                  {/* Shipping & Guarantee Metadata */}
+                  {/* Delivery & returns (keep these promises true for the store) */}
                   <div className="pt-4 border-t border-black/[0.07] space-y-2 text-xs text-[#575653]">
                     <div className="flex items-center gap-2.5">
                       <Truck className="w-4 h-4 text-[#8C6D46] shrink-0" />
-                      <span>Insured DHL Express & FedEx Priority dispatch within 24 hours.</span>
+                      <span>
+                        {settings.deliveryPromiseText ||
+                          'Delivery across Pakistan by courier, usually in 3–6 working days. Cash on Delivery available.'}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2.5">
                       <RotateCcw className="w-4 h-4 text-[#8C6D46] shrink-0" />
-                      <span>Complimentary 30-day private courier returns & exchanges.</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubView('REFUND_POLICY');
+                          window.history.pushState(null, '', '#refund-policy');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="underline hover:text-[#141413] cursor-pointer text-left"
+                      >
+                        Returns &amp; refunds as per our policy
+                      </button>
                     </div>
                     <div className="flex items-center gap-2.5">
-                      <ShieldCheck className="w-4 h-4 text-[#8C6D46] shrink-0" />
-                      <span>Serialized authenticity guarantee & SEO Schema verified.</span>
+                      <MessageCircle className="w-4 h-4 text-[#8C6D46] shrink-0" />
+                      <span>
+                        Questions? WhatsApp {settings.helplineWhatsAppFormatted || settings.helplineWhatsApp || 'our support team'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -2112,7 +2169,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
             <section className="pt-12 border-t border-black/[0.07] grid grid-cols-1 lg:grid-cols-12 gap-12">
               <div className="lg:col-span-5 space-y-4">
                 <h2 className="text-2xl font-display font-medium text-[#141413]">
-                  Verified Collector Reviews
+                  Customer Reviews
                 </h2>
                 <p className="text-xs text-[#575653]">
                   Reviews are restricted to authenticated customers and moderated by store administration.
@@ -2283,7 +2340,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                   <div>
                     <div className="text-xs uppercase tracking-widest text-[#8C6D46]">
                       {isOrderPaid
-                        ? 'Acquisition Confirmed & Paid'
+                        ? 'Order Confirmed & Paid'
                         : isCod
                         ? 'Cash on Delivery Order Logged'
                         : 'Order Placed — Awaiting Payment Verification'}
@@ -3337,7 +3394,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           </div>
                           <div className="leading-tight">
                             <span className="block text-xs font-bold text-[#141413]">Customs &amp; Freight Quote</span>
-                            <span className="block text-[10px] text-[#787774] mt-0.5">Concierge Review</span>
+                            <span className="block text-[10px] text-[#787774] mt-0.5">Manual quote</span>
                           </div>
                           {paymentMethod === 'MANUAL_QUOTE' && (
                             <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#F85606]" />
@@ -3565,13 +3622,13 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     {paymentMethod === 'MANUAL_QUOTE' && !isNationalPakistan && (
                       <div className="p-5 bg-white border border-[#C5A059]/40 rounded space-y-3 text-xs">
                         <div className="flex items-center justify-between">
-                          <strong className="text-[#141413]">International Shipping &amp; Customs Quote Concierge</strong>
+                          <strong className="text-[#141413]">International Shipping Quote</strong>
                           <span className="px-2 py-0.5 bg-[#C5A059] text-[#0B0F17] font-mono text-[10px] font-semibold rounded">
                             QUOTE REQUIRED
                           </span>
                         </div>
                         <p className="text-[#575653] leading-relaxed text-[11px]">
-                          Your destination ({country}) requires a binding freight and customs tariff calculation. Our concierge will calculate exact dimensional weight with DHL/FedEx before payment is requested.
+                          Your destination ({country}) requires a binding freight and customs tariff calculation. We will calculate the exact shipping cost and send you a quote before any payment is requested.
                         </p>
                       </div>
                     )}
@@ -3589,7 +3646,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
                     <div>
                       <label className="block text-xs text-[#575653] mb-1">
-                        Concierge / Delivery Instructions (Optional)
+                        Delivery Instructions (Optional)
                       </label>
                       <input
                         type="text"
@@ -3679,7 +3736,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                 {/* Right Order Summary */}
                 <aside className="lg:col-span-5 bg-white border border-black/[0.07] p-6 space-y-6">
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-[#141413]">
-                    Acquisition Summary ({cartCount} Pieces)
+                    Order Summary ({cartCount} items)
                   </h2>
 
                   <div className="divide-y divide-black/[0.06] max-h-80 overflow-y-auto">
@@ -3989,7 +4046,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             <span className="text-[10px] font-mono bg-amber-200 text-amber-900 px-2 py-0.5">UNDER REVIEW</span>
                           </div>
                           <p className="text-amber-900 text-[11px]">
-                            Our logistics concierge in Pakistan is reviewing actual and volumetric weights with DHL/FedEx to determine binding shipping rates and customs declarations.
+                            We are calculating the international shipping cost for your parcel. You will see the quote here.
                           </p>
                         </div>
                       )}
@@ -4008,7 +4065,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           </div>
                           {order.quoteAdminNotes && (
                             <p className="text-[11px] text-[#575653] italic">
-                              Concierge Note: {order.quoteAdminNotes}
+                              Note: {order.quoteAdminNotes}
                             </p>
                           )}
                           <div className="flex items-center gap-3 pt-1">
@@ -4092,7 +4149,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         {subView === 'WISHLIST' && (
           <div className="max-w-[1360px] mx-auto px-6 py-12 space-y-8">
             <h1 className="text-3xl font-display font-medium text-[#141413]">
-              Saved Collector Pieces ({wishlist.length})
+              My Wishlist ({wishlist.length})
             </h1>
             {wishlist.length === 0 ? (
               <div className="p-10 bg-white border border-black/[0.07] text-xs text-[#575653]">
@@ -4243,7 +4300,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       type="text"
                       value={couponInput}
                       onChange={(e) => setCouponInput(e.target.value)}
-                      placeholder="Promo code (e.g. ATELIER15)"
+                      placeholder="Promo code"
                       className="flex-1 px-3 py-2 bg-white border border-black/15 text-xs font-mono uppercase"
                     />
                     <button

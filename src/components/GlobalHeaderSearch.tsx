@@ -161,7 +161,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
               setQuery(e.target.value);
               if (!isOpen) setIsOpen(true);
             }}
-            placeholder="Search editions, materials, horology..."
+            placeholder="Search products..."
             className={`pl-9 pr-8 py-1.5 text-xs text-[#141413] bg-[#F3F2EE] border transition-all duration-200 placeholder:text-[#8C8A85] focus:outline-none focus:bg-white focus:border-[#141413] ${
               isOpen
                 ? 'w-64 sm:w-80 md:w-96 border-[#141413] bg-white shadow-sm ring-1 ring-black/5'
@@ -210,7 +210,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
                   : 'bg-white text-[#575653] hover:text-[#141413] border border-black/10'
               }`}
             >
-              All Editions
+              All Products
             </button>
             {categories.map((cat) => (
               <button
@@ -280,7 +280,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
               ))
             ) : (
               <div className="p-8 text-center text-xs text-[#787774] space-y-2">
-                <p>No luxury pieces matched &ldquo;{query}&rdquo; in {selectedCategory === 'ALL' ? 'the archive' : selectedCategory}.</p>
+                <p>No products matched &ldquo;{query}&rdquo; in {selectedCategory === 'ALL' ? 'the store' : selectedCategory}.</p>
                 <p className="text-[11px] text-[#8C8A85]">
                   Try searching by collection, materials (e.g. &ldquo;titanium&rdquo;, &ldquo;leather&rdquo;), or model code.
                 </p>
@@ -295,7 +295,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
                 <span className="text-[11px] text-[#787774]">
                   {totalMatchingCount > 0 ? (
                     <>
-                      Found <strong className="text-[#141413]">{totalMatchingCount}</strong> luxury piece{totalMatchingCount === 1 ? '' : 's'}
+                      Found <strong className="text-[#141413]">{totalMatchingCount}</strong> product{totalMatchingCount === 1 ? '' : 's'}
                     </>
                   ) : (
                     'No pieces found'
@@ -317,7 +317,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
               <div className="w-full flex items-center justify-between text-[11px] text-[#787774]">
                 <span className="flex items-center gap-1">
                   <Sparkles className="w-3 h-3 text-[#C5A059]" />
-                  Curated Editions & Signature Pieces
+                  Featured Products
                 </span>
                 <button
                   type="button"

@@ -86,7 +86,8 @@ export const INITIAL_COUPONS: Coupon[] = [];
 
 export const INITIAL_REVIEWS: Review[] = [];
 
-export const SAMPLE_CSV_TEMPLATE = `sku,name,price,stock,category,brand,shortDescription
-SKU-001,Premium Cotton Shirt,2500,50,Apparel,Store Brand,Breathable high quality cotton shirt.
-SKU-002,Classic Leather Wallet,1800,30,Accessories,Store Brand,Handcrafted bifold leather wallet.
-SKU-003,Stainless Steel Water Bottle,1200,45,Home & Living,Store Brand,Double-walled insulated water bottle.`;
+// Example file showing every supported column (supplier columns stay private to admins)
+export const SAMPLE_CSV_TEMPLATE = `sku,name,price,compare_at_price,stock,category,brand,shortDescription,image,supplier,supplier_cost,supplier_link,supplier_sku,weight
+SKU-001,A9 Pro ANC Wireless Earbuds,2499,2999,100,Airpods & Headsets,Store Brand,Touch screen case with noise cancellation.,https://example.com/earbuds.jpg,Oshi,1850,https://example.com/supplier/earbuds,OSH-A9,0.3
+SKU-002,Manual Vegetable Drum Grater,1299,,100,Kitchen & Lifestyle,Store Brand,3 blades for slicing and grating.,https://example.com/grater.jpg,YourMart,850,https://example.com/supplier/grater,YM-GR1,0.8
+SKU-003,8.5 inch LCD Writing Tablet,449,,100,Kids & Gaming,Store Brand,Reusable drawing tablet for kids.,https://example.com/tablet.jpg,HHC,300,https://example.com/supplier/tablet,HHC-LCD85,0.2`;

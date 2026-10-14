@@ -682,7 +682,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                   <span>Private & Confidential</span>
                 </div>
                 <p className="text-[11px] text-black/60">
-                  End-to-end encrypted communication for all luxury order details.
+                  We reply on WhatsApp during working hours.
                 </p>
               </div>
             </div>
@@ -698,7 +698,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                 <div className="space-y-1">
                   <div className="inline-flex items-center gap-1.5 text-xs text-amber-400 font-mono">
                     <Mail className="w-3.5 h-3.5" />
-                    <span>Official Email Concierge</span>
+                    <span>Email Support</span>
                   </div>
                   <h3 className="text-xl font-display font-semibold text-[#FBFBF9]">
                     Client Service & Private Inquiries

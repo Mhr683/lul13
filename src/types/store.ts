@@ -370,6 +370,15 @@ export interface StoreSettings {
   id: string;
   storeName: string;
   tagline?: string;
+  // Home page texts (editable in admin Settings)
+  announcementText?: string;
+  heroEyebrow?: string;
+  heroTitle?: string;
+  heroSubtitle?: string;
+  heroImageUrl?: string;
+  heroHighlights?: string;
+  deliveryPromiseText?: string;
+  aboutText?: string;
   logoUrl?: string;
   address?: string;
   contactEmail: string;
