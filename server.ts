@@ -27,6 +27,7 @@ import { canExecuteAITool } from './src/ai/permissions';
 import { validateAIToolArgs } from './src/validation/validators';
 import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus, OrderShipment } from './src/types/store';
 import { ShippingCalculationService, generateCourierTrackingUrl } from './src/services/shippingService';
+import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
@@ -104,10 +105,10 @@ const ALLOWED_ADMIN_ROLES = [
   'ORDER_MANAGER',
 ];
 
-// The store owner always gets SUPER_ADMIN, whichever Google account hosts the app.
-// The default can be changed with the ADMIN_OWNER_EMAIL secret, and the current owner can hand
-// ownership to another email from the admin panel (stored in admin_config/owner).
-const DEFAULT_OWNER_EMAIL = (process.env.ADMIN_OWNER_EMAIL || 'specialforme683@gmail.com').trim().toLowerCase();
+// The store owners always get SUPER_ADMIN, whichever Google account hosts the app:
+// the built-in owner emails (src/config/owners.ts), an optional ADMIN_OWNER_EMAIL secret,
+// and the owner set from the admin panel (admin_config/owner). Email must be verified.
+const DEFAULT_OWNER_EMAIL = (process.env.ADMIN_OWNER_EMAIL || BUILT_IN_OWNER_EMAILS[0]).trim().toLowerCase();
 
 async function getOwnerEmail(): Promise<string> {
   try {
@@ -116,6 +117,13 @@ async function getOwnerEmail(): Promise<string> {
     if (email) return email;
   } catch {}
   return DEFAULT_OWNER_EMAIL;
+}
+
+async function isOwnerEmail(email: string): Promise<boolean> {
+  const norm = String(email || '').trim().toLowerCase();
+  if (!norm) return false;
+  if (isBuiltInOwnerEmail(norm) || norm === DEFAULT_OWNER_EMAIL) return true;
+  return norm === (await getOwnerEmail());
 }
 
 interface DecodedAuthUser {
@@ -137,7 +145,7 @@ async function resolveUserRole(decoded: DecodedAuthUser): Promise<string> {
   let role = currentRole || 'CUSTOMER';
 
   if (verified && email) {
-    if (email === (await getOwnerEmail())) {
+    if (await isOwnerEmail(email)) {
       role = 'SUPER_ADMIN';
     } else if (role === 'CUSTOMER') {
       const invite = await adminDb.collection('admin_invites').doc(email).get();
@@ -382,8 +390,8 @@ app.post('/api/admin/team/remove', requireSuperAdmin, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   if (!isEmail(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
   try {
-    if (email === (await getOwnerEmail())) {
-      return res.status(400).json({ error: 'The store owner cannot be removed. Transfer ownership first.' });
+    if (await isOwnerEmail(email)) {
+      return res.status(400).json({ error: 'A store owner login cannot be removed here.' });
     }
     await adminDb.collection('admin_invites').doc(email).delete();
     const usersSnap = await adminDb.collection('users').where('email', '==', email).get();
@@ -403,7 +411,7 @@ app.post('/api/admin/team/transfer-owner', requireSuperAdmin, async (req, res) =
   if (!isEmail(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
   try {
     const currentOwner = await getOwnerEmail();
-    if (normalizeEmail((req as any).user?.email) !== currentOwner) {
+    if (!(await isOwnerEmail(normalizeEmail((req as any).user?.email)))) {
       return res.status(403).json({ error: 'Only the current store owner can change the owner login.' });
     }
     await adminDb.collection('admin_config').doc('owner').set({

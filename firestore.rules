@@ -28,10 +28,20 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function isSuperAdmin() {
+    // Built-in store owners (keep in sync with src/config/owners.ts). Only verified emails count,
+    // so nobody can claim an owner address by registering it with a password first.
+    function isBuiltInOwner() {
       return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email in ['specialforme683@gmail.com', 'brucewayne16700@gmail.com'];
+    }
+
+    function isSuperAdmin() {
+      return isBuiltInOwner() || (
+        isSignedIn() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUPER_ADMIN';
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUPER_ADMIN'
+      );
     }
 
     function isAdmin() {

@@ -91,6 +91,7 @@ import {
 } from '../types/store';
 import { generateCourierTrackingUrl } from '../services/shippingService';
 import { INITIAL_SETTINGS } from '../data/seedData';
+import { isBuiltInOwnerEmail } from '../config/owners';
 import {
   splitProductPrivate,
   mergeProductPrivate,
@@ -416,18 +417,25 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           console.warn('Account sync with server failed, using direct profile read:', syncErr);
         }
 
+        // Server unavailable: read the profile directly. A verified built-in owner email may
+        // promote itself to SUPER_ADMIN here (Firestore rules allow exactly that, nothing more).
         const userRef = doc(db, 'users', user.uid);
+        const verifiedOwner = Boolean(user.emailVerified && isBuiltInOwnerEmail(user.email));
         try {
           const snap = await getDoc(userRef);
           if (snap.exists()) {
             const existingProfile = snap.data() as UserProfile;
+            if (verifiedOwner && existingProfile.role !== 'SUPER_ADMIN') {
+              await updateDoc(userRef, { role: 'SUPER_ADMIN', updatedAt: new Date().toISOString() }).catch(() => {});
+              existingProfile.role = 'SUPER_ADMIN';
+            }
             setUserProfile(existingProfile);
           } else {
             const newProfile: UserProfile = {
               uid: user.uid,
               email: (user.email || '').slice(0, 250),
               name: (user.displayName || user.email?.split('@')[0] || 'Customer').slice(0, 110),
-              role: 'CUSTOMER',
+              role: verifiedOwner ? 'SUPER_ADMIN' : 'CUSTOMER',
               createdAt: new Date().toISOString(),
             };
             await setDoc(userRef, newProfile);
