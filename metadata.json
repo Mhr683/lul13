@@ -1,0 +1,6 @@
+{
+  "name": "Online Store — Commerce Platform",
+  "description": "Online storefront and management dashboard with order tracking, inventory management, and customer support.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
