@@ -940,7 +940,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
-            className="lg:hidden p-2 -ml-2 text-neutral-700 hover:text-black cursor-pointer"
+            className="xl:hidden p-2 -ml-2 text-neutral-700 hover:text-black cursor-pointer"
             aria-label="Open Navigation Menu"
           >
             <Menu className="w-5 h-5" />
@@ -1030,8 +1030,8 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
           </div>
         </div>
 
-        {/* Row 2 (large screens): navigation links + track order */}
-        <div className="hidden lg:block border-t border-black/[0.05]">
+        {/* Row 2 (wide screens, 1280px+): navigation links + track order */}
+        <div className="hidden xl:block border-t border-black/[0.05]">
           <div className="max-w-[1400px] mx-auto px-6 h-12 flex items-center justify-between gap-4">
           <nav className="flex items-center min-w-0">
             <HeaderNavDropdowns
@@ -1114,7 +1114,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
       {/* Mobile Slide-Over Navigation Drawer with Accordion Sections */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
+        <div className="fixed inset-0 z-50 flex xl:hidden">
           <div
             className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
             onClick={() => setMobileMenuOpen(false)}
