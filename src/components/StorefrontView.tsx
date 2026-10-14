@@ -67,6 +67,7 @@ import {
   detectCardBrand,
 } from '../services/addressAndPaymentVerification';
 import { StorePolicyPages, PolicyPageType } from './StorePolicyPages';
+import { AuthModal } from './AuthPanel';
 
 type StoreSubView =
   | 'HOME'
@@ -99,8 +100,11 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
     firebaseUser,
     userProfile,
     isAdmin,
+    emailVerified,
     signInWithGoogle,
     signOut,
+    resendVerificationEmail,
+    refreshAccount,
     addToCart,
     removeFromCart,
     updateCartQuantity,
@@ -115,6 +119,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
   } = useStore();
 
   const [subView, setSubView] = useState<StoreSubView>('HOME');
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [isHelplineOpen, setIsHelplineOpen] = useState(false);
@@ -1067,12 +1072,18 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
             </button>
 
             <button
-              onClick={() => onOpenAdmin('DASHBOARD')}
+              onClick={() => {
+                if (!firebaseUser) {
+                  setAuthModalOpen(true);
+                } else {
+                  setSubView('ACCOUNT');
+                }
+              }}
               className="px-3 py-2 border border-[#141413] text-[#141413] text-xs font-medium hover:bg-[#141413] hover:text-[#FBFBF9] transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5"
-              title="Full Admin Console"
+              title={firebaseUser ? 'My account' : 'Login / Sign up'}
             >
               <User className="w-3.5 h-3.5" />
-              <span>{firebaseUser ? userProfile?.name.split(' ')[0] : 'Account'}</span>
+              <span>{firebaseUser ? (userProfile?.name || 'Account').split(' ')[0] : 'Login'}</span>
             </button>
           </div>
         </div>
@@ -1094,6 +1105,8 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
           </div>
         </div>
       </header>
+
+      <AuthModal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
 
       {/* Mobile Slide-Over Navigation Drawer with Accordion Sections */}
       {mobileMenuOpen && (
@@ -3766,38 +3779,69 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-black/[0.07] gap-4">
               <div>
                 <div className="text-xs uppercase tracking-widest text-[#8C6D46]">
-                  Private Client Dossier
+                  My Account
                 </div>
                 <h1 className="text-3xl font-display font-medium text-[#141413]">
-                  {firebaseUser ? userProfile?.name : 'Guest Collector Session'}
+                  {firebaseUser ? userProfile?.name || firebaseUser.email : 'Guest'}
                 </h1>
                 <p className="text-xs text-[#575653] mt-1">
                   {firebaseUser
-                    ? `${userProfile?.email} · Role: ${userProfile?.role}`
-                    : 'Sign in with Google to synchronize orders, saved pieces, and admin privileges across devices.'}
+                    ? `${userProfile?.email || firebaseUser.email || ''}${isAdmin ? ` · ${userProfile?.role}` : ''}`
+                    : 'Login karein taake aap ke orders aur tracking har device par nazar aayein.'}
                 </p>
               </div>
 
               <div>
                 {firebaseUser ? (
                   <button
-                    onClick={signOut}
+                    onClick={async () => {
+                      await signOut();
+                      setSubView('HOME');
+                    }}
                     className="px-5 py-2.5 border border-black/20 text-xs font-medium hover:border-[#141413] cursor-pointer"
                   >
-                    Sign Out
+                    Logout
                   </button>
                 ) : (
                   <button
-                    onClick={signInWithGoogle}
+                    onClick={() => setAuthModalOpen(true)}
                     className="px-6 py-3 bg-[#141413] text-[#FBFBF9] text-xs font-medium cursor-pointer"
                   >
-                    Sign In with Google
+                    Login / Sign up
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Store Owner & Seller Hub Card */}
+            {firebaseUser && !emailVerified && firebaseUser.providerData.some((p) => p.providerId === 'password') && (
+              <div className="p-4 bg-amber-50 border border-amber-300 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-3">
+                <span>
+                  Aap ki email ({firebaseUser.email}) abhi verify nahi hui. Email mein aaya hua link kholein.
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const r = await resendVerificationEmail();
+                      showToast(r.message || '');
+                    }}
+                    className="px-3 py-1.5 border border-amber-500 font-semibold cursor-pointer"
+                  >
+                    Link dobara bhejein
+                  </button>
+                  <button
+                    type="button"
+                    onClick={refreshAccount}
+                    className="px-3 py-1.5 bg-amber-600 text-white font-semibold cursor-pointer"
+                  >
+                    Maine verify kar liya
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Store Owner & Seller Hub Card (admins only) */}
+            {isAdmin && (
             <div className="p-6 bg-gradient-to-r from-[#141413] via-[#1c1c1a] to-[#252523] text-white border border-[#C5A059]/40 space-y-4 shadow-sm">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="space-y-1.5">
@@ -3830,6 +3874,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                 </div>
               </div>
             </div>
+            )}
 
             <div className="space-y-6">
               <h2 className="text-xl font-display font-medium text-[#141413]">

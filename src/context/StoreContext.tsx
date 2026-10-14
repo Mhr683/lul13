@@ -2,9 +2,55 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  updateProfile,
   signOut as firebaseSignOut,
   User,
 } from 'firebase/auth';
+
+export interface AuthResult {
+  ok: boolean;
+  message?: string;
+}
+
+// Turns Firebase Auth error codes into short messages a customer can act on
+function friendlyAuthError(error: any): string {
+  switch (error?.code) {
+    case 'auth/invalid-email':
+      return 'Email ghalat hai. Sahi email likhein.';
+    case 'auth/missing-password':
+      return 'Password likhein.';
+    case 'auth/weak-password':
+      return 'Password kam az kam 6 characters ka hona chahiye.';
+    case 'auth/email-already-in-use':
+      return 'Is email se account pehle se bana hua hai. Login karein ya "Password bhool gaye" dabayein.';
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+    case 'auth/invalid-login-credentials':
+      return 'Email ya password ghalat hai.';
+    case 'auth/too-many-requests':
+      return 'Bohat zyada koshishein ho gayi hain. Thori der baad dobara try karein.';
+    case 'auth/user-disabled':
+      return 'Ye account band kar diya gaya hai.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'Login window band kar di gayi.';
+    case 'auth/network-request-failed':
+      return 'Internet connection check karein aur dobara try karein.';
+    case 'auth/operation-not-allowed':
+    case 'auth/configuration-not-found':
+      return 'Ye login tareeqa abhi store mein chalu nahi hai. Store owner Firebase Authentication mein ise enable karein.';
+    case 'auth/unauthorized-domain':
+      return 'Ye website ka domain Firebase mein authorized nahi hai. Store owner ise Authorized domains mein add karein.';
+    default:
+      return error?.message || 'Login nahi ho saka. Dobara try karein.';
+  }
+}
 import {
   collection,
   doc,
@@ -65,7 +111,13 @@ interface StoreContextValue {
   userProfile: UserProfile | null;
   authReady: boolean;
   isAdmin: boolean;
-  signInWithGoogle: () => Promise<void>;
+  emailVerified: boolean;
+  signInWithGoogle: () => Promise<AuthResult>;
+  signUpWithEmail: (name: string, email: string, password: string) => Promise<AuthResult>;
+  signInWithEmail: (email: string, password: string) => Promise<AuthResult>;
+  resetPassword: (email: string) => Promise<AuthResult>;
+  resendVerificationEmail: () => Promise<AuthResult>;
+  refreshAccount: () => Promise<void>;
   signOut: () => Promise<void>;
 
   // Store Data
@@ -179,6 +231,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
 
   const [products, setProducts] = useState<Product[]>(() => {
     try {
@@ -340,7 +393,29 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
+      setEmailVerified(Boolean(user?.emailVerified));
       if (user) {
+        // Hold the UI (e.g. the admin gate) until this user's role is known
+        setAuthReady(false);
+        // The server decides the role (owner / invited admin / customer) and keeps users/{uid} in sync
+        try {
+          const token = await user.getIdToken();
+          const syncRes = await fetch('/api/auth/sync', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (syncRes.ok) {
+            const data = await syncRes.json();
+            if (data?.profile) {
+              setUserProfile(data.profile as UserProfile);
+              setAuthReady(true);
+              return;
+            }
+          }
+        } catch (syncErr) {
+          console.warn('Account sync with server failed, using direct profile read:', syncErr);
+        }
+
         const userRef = doc(db, 'users', user.uid);
         try {
           const snap = await getDoc(userRef);
@@ -569,18 +644,89 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   // Auth Actions
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (): Promise<AuthResult> => {
     try {
       await signInWithPopup(auth, googleProvider);
       showToast('Signed in successfully.');
+      return { ok: true };
     } catch (error: any) {
+      if (error?.code === 'auth/popup-blocked' || error?.code === 'auth/operation-not-supported-in-this-environment') {
+        // Popups are blocked inside some embedded previews / in-app browsers
+        await signInWithRedirect(auth, googleProvider);
+        return { ok: true };
+      }
       console.error('Sign-in failed:', error);
-      showToast(error?.message || 'Authentication cancelled.');
+      const message = friendlyAuthError(error);
+      showToast(message);
+      return { ok: false, message };
     }
+  };
+
+  const signUpWithEmail = async (name: string, email: string, password: string): Promise<AuthResult> => {
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      if (name.trim()) {
+        await updateProfile(cred.user, { displayName: name.trim().slice(0, 110) });
+      }
+      await sendEmailVerification(cred.user).catch(() => {});
+      showToast('Account created. Please check your email to verify it.');
+      return { ok: true, message: 'Account ban gaya. Email mein aaya hua link khol kar email verify karein.' };
+    } catch (error: any) {
+      return { ok: false, message: friendlyAuthError(error) };
+    }
+  };
+
+  const signInWithEmail = async (email: string, password: string): Promise<AuthResult> => {
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      showToast('Signed in successfully.');
+      return { ok: true };
+    } catch (error: any) {
+      return { ok: false, message: friendlyAuthError(error) };
+    }
+  };
+
+  const resetPassword = async (email: string): Promise<AuthResult> => {
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      return { ok: true, message: 'Password reset ka link aapki email par bhej diya gaya hai.' };
+    } catch (error: any) {
+      return { ok: false, message: friendlyAuthError(error) };
+    }
+  };
+
+  const resendVerificationEmail = async (): Promise<AuthResult> => {
+    if (!auth.currentUser) return { ok: false, message: 'Please sign in first.' };
+    try {
+      await sendEmailVerification(auth.currentUser);
+      return { ok: true, message: 'Verification email dobara bhej di gayi hai.' };
+    } catch (error: any) {
+      return { ok: false, message: friendlyAuthError(error) };
+    }
+  };
+
+  // Re-checks the account after the user clicks the verification link (refreshes token + role)
+  const refreshAccount = async () => {
+    if (!auth.currentUser) return;
+    await auth.currentUser.reload();
+    await auth.currentUser.getIdToken(true);
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const syncRes = await fetch('/api/auth/sync', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (syncRes.ok) {
+        const data = await syncRes.json();
+        if (data?.profile) setUserProfile(data.profile as UserProfile);
+      }
+    } catch {}
+    setEmailVerified(Boolean(auth.currentUser?.emailVerified));
   };
 
   const signOut = async () => {
     await firebaseSignOut(auth);
+    setUserProfile(null);
     showToast('Signed out.');
   };
 
@@ -1864,7 +2010,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         userProfile,
         authReady,
         isAdmin,
+        emailVerified,
         signInWithGoogle,
+        signUpWithEmail,
+        signInWithEmail,
+        resetPassword,
+        resendVerificationEmail,
+        refreshAccount,
         signOut,
         products: productsView,
         categories,

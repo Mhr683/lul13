@@ -426,6 +426,16 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && isValidId(productId) && isAdmin();
     }
 
+    // Collection 15/16: store owner + pending admin invites. Written only by the server.
+    match /admin_config/{docId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+    match /admin_invites/{email} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
     // Collection 14: /order_private/{orderId}
     // Per-item supplier data for each order. Admin-only; written by the server on order creation.
     match /order_private/{orderId} {

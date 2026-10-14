@@ -103,6 +103,66 @@ const ALLOWED_ADMIN_ROLES = [
   'ORDER_MANAGER',
 ];
 
+// The store owner always gets SUPER_ADMIN, whichever Google account hosts the app.
+// The default can be changed with the ADMIN_OWNER_EMAIL secret, and the current owner can hand
+// ownership to another email from the admin panel (stored in admin_config/owner).
+const DEFAULT_OWNER_EMAIL = (process.env.ADMIN_OWNER_EMAIL || 'specialforme683@gmail.com').trim().toLowerCase();
+
+async function getOwnerEmail(): Promise<string> {
+  try {
+    const snap = await adminDb.collection('admin_config').doc('owner').get();
+    const email = String(snap.data()?.email || '').trim().toLowerCase();
+    if (email) return email;
+  } catch {}
+  return DEFAULT_OWNER_EMAIL;
+}
+
+interface DecodedAuthUser {
+  uid: string;
+  email?: string;
+  email_verified?: boolean;
+  name?: string;
+}
+
+// Works out a signed-in user's role and keeps users/{uid} in sync.
+// Admin roles are only granted to verified emails: the owner email, or an email a
+// SUPER_ADMIN invited from the admin panel (admin_invites/{email}).
+async function resolveUserRole(decoded: DecodedAuthUser): Promise<string> {
+  const email = String(decoded.email || '').trim().toLowerCase();
+  const verified = Boolean(decoded.email_verified);
+  const userRef = adminDb.collection('users').doc(decoded.uid);
+  const snap = await userRef.get();
+  const currentRole = snap.exists ? String(snap.data()?.role || 'CUSTOMER') : '';
+  let role = currentRole || 'CUSTOMER';
+
+  if (verified && email) {
+    if (email === (await getOwnerEmail())) {
+      role = 'SUPER_ADMIN';
+    } else if (role === 'CUSTOMER') {
+      const invite = await adminDb.collection('admin_invites').doc(email).get();
+      const invitedRole = String(invite.data()?.role || '');
+      if (invite.exists && ALLOWED_ADMIN_ROLES.includes(invitedRole)) {
+        role = invitedRole;
+        await invite.ref.delete();
+      }
+    }
+  }
+
+  const now = new Date().toISOString();
+  if (!snap.exists) {
+    await userRef.set({
+      uid: decoded.uid,
+      email: email.slice(0, 250),
+      name: String(decoded.name || email.split('@')[0] || 'Customer').slice(0, 110),
+      role,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } else if (currentRole !== role) {
+    await userRef.update({ role, updatedAt: now });
+  }
+  return role;
+}
 
 
 async function requireAuth(
@@ -177,19 +237,12 @@ async function requireAdmin(
   try {
     let role: string | undefined;
     try {
-      const userDocRef = admin.firestore().collection('users').doc(decodedToken.uid);
-      const userSnap = await userDocRef.get();
-      role = userSnap.data()?.role;
+      role = await resolveUserRole(decodedToken);
     } catch {
       try {
         const clientUserSnap = await clientGetDoc(clientDoc(clientDb, 'users', decodedToken.uid));
         role = clientUserSnap.data()?.role;
       } catch {}
-    }
-
-    // Support bootstrapped admin email from runtime per Firebase skill
-    if (!role && decodedToken.email === 'specialforme683@gmail.com') {
-      role = 'SUPER_ADMIN';
     }
 
     if (!role || !ALLOWED_ADMIN_ROLES.includes(String(role).toUpperCase())) {
@@ -216,6 +269,15 @@ async function requireAdmin(
   }
 }
 
+function requireSuperAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  return requireAdmin(req, res, () => {
+    if ((req as any).user?.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Only the store owner / super admin can manage admins.' });
+    }
+    next();
+  });
+}
+
 async function getOptionalUser(
   req: express.Request
 ): Promise<{ uid: string; email?: string } | null> {
@@ -240,6 +302,124 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
+
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// ============================================================================
+// Accounts, admin access & team management
+// ============================================================================
+
+// Called by the browser after every sign-in: creates/updates users/{uid} and returns the role.
+app.post('/api/auth/sync', requireAuth, async (req, res) => {
+  try {
+    const authHeader = String(req.headers.authorization || '');
+    const decoded = await admin.auth().verifyIdToken(authHeader.slice(7).trim());
+    const role = await resolveUserRole(decoded);
+    const snap = await adminDb.collection('users').doc(decoded.uid).get();
+    res.json({ success: true, role, profile: snap.data(), emailVerified: Boolean(decoded.email_verified) });
+  } catch (err) {
+    console.error('[auth/sync] failed:', err);
+    res.status(503).json({ error: 'Could not load your account right now. Please try again.' });
+  }
+});
+
+const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
+const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+// Owner, current admins and pending admin invites
+app.get('/api/admin/team', requireSuperAdmin, async (_req, res) => {
+  try {
+    const [ownerEmail, usersSnap, invitesSnap] = await Promise.all([
+      getOwnerEmail(),
+      adminDb.collection('users').where('role', 'in', ALLOWED_ADMIN_ROLES).get(),
+      adminDb.collection('admin_invites').get(),
+    ]);
+    res.json({
+      ownerEmail,
+      admins: usersSnap.docs.map((d) => {
+        const u = d.data();
+        return { uid: d.id, email: u.email, name: u.name, role: u.role };
+      }),
+      invites: invitesSnap.docs.map((d) => ({ email: d.id, ...d.data() })),
+    });
+  } catch (err) {
+    console.error('[admin/team] failed:', err);
+    res.status(503).json({ error: 'Could not load the admin team.' });
+  }
+});
+
+// Give an email an admin role. If they have not signed in yet, the role is applied on first sign-in.
+app.post('/api/admin/team/invite', requireSuperAdmin, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const role = String(req.body?.role || 'ADMIN').toUpperCase();
+  if (!isEmail(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (!ALLOWED_ADMIN_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role.' });
+  try {
+    const usersSnap = await adminDb.collection('users').where('email', '==', email).limit(1).get();
+    if (!usersSnap.empty) {
+      await usersSnap.docs[0].ref.update({ role, updatedAt: new Date().toISOString() });
+      return res.json({ success: true, applied: true });
+    }
+    await adminDb.collection('admin_invites').doc(email).set({
+      role,
+      invitedBy: (req as any).user?.email || '',
+      createdAt: new Date().toISOString(),
+    });
+    res.json({ success: true, applied: false });
+  } catch (err) {
+    console.error('[admin/team/invite] failed:', err);
+    res.status(503).json({ error: 'Could not save the admin.' });
+  }
+});
+
+// Remove admin access (the person stays a normal customer)
+app.post('/api/admin/team/remove', requireSuperAdmin, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  if (!isEmail(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  try {
+    if (email === (await getOwnerEmail())) {
+      return res.status(400).json({ error: 'The store owner cannot be removed. Transfer ownership first.' });
+    }
+    await adminDb.collection('admin_invites').doc(email).delete();
+    const usersSnap = await adminDb.collection('users').where('email', '==', email).get();
+    for (const d of usersSnap.docs) {
+      await d.ref.update({ role: 'CUSTOMER', updatedAt: new Date().toISOString() });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin/team/remove] failed:', err);
+    res.status(503).json({ error: 'Could not remove the admin.' });
+  }
+});
+
+// Change the store owner login. Only the current owner can do this.
+app.post('/api/admin/team/transfer-owner', requireSuperAdmin, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  if (!isEmail(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  try {
+    const currentOwner = await getOwnerEmail();
+    if (normalizeEmail((req as any).user?.email) !== currentOwner) {
+      return res.status(403).json({ error: 'Only the current store owner can change the owner login.' });
+    }
+    await adminDb.collection('admin_config').doc('owner').set({
+      email,
+      previousOwner: currentOwner,
+      changedAt: new Date().toISOString(),
+    });
+    const usersSnap = await adminDb.collection('users').where('email', '==', email).limit(1).get();
+    if (!usersSnap.empty) {
+      await usersSnap.docs[0].ref.update({ role: 'SUPER_ADMIN', updatedAt: new Date().toISOString() });
+    }
+    res.json({ success: true, ownerEmail: email });
+  } catch (err) {
+    console.error('[admin/team/transfer-owner] failed:', err);
+    res.status(503).json({ error: 'Could not change the owner.' });
+  }
+});
 
 // Simple per-IP in-memory rate limiter for AI endpoints
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -759,21 +939,16 @@ app.get('/api/catalog/products', async (req, res) => {
       if (token) {
         try {
           const decoded = await admin.auth().verifyIdToken(token);
-          if (decoded.email === 'specialforme683@gmail.com') {
-            isAdminUser = true;
-          } else {
-            let role: string | undefined;
+          let role: string | undefined;
+          try {
+            role = await resolveUserRole(decoded);
+          } catch {
             try {
-              const userDoc = await adminDb.collection('users').doc(decoded.uid).get();
+              const userDoc = await clientGetDoc(clientDoc(clientDb, 'users', decoded.uid));
               role = userDoc.data()?.role;
-            } catch {
-              try {
-                const userDoc = await clientGetDoc(clientDoc(clientDb, 'users', decoded.uid));
-                role = userDoc.data()?.role;
-              } catch {}
-            }
-            isAdminUser = Boolean(role && ALLOWED_ADMIN_ROLES.includes(String(role).toUpperCase()));
+            } catch {}
           }
+          isAdminUser = Boolean(role && ALLOWED_ADMIN_ROLES.includes(String(role).toUpperCase()));
         } catch {}
       }
     }

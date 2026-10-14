@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
+import { AdminTeamPanel } from './AdminTeamPanel';
 import {
   Product,
   Order,
@@ -154,7 +155,7 @@ export const AdminDashboardView: React.FC<{
     firebaseUser,
     userProfile,
     isAdmin,
-    signInWithGoogle,
+    signOut,
     saveProduct,
     importProductsBatch,
     removeProduct,
@@ -2272,23 +2273,21 @@ export const AdminDashboardView: React.FC<{
 
         {/* User / Role Status */}
         <div className="p-4 border-t border-black/[0.08] space-y-3 text-xs">
-          {firebaseUser ? (
-            <div>
-              <div className="font-medium text-[#141413] truncate">{userProfile?.name}</div>
-              <div className="text-[11px] font-mono text-[#C5A059] mt-0.5">
-                Role: {userProfile?.role}
-              </div>
-            </div>
-          ) : (
+          {firebaseUser && (
             <div className="space-y-2">
-              <div className="text-[11px] text-amber-300">
-                Sign in with Google ({userProfile?.email || 'mralun683@gmail.com'}) to persist catalog mutations to Cloud Firestore.
+              <div>
+                <div className="font-medium text-[#141413] truncate">{userProfile?.name}</div>
+                <div className="text-[11px] text-[#575653] truncate">{firebaseUser.email}</div>
+                <div className="text-[11px] font-mono text-[#C5A059] mt-0.5">Role: {userProfile?.role}</div>
               </div>
               <button
-                onClick={signInWithGoogle}
-                className="w-full py-2 bg-[#C5A059] text-[#0B0F17] font-semibold text-xs cursor-pointer"
+                onClick={async () => {
+                  await signOut();
+                  onReturnToStore();
+                }}
+                className="w-full py-2 border border-black/20 text-[#141413] font-semibold text-xs cursor-pointer hover:bg-black/[0.04]"
               >
-                Admin Google Sign-In
+                Logout
               </button>
             </div>
           )}
@@ -5941,6 +5940,9 @@ export const AdminDashboardView: React.FC<{
                   Centrally configure store operations operated from Pakistan (PK) with dual-currency display and worldwide shipping zones.
                 </p>
               </div>
+
+              {/* 0. Admins & owner login */}
+              <AdminTeamPanel />
 
               {/* 1. Merchant Identity & Dual-Currency */}
               <div className="space-y-4">
