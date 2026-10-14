@@ -228,8 +228,8 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
   // Multi-Step Checkout & Anti-Fraud Verification State (All 250+ World Countries, 5,000+ States, 150,000+ Cities)
   const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1);
-  const [customerName, setCustomerName] = useState(userProfile?.name || 'Clara Vance');
-  const [customerEmail, setCustomerEmail] = useState(userProfile?.email || 'clara@zurich-arch.ch');
+  const [customerName, setCustomerName] = useState(userProfile?.name || '');
+  const [customerEmail, setCustomerEmail] = useState(userProfile?.email || '');
   const [countryIso, setCountryIso] = useState('PK');
   const [country, setCountry] = useState('Pakistan');
   const [stateIso, setStateIso] = useState('PB');
@@ -243,6 +243,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
   const [streetAddress, setStreetAddress] = useState('');
   const [postalCode, setPostalCode] = useState('');
   const [customerPhone, setCustomerPhone] = useState(userProfile?.phone || '');
+
+  // Prefill checkout contact details once a signed-in customer's profile loads
+  useEffect(() => {
+    if (!userProfile) return;
+    setCustomerName((prev) => prev || userProfile.name || '');
+    setCustomerEmail((prev) => prev || userProfile.email || '');
+    setCustomerPhone((prev) => prev || userProfile.phone || '');
+  }, [userProfile]);
   const [shippingMethodId, setShippingMethodId] = useState(SHIPPING_METHODS[0].id);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
   const [paymentSubMethod, setPaymentSubMethod] = useState<'RAAST' | 'RAAST_SWIFT' | 'NAYAPAY' | 'BANK'>('RAAST');
@@ -760,8 +768,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
     if (!addressVerification.isFullyVerified) {
       setCheckoutErrorBanner(
-        'Please complete all required delivery details (Receiver Phone, Complete Street Address, Tehsil, and Postal Code) before continuing.'
+        'Please complete all required delivery details (Receiver Phone, Email and Complete Street Address) before continuing.'
       );
+      setCheckoutStep(1);
+      return;
+    }
+
+    if ((customerName || userProfile?.name || '').trim().length < 2) {
+      setCheckoutErrorBanner('Please enter the receiver\'s full name.');
       setCheckoutStep(1);
       return;
     }
@@ -776,12 +790,20 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
     // Direct submit for Cash on Delivery or Manual Transfer with TID (stays PENDING_VERIFICATION)
     setIsSubmittingOrder(true);
     try {
-      const fullAddress = `[VERIFIED ${isNationalPakistan ? 'NATIONAL-PK' : 'INTERNATIONAL'}] ${streetAddress}, ${effectiveTehsil ? `Tehsil: ${effectiveTehsil}, ` : ''}District: ${district}, ${stateProvince}, ${postalCode}, ${country} (Tel: ${customerPhone})`;
+      // Street + area only; the server appends city, province, postal code, country and phone
+      const fullAddress = `${streetAddress.trim()}${effectiveTehsil ? `, ${effectiveTehsil}` : ''}`;
       const isCod = paymentMethod === 'COD';
       const effectiveTid = isCod
         ? 'COD_DOORSTEP'
         : wireReferenceNumber.trim();
-      const paymentAuditNote = `${orderNotes ? `${orderNotes} | ` : ''}[${isCod ? 'Cash on Delivery (Courier Doorstep Handover)' : `Manual Transfer · TID: ${effectiveTid}${walletAccountTitle ? ` · Title: ${walletAccountTitle}` : ''}${walletMobileNumber ? ` · Account: ${walletMobileNumber}` : ''}`} · Status: PENDING_VERIFICATION]`;
+      // Customer's own note only; payment details are stored in their own order fields
+      const customerNote = [
+        orderNotes.trim(),
+        !isCod && walletAccountTitle ? `Sender title: ${walletAccountTitle}` : '',
+        !isCod && walletMobileNumber ? `Sender account: ${walletMobileNumber}` : '',
+      ]
+        .filter(Boolean)
+        .join(' | ');
       const proofSummary = isCod
         ? 'Cash on Delivery at Destination Address'
         : `Manual ${paymentMethod === 'NAYAPAY' ? 'NayaPay' : 'Bank/RAAST'} Transfer · TID: ${effectiveTid}`;
@@ -794,13 +816,16 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         shippingAddressSummary: fullAddress,
         district,
         tehsil: effectiveTehsil,
+        stateProvince,
+        postalCode: postalCode.trim(),
+        countryName: country,
         shippingMethodId: liveShippingCalc.carrier,
         shippingFee: liveShippingCalc.finalShippingFee,
         paymentMethod,
         paymentSubMethod,
-        paymentReference: effectiveTid,
+        paymentReference: isCod ? undefined : effectiveTid,
         paymentProofDetails: proofSummary,
-        notes: paymentAuditNote,
+        notes: customerNote || undefined,
         isQuoteRequest: isQuoteFlow,
         directAutoDebit: false,
       });

@@ -59,6 +59,12 @@ import {
 
 dotenv.config();
 
+// Keep the store online if a background database/email call fails (e.g. Firestore credentials
+// missing): Node would otherwise exit on an unhandled promise rejection and take the site down.
+process.on('unhandledRejection', (reason) => {
+  console.error('[Unhandled Promise Rejection]', reason);
+});
+
 // Initialize Firebase Admin SDK
 const firebaseConfigPath = path.join(process.cwd(), 'firebase-applet-config.json');
 const firebaseConfig = fs.existsSync(firebaseConfigPath)
@@ -2055,7 +2061,18 @@ app.post('/api/orders/create', async (req, res) => {
       cleanPhone = '0' + cleanPhone.slice(2);
     }
     const pkPhoneRegex = /^03\d{9}$/;
-    if (!pkPhoneRegex.test(cleanPhone)) {
+    const isDomesticPhoneCheck = String(destCountryIso || 'PK').toUpperCase() === 'PK';
+    const intlDigits = String(customerPhone || '').replace(/\D/g, '');
+    if (!isDomesticPhoneCheck) {
+      // International quote requests: accept any full international number
+      if (intlDigits.length < 8 || intlDigits.length > 15) {
+        return res.status(400).json({
+          error: 'Please enter a valid international phone number with country code.',
+          code: 'INVALID_PHONE_NUMBER',
+        });
+      }
+      cleanPhone = String(customerPhone).trim();
+    } else if (!pkPhoneRegex.test(cleanPhone)) {
       return res.status(400).json({
         error: 'Invalid Pakistani mobile number. Must be 11 digits in the format 03XXXXXXXXX (e.g., 03001234567).',
         code: 'INVALID_PHONE_NUMBER',
@@ -2297,7 +2314,16 @@ app.post('/api/orders/create', async (req, res) => {
 
         const fullAddressSummary = typeof shippingAddress === 'string'
           ? shippingAddress
-          : `${addressLine}, ${city}${district && district !== city ? `, ${district}` : ''}${tehsil ? `, Tehsil: ${tehsil}` : ''}, Pakistan (Phone: ${cleanPhone})`;
+          : [
+              addressLine,
+              city,
+              district && district !== city ? district : '',
+              String(shippingAddress?.state || '').trim(),
+              String(shippingAddress?.postalCode || '').trim(),
+              String(shippingAddress?.country || (isDomestic ? 'Pakistan' : destCountryIso || '')).trim(),
+            ]
+              .filter(Boolean)
+              .join(', ') + ` (Phone: ${cleanPhone})`;
 
         // Supplier name/cost per item is admin-only and goes to order_private
         const { publicItems, privateItems } = splitOrderItemsPrivate(orderItems);

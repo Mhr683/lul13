@@ -843,7 +843,8 @@ export function verifyAddressAndIdentity(input: {
   const districtValid = activeDistrict.length >= 2;
   const cityValid = districtValid;
   const activeTehsil = (input.tehsilName || '').trim();
-  const tehsilValid = input.countryIsoCode === 'PK' ? activeTehsil.length >= 2 : true;
+  // Tehsil is optional: the street address already carries the area/sector
+  const tehsilValid = true;
 
   const streetTrimmed = input.streetAddress.trim();
   const streetValid =
@@ -857,7 +858,9 @@ export function verifyAddressAndIdentity(input: {
     stateName: input.stateName,
     postalCode: input.postalCode,
   });
-  const postalValid = postalVerification.valid;
+  // Many Pakistani customers don't know their post code, so it is optional there (checked only if entered)
+  const postalOptional = input.countryIsoCode === 'PK' && !input.postalCode.trim();
+  const postalValid = postalOptional || postalVerification.valid;
 
   const phoneTrimmed = input.phone.trim();
   const prefix = countryObj?.phonePrefix || '+';
@@ -903,7 +906,7 @@ export function verifyAddressAndIdentity(input: {
       street: streetValid
         ? 'Verified Street & Building format'
         : 'Wrong Address: Enter complete house/building number, street, and sector/area (min 6 chars).',
-      postal: postalVerification.message,
+      postal: postalOptional ? 'Postal code (optional)' : postalVerification.message,
       phone: phoneValid
         ? `Verified Courier Receiver Ph. No. (${prefix})`
         : `Wrong Receiver Phone Format: Must include dial code ${prefix} and valid subscriber digits (e.g. ${prefix} 300 1234567).`,

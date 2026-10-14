@@ -106,6 +106,9 @@ interface StoreContextValue {
     paymentProofDetails?: string;
     district?: string;
     tehsil?: string;
+    stateProvince?: string;
+    postalCode?: string;
+    countryName?: string;
     notes?: string;
     isQuoteRequest?: boolean;
     directAutoDebit?: boolean;
@@ -752,10 +755,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         customerEmail: payload.customerEmail,
         shippingAddress: {
           address: payload.shippingAddressSummary,
-          city: payload.district || 'Islamabad',
+          city: payload.district || '',
           district: payload.district,
           tehsil: payload.tehsil,
-          country: 'Pakistan',
+          state: payload.stateProvince || '',
+          postalCode: payload.postalCode || '',
+          country: payload.countryName || (isDomestic ? 'Pakistan' : destCountryIso),
           countryIso: destCountryIso,
         },
         paymentMethod: payload.paymentMethod,
