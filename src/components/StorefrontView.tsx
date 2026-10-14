@@ -1010,6 +1010,20 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               <span className="font-mono tabular-nums">({cartCount})</span>
             </button>
 
+            {/* Only signed-in admins see this; the console itself is also login-protected */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => onOpenAdmin('DASHBOARD')}
+                className="px-2.5 sm:px-3 py-2 bg-[#C5A059] text-[#0B0F17] text-xs font-semibold whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+                title="Admin panel"
+                aria-label="Admin panel"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Admin</span>
+              </button>
+            )}
+
             <button
               onClick={() => {
                 if (!firebaseUser) {
