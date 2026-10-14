@@ -38,7 +38,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
   initialTab = 'AI_CHAT',
   initialOrderNumber,
 }) => {
-  const { settings } = useStore();
+  const { settings, userProfile } = useStore();
   const [activeTab, setActiveTab] = useState<'AI_CHAT' | 'WHATSAPP' | 'EMAIL' | 'PHONE'>(initialTab);
 
   // Sync tab if initialTab changes when opening
@@ -63,7 +63,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     {
       id: 'msg-welcome',
       role: 'assistant',
-      content: `Assalam o Alaikum & Welcome to ${storeName} Support.\n\nI am your 24/7 customer service assistant. You can ask me in English, Urdu (اردو), or Roman Urdu regarding our products, order tracking, payment methods in Pakistan, or WhatsApp helpline assistance.\n\nHow may I assist you today?`,
+      content: `Assalam o Alaikum! Welcome to ${storeName} support.\n\nI am the store's AI assistant. Ask me in English, Urdu or Roman Urdu about products, payment, delivery or tracking. If you need a person, just say so and our team will reply in this chat.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       suggestedActions: [
         'Track my order',
@@ -88,6 +88,59 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     }
   }, [messages, activeTab]);
 
+  // The server keeps the conversation; the browser remembers which one is ours (id + secret key)
+  const CHAT_STORAGE_KEY = 'helpline_chat_v1';
+  const [chatSession, setChatSession] = useState<{ chatId: string; chatKey: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const formatTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // Load the saved conversation and check for replies from the store team while the chat is open
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'AI_CHAT' || !chatSession) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `/api/helpline/chat/${encodeURIComponent(chatSession.chatId)}?key=${encodeURIComponent(chatSession.chatKey)}`
+        );
+        if (res.status === 404) {
+          localStorage.removeItem(CHAT_STORAGE_KEY);
+          setChatSession(null);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled || !data.success || !Array.isArray(data.messages) || data.messages.length === 0) return;
+        setMessages((prev) => {
+          const welcome = prev.filter((m) => m.id.startsWith('msg-welcome'));
+          const thread: CustomerHelplineMessage[] = data.messages.map((m: any, i: number) => ({
+            id: `srv-${i}-${m.at}`,
+            role: m.role === 'customer' ? 'user' : 'assistant',
+            content: m.text,
+            timestamp: formatTime(m.at),
+            fromTeam: m.role === 'admin',
+          }));
+          return [...welcome, ...thread];
+        });
+      } catch {
+        // offline: keep what is on screen
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [isOpen, activeTab, chatSession]);
+
   const handleSendAiMessage = async (textToSend?: string) => {
     const text = (textToSend || chatInput).trim();
     if (!text || isAiLoading) return;
@@ -104,25 +157,40 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     setIsAiLoading(true);
 
     try {
-      const historyPayload = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
       const res = await fetch('/api/ai/customer-support', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          history: historyPayload,
           orderNumber: orderQueryNumber || undefined,
-          settings,
+          ...(chatSession ? { chatId: chatSession.chatId, chatKey: chatSession.chatKey } : {}),
+          ...(userProfile
+            ? { customerName: userProfile.name, customerEmail: userProfile.email, customerPhone: userProfile.phone }
+            : {}),
         }),
       });
 
       const data = await res.json();
 
-      if (data.success && data.reply) {
+      if (data.success && data.chatId && data.chatKey) {
+        const session = { chatId: data.chatId, chatKey: data.chatKey };
+        setChatSession(session);
+        try {
+          localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(session));
+        } catch {}
+      }
+
+      if (data.success && !data.reply && data.humanActive) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: 'ast-team-' + Date.now(),
+            role: 'assistant',
+            content: 'Aap ka message hamari team ko mil gaya hai. Jawab isi chat mein aayega.',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+      } else if (data.success && data.reply) {
         const assistantMsg: CustomerHelplineMessage = {
           id: 'ast-' + Date.now(),
           role: 'assistant',
@@ -156,6 +224,11 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
   };
 
   const handleClearChat = () => {
+    // Start a fresh conversation (the old one stays in the store's inbox)
+    try {
+      localStorage.removeItem(CHAT_STORAGE_KEY);
+    } catch {}
+    setChatSession(null);
     setMessages([
       {
         id: 'msg-welcome-fresh',
@@ -253,20 +326,22 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
 
   const faqs = [
     {
-      q: 'How fast is courier delivery across Pakistan?',
-      a: 'We partner with TCS Express, Leopards Courier, and M&P Courier. In major cities (Lahore, Karachi, Islamabad/Rawalpindi), orders arrive within 24 to 48 hours. Other cities and tehsils arrive within 2 to 3 business days with full SMS & tracking updates.',
+      q: 'How long does delivery take?',
+      a:
+        settings.deliveryPromiseText ||
+        'Orders are delivered by courier across Pakistan, usually within 3–6 working days. We share the courier tracking number once your parcel is dispatched.',
     },
     {
-      q: 'Do you offer Cash on Delivery (COD) in Pakistan?',
-      a: 'Yes, Cash on Delivery is supported for all domestic destinations up to PKR 150,000. For orders exceeding PKR 150,000, secure RAAST or Advance Bank/Card transfer is required by logistics regulations.',
+      q: 'Do you offer Cash on Delivery (COD)?',
+      a: 'Yes, Cash on Delivery is available within Pakistan. You can also pay by bank transfer and enter your Transaction ID (TID) at checkout.',
     },
     {
-      q: 'How do I track my order status in real time?',
-      a: 'You can track orders directly through our AI Assistant by sharing your Order Number (e.g., ORD-104928), or via the "Account > Orders" tab on our storefront. Real-time courier tracking links are also sent via Email and SMS.',
+      q: 'How do I track my order?',
+      a: 'Open "Track an order" on our website and enter your order number and phone number. If you have an account, your orders are also listed under My Account.',
     },
     {
-      q: 'What is your product warranty or quality guarantee?',
-      a: 'Every product is inspected for quality before dispatch. Please reach out to customer support if you receive a damaged or incorrect item.',
+      q: 'I received a damaged or wrong item. What should I do?',
+      a: 'Please message us here or on WhatsApp with your order number and a photo of the item, and our team will help you.',
     },
     {
       q: 'What is the return and exchange window?',
@@ -401,7 +476,9 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                   >
                     <div
                       className={`max-w-[85%] rounded-lg p-3.5 text-xs leading-relaxed whitespace-pre-wrap ${
-                        isAssistant
+                        m.fromTeam
+                          ? 'bg-emerald-50 text-[#141413] border border-emerald-300 shadow-xs'
+                          : isAssistant
                           ? 'bg-white text-[#141413] border border-black/10 shadow-xs'
                           : 'bg-[#141413] text-[#FBFBF9] shadow-xs'
                       }`}
@@ -410,7 +487,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 mt-1 px-1 text-[10px] text-black/40">
-                      <span>{isAssistant ? `${storeName} Support` : 'You'}</span>
+                      <span>{m.fromTeam ? `${storeName} team` : isAssistant ? `${storeName} assistant (AI)` : 'You'}</span>
                       <span>·</span>
                       <span>{m.timestamp}</span>
                       {isAssistant && (

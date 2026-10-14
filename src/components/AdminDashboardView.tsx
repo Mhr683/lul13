@@ -376,15 +376,19 @@ export const AdminDashboardView: React.FC<{
         },
         body: JSON.stringify({
           merchantReply: merchantReplyText.trim(),
-          status: 'RESOLVED',
+          status: 'IN_PROGRESS',
         }),
       });
       const data = await res.json();
       if (data.success) {
-        showToast?.('Merchant reply dispatched & ticket marked resolved.');
+        const where = Array.isArray(data.deliveredTo) && data.deliveredTo.length ? data.deliveredTo.join(', ') : 'inbox only';
+        const problems = Array.isArray(data.deliveryErrors) && data.deliveryErrors.length ? ` (${data.deliveryErrors.join('; ')})` : '';
+        showToast?.(`Reply sent: ${where}${problems}. AI will stay quiet in this chat for 30 minutes.`);
         setMerchantReplyText('');
         setActiveReplyTicketId(null);
         await fetchInboxTickets();
+      } else {
+        showToast?.(data.error || 'Failed to send reply');
       }
     } catch {
       showToast?.('Failed to send merchant reply');
@@ -5910,6 +5914,47 @@ export const AdminDashboardView: React.FC<{
 
                               {/* Message Content & AI Auto-Reply */}
                               <div className="p-4 space-y-4">
+                                {(ticket.needsHuman || ticket.channel === 'WHATSAPP') && (
+                                  <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+                                    {ticket.channel === 'WHATSAPP' && (
+                                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">WhatsApp</span>
+                                    )}
+                                    {ticket.needsHuman && (
+                                      <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300">
+                                        Customer wants a person — please reply
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {Array.isArray(ticket.messages) && ticket.messages.length > 0 ? (
+                                  <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                                    {ticket.messages.map((m, idx) => (
+                                      <div
+                                        key={`${m.at}-${idx}`}
+                                        className={`p-2.5 rounded-sm text-xs border ${
+                                          m.role === 'customer'
+                                            ? 'bg-[#FBFBF9] border-black/10 mr-10'
+                                            : m.role === 'admin'
+                                            ? 'bg-blue-50 border-blue-200 ml-10'
+                                            : 'bg-[#FAF8F5] border-[#C5A059]/40 ml-10'
+                                        }`}
+                                      >
+                                        <div className="flex justify-between gap-2 text-[10px] font-bold mb-1 text-[#575653]">
+                                          <span>
+                                            {m.role === 'customer' ? ticket.name || 'Customer' : m.role === 'admin' ? 'You (team)' : 'AI assistant'}
+                                          </span>
+                                          <span className="font-mono font-normal">
+                                            {new Date(m.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                            {m.delivery ? ` · ${m.delivery}` : ''}
+                                          </span>
+                                        </div>
+                                        <div className="whitespace-pre-line text-[#141413]">{m.text}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                <>
                                 {/* Customer Original Query */}
                                 <div className="space-y-1.5">
                                   <div className="text-[11px] uppercase tracking-wider font-bold text-[#575653]">
@@ -5967,6 +6012,8 @@ export const AdminDashboardView: React.FC<{
                                     )}
                                   </div>
                                 )}
+                                </>
+                                )}
 
                                 {/* Action Buttons: Follow-up / Status change */}
                                 <div className="pt-2 flex flex-wrap items-center justify-between gap-3 text-xs border-t border-black/5">
@@ -5980,7 +6027,7 @@ export const AdminDashboardView: React.FC<{
                                         className="px-2.5 py-1 bg-black text-[#FBFBF9] text-xs font-medium rounded hover:bg-black/80 transition-colors cursor-pointer flex items-center gap-1"
                                       >
                                         <Send className="w-3 h-3" />
-                                        <span>Send Merchant Follow-up</span>
+                                        <span>Reply to customer</span>
                                       </button>
                                     ) : (
                                       <button

@@ -10,7 +10,8 @@ export interface EmailLogEntry {
     | 'PAYMENT_VERIFIED'
     | 'ORDER_SHIPPED'
     | 'ORDER_CANCELLED'
-    | 'RECEIPT_RESEND';
+    | 'RECEIPT_RESEND'
+    | 'SUPPORT_REPLY';
   recipient: string;
   sender: string;
   subject: string;
@@ -333,6 +334,47 @@ function renderItemsTableHtml(items?: any[], currency: string = 'PKR'): string {
     </tr>`
     )
     .join('');
+}
+
+// ============================================================================
+// SUPPORT REPLY (admin answered a helpline chat / ticket)
+// ============================================================================
+export async function sendSupportReplyEmail(
+  adminDb: FirebaseFirestore.Firestore | null | undefined,
+  params: {
+    to: string;
+    customerName?: string;
+    ticketNumber: string;
+    replyText: string;
+    storeName?: string;
+    supportEmail?: string;
+  }
+): Promise<SendEmailResult> {
+  const storeName = params.storeName || 'Store';
+  const subject = `Reply to your message (${params.ticketNumber}) | ${storeName}`;
+  const safeReply = escapeHtml(params.replyText).replace(/\n/g, '<br>');
+  const html = wrapEmailHtml({
+    storeName,
+    bannerTitle: 'We replied to your message',
+    bannerSubtitle: `Ticket ${params.ticketNumber}`,
+    bannerColor: 'blue',
+    supportEmail: params.supportEmail,
+    contentHtml: `
+      <p style="margin: 0 0 16px 0; font-size: 14px;">Assalam o Alaikum ${escapeHtml(params.customerName || '')},</p>
+      <div style="margin: 0 0 16px 0; padding: 16px; background-color: #F9FAFB; border-left: 3px solid #3B82F6; font-size: 14px; color: #111827;">
+        ${safeReply}
+      </div>
+      <p style="margin: 0; font-size: 12px; color: #6B7280;">You can reply from the Helpline chat on our website.</p>`,
+  });
+  const text = `Assalam o Alaikum ${params.customerName || ''},\n\n${params.replyText}\n\n${storeName} Support (Ticket ${params.ticketNumber})`;
+  return sendViaResend(adminDb, {
+    to: params.to,
+    subject,
+    html,
+    text,
+    type: 'SUPPORT_REPLY',
+    metadata: { ticketNumber: params.ticketNumber },
+  });
 }
 
 // ============================================================================

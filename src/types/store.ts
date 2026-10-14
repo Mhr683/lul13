@@ -455,6 +455,8 @@ export interface CustomerHelplineMessage {
   content: string;
   timestamp: string;
   suggestedActions?: string[];
+  // true when a person from the store wrote this (not the AI)
+  fromTeam?: boolean;
 }
 
 export interface CustomerInquiryTicket {
@@ -475,6 +477,19 @@ export interface CustomerInquiryTicket {
   aiAutoReplyStatus?: 'SENT' | 'PENDING' | 'DISABLED';
   merchantReply?: string;
   merchantRepliedAt?: string;
+  // Full conversation (website chat / WhatsApp / form)
+  messages?: SupportThreadMessage[];
+  needsHuman?: boolean;
+  humanActiveUntil?: string;
+  lastMessageAt?: string;
+}
+
+export interface SupportThreadMessage {
+  role: 'customer' | 'ai' | 'admin';
+  text: string;
+  at: string;
+  // For admin replies: where the reply was delivered
+  delivery?: string;
 }
 
 export interface AIMessageRecord {

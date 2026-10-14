@@ -55,6 +55,7 @@ import {
   sendPaymentVerifiedEmail,
   sendOrderShippedEmail,
   sendOrderCancelledEmail,
+  sendSupportReplyEmail,
 } from './src/services/serverEmailService';
 
 dotenv.config();
@@ -301,7 +302,15 @@ async function getOptionalUser(
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(
+  express.json({
+    limit: '10mb',
+    // Keep the exact bytes so webhook signatures (WhatsApp) can be verified
+    verify: (req, _res, buf) => {
+      (req as any).rawBody = buf;
+    },
+  })
+);
 
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -3991,9 +4000,16 @@ app.post('/api/email/resend-receipt', requireAdmin, async (req, res) => {
 });
 
 // ============================================================================
-// 24/7 CLIENT HELPLINE & AI CONCIERGE ENDPOINTS
-// Multi-channel support: AI Chat (Gemini 3.8 Flash), WhatsApp, Email, & Ticket Logging
+// CUSTOMER HELPLINE: website chat, contact form, WhatsApp, admin replies
+// Every conversation is one support_tickets document with a `messages` thread.
 // ============================================================================
+interface ThreadMessage {
+  role: 'customer' | 'ai' | 'admin';
+  text: string;
+  at: string;
+  delivery?: string;
+}
+
 interface CustomerTicket {
   id: string;
   ticketNumber: string;
@@ -4012,234 +4028,330 @@ interface CustomerTicket {
   aiAutoReplyStatus?: 'SENT' | 'PENDING' | 'DISABLED';
   merchantReply?: string;
   merchantRepliedAt?: string;
+  messages?: ThreadMessage[];
+  chatKeyHash?: string;
+  needsHuman?: boolean;
+  humanActiveUntil?: string;
+  lastMessageAt?: string;
+  waId?: string;
 }
 
-// Dedicated 24/7 Client Helpline & AI Concierge using gemini-3.8-flash (Public with 10 req/min rate limit and 1000 char cap)
+// After an admin replies, the AI stays quiet in that conversation for this long
+const HUMAN_TAKEOVER_MS = 30 * 60 * 1000;
+const MAX_THREAD_MESSAGES = 200;
+
+const hashChatKey = (key: string) => crypto.createHash('sha256').update(key).digest('hex');
+const newTicketNumber = () => `TKT-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`;
+const isRealEmail = (email?: string) =>
+  Boolean(email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !/@example\.(com|org)$/i.test(email));
+
+// Words that mean the customer wants a person (English / Roman Urdu)
+const HUMAN_REQUEST_PATTERN =
+  /\b(agent|human|real person|representative|insaan|insan|banda|bande se|kisi se baat|call me|call karo|manager|complaint|shikayat)\b/i;
+
+async function loadStoreSettingsForSupport(): Promise<any> {
+  try {
+    const snap = await adminDb.collection('settings').doc('store_config').get();
+    if (snap.exists) return { ...DEFAULT_SETTINGS, ...snap.data() };
+  } catch (err) {
+    console.warn('[Helpline] Could not load store settings:', err);
+  }
+  return DEFAULT_SETTINGS;
+}
+
+// Generates the AI helpline answer from the server-side store settings (never from client input)
+async function generateSupportReply(params: {
+  store: any;
+  history: ThreadMessage[];
+  message: string;
+  channel: 'WEBSITE' | 'WHATSAPP' | 'FORM';
+  orderNumber?: string;
+}): Promise<string> {
+  const { store, history, message, channel, orderNumber } = params;
+  const storeName = store.storeName || 'Store';
+  const whatsapp = store.helplineWhatsAppFormatted || store.helplineWhatsApp || '';
+  const email = store.supportEmail || store.helplineEmail || store.contactEmail || '';
+  const bankDetails = store.bankName
+    ? `${store.bankName} (Title: ${store.bankAccountTitle || storeName}, A/C: ${store.bankAccountNumber || store.bankIban || ''})`
+    : '';
+  const raastDetails = store.raastIban ? `Raast ID/IBAN: ${store.raastIban} (Title: ${store.raastAccountTitle || storeName})` : '';
+  const nayapayDetails = store.nayapayNumber
+    ? `NayaPay: ${store.nayapayNumber} (Title: ${store.nayapayAccountTitle || storeName})`
+    : '';
+
+  const systemPrompt = `You are the customer support assistant for "${storeName}", an online store in Pakistan (prices in PKR).
+You are replying on ${channel === 'WHATSAPP' ? 'WhatsApp' : channel === 'FORM' ? 'an email ticket' : 'the website helpline chat'}.
+
+Language: reply in the customer's language (English, Urdu or Roman Urdu). Be polite, short and clear${
+    channel === 'WHATSAPP' ? ' (WhatsApp style: 1-4 short lines, no markdown headings)' : ''
+  }.
+
+Store facts (only use these, never invent others):
+- Payment: Cash on Delivery, bank transfer${raastDetails ? ', Raast' : ''}${nayapayDetails ? ', NayaPay' : ''}. For transfers the customer enters the Transaction ID (TID) at checkout and the store verifies it.
+${bankDetails ? `- Bank: ${bankDetails}` : ''}
+${raastDetails ? `- ${raastDetails}` : ''}
+${nayapayDetails ? `- ${nayapayDetails}` : ''}
+- Delivery: ${store.deliveryPromiseText || 'by courier across Pakistan; the tracking number is shared once the parcel is dispatched'}.
+- Order tracking: the customer can open "Track an order" on the website and enter the order number and phone number.
+${whatsapp ? `- WhatsApp: ${whatsapp}` : ''}
+${email ? `- Email: ${email}` : ''}
+
+Rules:
+- You cannot see order details or payment status. Never guess an order's status, delivery date, refund or price. For a specific order${
+    orderNumber ? ` (${orderNumber})` : ''
+  }, explain how to track it and say the team will check and reply here.
+- Never promise refunds, discounts, warranties or delivery dates. Never ask for card numbers, PINs, OTPs or passwords.
+- If the customer is angry, has a complaint, a damaged/wrong item, or asks for a person, apologise briefly and say a team member will reply in this chat soon.`;
+
+  const contents: any[] = history.slice(-10).map((m) => ({
+    role: m.role === 'customer' ? 'user' : 'model',
+    parts: [{ text: m.text }],
+  }));
+  contents.push({ role: 'user', parts: [{ text: message }] });
+
+  const ai = getGenAIClient();
+  for (const modelName of ['gemini-3.8-flash', 'gemini-3.1-flash-lite']) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents,
+        config: { systemInstruction: systemPrompt, temperature: 0.5 },
+      });
+      if (response.text) return response.text.trim();
+    } catch (err: any) {
+      console.warn(`[Helpline AI] ${modelName} failed:`, err?.message || err);
+    }
+  }
+  return whatsapp
+    ? `Shukriya! Aap ka message mil gaya hai. Hamari team jald jawab degi. WhatsApp: ${whatsapp}`
+    : 'Shukriya! Aap ka message mil gaya hai. Hamari team jald jawab degi.';
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp Business Platform (Cloud API). Stays off until these secrets are set:
+// WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET
+// Optional: WHATSAPP_API_VERSION (check the current version in the Meta dashboard),
+//           WHATSAPP_AI_REPLIES=false to receive messages without AI answers.
+// ---------------------------------------------------------------------------
+const whatsappConfigured = () =>
+  Boolean(
+    process.env.WHATSAPP_TOKEN &&
+      process.env.WHATSAPP_PHONE_NUMBER_ID &&
+      process.env.WHATSAPP_VERIFY_TOKEN &&
+      process.env.WHATSAPP_APP_SECRET
+  );
+
+async function sendWhatsAppText(to: string, body: string): Promise<{ ok: boolean; error?: string }> {
+  if (!whatsappConfigured()) return { ok: false, error: 'WhatsApp API is not configured.' };
+  const version = process.env.WHATSAPP_API_VERSION || 'v22.0';
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${version}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: to.replace(/[^0-9]/g, ''),
+          type: 'text',
+          text: { body: body.slice(0, 4000) },
+        }),
+      }
+    );
+    if (!res.ok) {
+      const data: any = await res.json().catch(() => ({}));
+      return { ok: false, error: data?.error?.message || `WhatsApp API error ${res.status}` };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'WhatsApp request failed' };
+  }
+}
+
+function trimThread(messages: ThreadMessage[]): ThreadMessage[] {
+  return messages.length > MAX_THREAD_MESSAGES ? messages.slice(-MAX_THREAD_MESSAGES) : messages;
+}
+
+// Website helpline chat (public, rate limited). The browser keeps a secret chatKey for its conversation.
 app.post('/api/ai/customer-support', async (req, res) => {
   try {
-    const clientIp = (req.ip || req.socket.remoteAddress || req.headers['x-forwarded-for'] || 'local').toString();
+    const clientIp = (req.ip || req.socket.remoteAddress || 'local').toString();
     if (!checkRateLimit(`support:${clientIp}`, 10, 60_000)) {
-      return res.status(429).json({ error: 'Rate limit reached (10 requests per minute). Please wait a moment.' });
+      return res.status(429).json({ error: 'Bohat zyada messages. Ek minute baad dobara try karein.' });
     }
 
-    const { message, history, orderNumber, settings: clientSettings } = req.body;
-    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    const { message, chatId, chatKey, orderNumber, customerName, customerEmail, customerPhone } = req.body || {};
+    if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'Message cannot be empty.' });
     }
-
     if (message.length > 1000) {
-      return res.status(400).json({ error: 'Message exceeds maximum allowed limit of 1000 characters.' });
+      return res.status(400).json({ error: 'Message 1000 characters se lamba nahi ho sakta.' });
     }
 
-    const store = clientSettings || {};
-    const storeName = store.storeName || 'Store';
-    const storeTagline = store.tagline || '';
-    const currency = store.currency || 'PKR';
-    const whatsapp = store.helplineWhatsAppFormatted || store.helplineWhatsApp || '';
-    const email = store.supportEmail || store.helplineEmail || store.contactEmail || '';
-    const phone = store.helplinePhone || '';
-    const address = store.address || '';
-    const bankDetails = store.bankName
-      ? `${store.bankName} (Title: ${store.bankAccountTitle || 'Store Account'}, A/C: ${store.bankAccountNumber || store.bankIban || ''})`
-      : '';
-    const raastDetails = store.raastIban
-      ? `Raast ID/IBAN: ${store.raastIban} (Title: ${store.raastAccountTitle || storeName})`
-      : '';
-    const nayapayDetails = store.nayapayNumber
-      ? `NayaPay: ${store.nayapayNumber} (Title: ${store.nayapayAccountTitle || storeName})`
-      : '';
+    const now = new Date().toISOString();
+    const text = message.trim();
 
-    const ai = getGenAIClient();
-    const systemPrompt = `You are the dedicated 24/7 customer support advisor for "${storeName}", an online store operating in Pakistan (${currency}).
-
-Languages & Tone:
-- You speak fluent English, Urdu (اردو), and Roman Urdu (e.g., "Assalam o Alaikum! Main aap ki kis tarah madad kar sakta hoon?", "Aap ka order status...", "Delivery TCS ya Leopards ke zariye hoti hai").
-- If the customer writes in Roman Urdu, Urdu, or English, reply naturally in the same language.
-- Maintain a polite, helpful, clear, and professional tone.
-
-Store Details:
-- Store Name: ${storeName}
-${storeTagline ? `- Tagline: ${storeTagline}` : ''}
-${currency ? `- Store Currency: ${currency}` : ''}
-${address ? `- Physical Address: ${address}` : ''}
-${whatsapp ? `- WhatsApp Helpline: ${whatsapp}` : ''}
-${email ? `- Support Email: ${email}` : ''}
-${phone ? `- Phone Number: ${phone}` : ''}
-${bankDetails ? `- Bank Details: ${bankDetails}` : ''}
-${raastDetails ? `- Raast: ${raastDetails}` : ''}
-${nayapayDetails ? `- NayaPay: ${nayapayDetails}` : ''}
-- Payment Methods: Cash on Delivery (COD), Bank Transfer, Raast, NayaPay.
-
-Guidelines:
-- Keep responses concise, clear, and actionable.
-- If the customer asks about an order (e.g. ${orderNumber || 'order number'}), explain order tracking.
-${whatsapp ? `- Provide WhatsApp details (${whatsapp}) if they ask to speak with an agent.` : ''}`;
-
-    const formattedContents: any[] = [];
-    if (Array.isArray(history) && history.length > 0) {
-      for (const item of history.slice(-8)) {
-        formattedContents.push({
-          role: item.role === 'assistant' || item.role === 'model' ? 'model' : 'user',
-          parts: [{ text: item.content || item.text || '' }],
-        });
-      }
-    }
-    formattedContents.push({
-      role: 'user',
-      parts: [{ text: message }],
-    });
-
-    let reply = '';
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
-    for (const modelName of modelsToTry) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: formattedContents,
-          config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.7,
-          },
-        });
-        if (response.text) {
-          reply = response.text;
-          break;
-        }
-      } catch (mErr: any) {
-        console.warn(`[AI Helpline] ${modelName} unavailable, attempting fallback:`, mErr?.message || mErr);
+    // Continue the existing conversation only if the browser proves it owns it
+    let ticketRef: FirebaseFirestore.DocumentReference | null = null;
+    let ticket: CustomerTicket | null = null;
+    if (typeof chatId === 'string' && typeof chatKey === 'string' && /^chat-[a-f0-9]{24}$/.test(chatId)) {
+      const ref = adminDb.collection('support_tickets').doc(chatId);
+      const snap = await ref.get();
+      if (snap.exists && (snap.data() as CustomerTicket).chatKeyHash === hashChatKey(chatKey)) {
+        ticketRef = ref;
+        ticket = snap.data() as CustomerTicket;
       }
     }
 
-    if (!reply) {
-      reply = whatsapp
-        ? `Assalam o Alaikum! Welcome to ${storeName} support. Our team is available on WhatsApp (${whatsapp}) and email (${email || 'support'}).`
-        : `Assalam o Alaikum! Welcome to ${storeName} support. How may we assist you today?`;
-    }
-
-    // Automatically record live customer chat into Firestore support_tickets
-    try {
-      const chatId = 'tkt-chat-' + Date.now();
-      const chatTicketNumber = 'TKT-CHAT-' + Math.floor(1000 + Math.random() * 9000);
-      const chatTicket: CustomerTicket = {
-        id: chatId,
-        ticketNumber: chatTicketNumber,
-        name: req.body.customerName || 'Storefront Visitor',
-        email: req.body.customerEmail || 'visitor@example.com',
-        phone: req.body.customerPhone,
-        orderNumber: orderNumber ? String(orderNumber).trim() : undefined,
-        category: 'LIVE_AI_CHAT',
-        subject: `Live Chat: "${message.slice(0, 45)}${message.length > 45 ? '...' : ''}"`,
-        message: message,
+    let issuedKey: string | undefined;
+    if (!ticketRef || !ticket) {
+      const id = `chat-${crypto.randomBytes(12).toString('hex')}`;
+      issuedKey = crypto.randomBytes(24).toString('hex');
+      ticketRef = adminDb.collection('support_tickets').doc(id);
+      ticket = {
+        id,
+        ticketNumber: newTicketNumber(),
+        name: String(customerName || 'Website visitor').slice(0, 110),
+        email: isRealEmail(customerEmail) ? String(customerEmail).trim().toLowerCase() : '',
+        ...(customerPhone ? { phone: String(customerPhone).slice(0, 30) } : {}),
+        ...(orderNumber ? { orderNumber: String(orderNumber).trim().toUpperCase().slice(0, 40) } : {}),
+        category: 'LIVE_CHAT',
+        subject: `Chat: "${text.slice(0, 45)}${text.length > 45 ? '...' : ''}"`,
+        message: text,
         status: 'OPEN',
         channel: 'AI_CHAT',
-        createdAt: new Date().toISOString(),
-        aiAutoReply: reply,
-        aiAutoRepliedAt: new Date().toISOString(),
-        aiAutoReplyStatus: 'SENT',
+        createdAt: now,
+        messages: [],
+        chatKeyHash: hashChatKey(issuedKey),
       };
-      await adminDb.collection('support_tickets').doc(chatId).set(chatTicket);
-    } catch (logErr) {
-      console.warn('[Inbox live chat log error]:', logErr);
     }
+
+    const thread: ThreadMessage[] = [...(ticket.messages || []), { role: 'customer', text, at: now }];
+    const wantsHuman = HUMAN_REQUEST_PATTERN.test(text);
+    const humanActive = Boolean(ticket.humanActiveUntil && new Date(ticket.humanActiveUntil).getTime() > Date.now());
+
+    let reply: string | null = null;
+    if (!humanActive) {
+      const store = await loadStoreSettingsForSupport();
+      reply = await generateSupportReply({
+        store,
+        history: ticket.messages || [],
+        message: text,
+        channel: 'WEBSITE',
+        orderNumber: orderNumber || ticket.orderNumber,
+      });
+      thread.push({ role: 'ai', text: reply, at: new Date().toISOString() });
+    }
+
+    const updates: Partial<CustomerTicket> = {
+      ...ticket,
+      messages: trimThread(thread),
+      lastMessageAt: now,
+      status: ticket.status === 'RESOLVED' ? 'OPEN' : ticket.status,
+      needsHuman: Boolean(ticket.needsHuman || wantsHuman),
+      ...(reply ? { aiAutoReply: reply, aiAutoRepliedAt: new Date().toISOString(), aiAutoReplyStatus: 'SENT' as const } : {}),
+      ...(isRealEmail(customerEmail) && !ticket.email ? { email: String(customerEmail).trim().toLowerCase() } : {}),
+    };
+    await ticketRef.set(updates);
 
     res.json({
       success: true,
       reply,
-      suggestedActions: [
-        '📱 Install App on PC / Mobile',
-        'Track an Order',
-        whatsapp ? `Chat on WhatsApp (${whatsapp})` : 'Contact Helpline',
-        'Payment Methods in Pakistan',
-        'Shipping & Delivery Times',
-      ],
+      humanActive,
+      chatId: ticket.id,
+      ...(issuedKey ? { chatKey: issuedKey } : {}),
+      ticketNumber: ticket.ticketNumber,
     });
   } catch (err: any) {
-    console.error('[Customer Support AI Error]:', err);
-    res.status(500).json({
+    console.error('[Customer Support Chat Error]:', err);
+    res.status(503).json({
       success: false,
-      error: 'Support desk is momentarily experiencing high volume.',
-      fallbackReply: 'Thank you for reaching out to our customer support. Please contact us via WhatsApp or submit an inquiry ticket through our form.',
+      error: 'Support chat abhi dastiyab nahi.',
+      fallbackReply: 'Maazrat, chat abhi kaam nahi kar rahi. Barah-e-karam WhatsApp ya email se rabta karein.',
     });
   }
 });
 
-// POST /api/helpline/contact-ticket (Log customer inquiry ticket and trigger Instant AI Auto-Reply)
+// The website chat polls this to show replies from the store team
+app.get('/api/helpline/chat/:chatId', async (req, res) => {
+  const clientIp = (req.ip || req.socket.remoteAddress || 'local').toString();
+  if (!checkRateLimit(`chatpoll:${clientIp}`, 60, 60_000)) {
+    return res.status(429).json({ error: 'Too many requests.' });
+  }
+  const { chatId } = req.params;
+  const key = String(req.query.key || '');
+  if (!/^chat-[a-f0-9]{24}$/.test(chatId) || !key) {
+    return res.status(404).json({ error: 'Chat not found.' });
+  }
+  try {
+    const snap = await adminDb.collection('support_tickets').doc(chatId).get();
+    const ticket = snap.data() as CustomerTicket | undefined;
+    if (!snap.exists || !ticket || ticket.chatKeyHash !== hashChatKey(key)) {
+      return res.status(404).json({ error: 'Chat not found.' });
+    }
+    res.json({
+      success: true,
+      ticketNumber: ticket.ticketNumber,
+      status: ticket.status,
+      messages: (ticket.messages || []).map(({ role, text, at }) => ({ role, text, at })),
+    });
+  } catch (err) {
+    console.error('[Helpline chat poll error]:', err);
+    res.status(503).json({ error: 'Chat temporarily unavailable.' });
+  }
+});
+
+// Contact form ticket (public): stored as a conversation; the AI writes the first answer
 app.post('/api/helpline/contact-ticket', async (req, res) => {
-  const { name, email, phone, orderNumber, category, subject, message, channel, settings: clientSettings } = req.body;
+  const clientIp = (req.ip || req.socket.remoteAddress || 'local').toString();
+  if (!checkRateLimit(`ticket:${clientIp}`, 5, 60_000)) {
+    return res.status(429).json({ error: 'Bohat zyada requests. Thori der baad try karein.' });
+  }
+  const { name, email, phone, orderNumber, category, subject, message, channel } = req.body || {};
   if (!name || !email || !message) {
     return res.status(400).json({ error: 'Name, email, and message are required.' });
   }
-
-  const store = clientSettings || {};
-  const storeName = store.storeName || 'Store';
-  const whatsapp = store.helplineWhatsAppFormatted || store.helplineWhatsApp || '';
-  const id = 'tkt-' + Date.now();
-  const ticketNumber = 'TKT-2026-' + Math.floor(1000 + Math.random() * 9000);
-
-  // 1. Immediately invoke Gemini AI to generate a contextual, multilingual Auto-Reply!
-  let aiAutoReply = '';
-  try {
-    const ai = getGenAIClient();
-    const autoReplyPrompt = `You are the customer support assistant for ${storeName}.
-A customer has just submitted an inquiry/message through our customer helpline or storefront.
-Your job is to write a polite, helpful, personalized auto-reply to the customer.
-
-Customer Details:
-- Name: ${name}
-- Email: ${email}
-- Phone: ${phone || 'Not provided'}
-- Order Number: ${orderNumber || 'Not mentioned'}
-- Category: ${category || 'General Inquiry'}
-- Subject: ${subject || 'Support Request'}
-- Customer Message: "${message}"
-
-Auto-Reply Rules:
-1. Language matching: If customer wrote in Urdu or Roman Urdu (e.g. "mera order...", "kya yeh available hai?", "delivery kab hogi?"), reply in fluent, polite Roman Urdu or Urdu! If English, reply in English.
-2. Address their question directly regarding order tracking, payment methods, delivery times, or questions.
-3. Reassure the customer that their inquiry has been received and logged under Ticket #${ticketNumber}.
-${whatsapp ? `4. Mention that our support team is also reachable on WhatsApp (${whatsapp}).` : ''}
-5. Keep it warm, concise (2 short paragraphs), and sign off as "${storeName} Support Team".`;
-
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
-    for (const modelName of modelsToTry) {
-      try {
-        const resp = await ai.models.generateContent({
-          model: modelName,
-          contents: [{ role: 'user', parts: [{ text: autoReplyPrompt }] }],
-          config: { temperature: 0.7 },
-        });
-        if (resp.text) {
-          aiAutoReply = resp.text;
-          break;
-        }
-      } catch (err: any) {
-        console.warn(`[AI Auto-Reply] ${modelName} error:`, err?.message || err);
-      }
-    }
-  } catch (err) {
-    console.warn('[AI Auto-Reply Generator Error]:', err);
+  if (String(message).length > 3000) {
+    return res.status(400).json({ error: 'Message is too long.' });
   }
 
-  if (!aiAutoReply) {
-    aiAutoReply = `Dear ${name}, Assalam o Alaikum & Thank you for reaching out to ${storeName}. We have logged your inquiry (Ticket #${ticketNumber}) regarding "${subject || 'your request'}". Our team is reviewing your details and will follow up shortly.${whatsapp ? ` You may also reach us directly on WhatsApp at ${whatsapp}.` : ''} Warm regards, ${storeName} Support Team.`;
-  }
+  const now = new Date().toISOString();
+  const id = `tkt-${crypto.randomBytes(10).toString('hex')}`;
+  const ticketNumber = newTicketNumber();
+  const store = await loadStoreSettingsForSupport();
+  const customerText = `${subject ? `${String(subject).trim()}\n` : ''}${String(message).trim()}`;
+  const aiAutoReply = await generateSupportReply({
+    store,
+    history: [],
+    message: customerText,
+    channel: 'FORM',
+    orderNumber,
+  });
 
   const ticket: CustomerTicket = {
     id,
     ticketNumber,
-    name: String(name).trim(),
-    email: String(email).trim().toLowerCase(),
-    phone: phone ? String(phone).trim() : undefined,
-    orderNumber: orderNumber ? String(orderNumber).trim().toUpperCase() : undefined,
+    name: String(name).trim().slice(0, 110),
+    email: String(email).trim().toLowerCase().slice(0, 250),
+    ...(phone ? { phone: String(phone).trim().slice(0, 30) } : {}),
+    ...(orderNumber ? { orderNumber: String(orderNumber).trim().toUpperCase().slice(0, 40) } : {}),
     category: category || 'GENERAL',
-    subject: subject ? String(subject).trim() : 'Customer Support Request',
+    subject: subject ? String(subject).trim().slice(0, 200) : 'Customer Support Request',
     message: String(message).trim(),
     status: 'OPEN',
-    channel: channel || 'WEB_FORM',
-    createdAt: new Date().toISOString(),
+    channel: channel === 'LIVE_CUSTOMER_TEST' ? 'LIVE_CUSTOMER_TEST' : 'WEB_FORM',
+    createdAt: now,
     aiAutoReply,
     aiAutoRepliedAt: new Date().toISOString(),
     aiAutoReplyStatus: 'SENT',
+    messages: [
+      { role: 'customer', text: customerText, at: now },
+      { role: 'ai', text: aiAutoReply, at: new Date().toISOString() },
+    ],
+    lastMessageAt: now,
   };
 
   try {
@@ -4249,53 +4361,205 @@ ${whatsapp ? `4. Mention that our support team is also reachable on WhatsApp (${
     return res.status(503).json({ error: 'Service temporarily unavailable: failed to log support ticket.' });
   }
 
+  const { chatKeyHash: _omit, ...publicTicket } = ticket;
   res.json({
     success: true,
     ticketNumber,
-    message: `Your inquiry ticket #${ticketNumber} has been logged. Our AI Concierge has generated an immediate response below, and our team will follow up at ${ticket.email}.`,
-    ticket,
+    message: `Your ticket #${ticketNumber} has been received. Our team will reply at ${ticket.email}.`,
+    ticket: publicTicket,
     aiAutoReply,
   });
 });
 
-// GET /api/helpline/tickets (Fetch tickets for Admin Inbox from Firestore)
+// WhatsApp webhook verification (Meta calls this once when you add the webhook URL)
+app.get('/api/whatsapp/webhook', (req, res) => {
+  if (
+    process.env.WHATSAPP_VERIFY_TOKEN &&
+    req.query['hub.mode'] === 'subscribe' &&
+    req.query['hub.verify_token'] === process.env.WHATSAPP_VERIFY_TOKEN
+  ) {
+    return res.status(200).send(String(req.query['hub.challenge'] || ''));
+  }
+  res.sendStatus(403);
+});
+
+// Incoming WhatsApp messages. The signature proves the request really comes from Meta.
+app.post('/api/whatsapp/webhook', (req, res) => {
+  if (!whatsappConfigured()) return res.sendStatus(503);
+  const signature = String(req.headers['x-hub-signature-256'] || '');
+  const rawBody: Buffer | undefined = (req as any).rawBody;
+  const expected =
+    'sha256=' + crypto.createHmac('sha256', String(process.env.WHATSAPP_APP_SECRET)).update(rawBody || '').digest('hex');
+  const valid =
+    rawBody &&
+    signature.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  if (!valid) return res.sendStatus(401);
+
+  // Answer Meta immediately; process in the background
+  res.sendStatus(200);
+  handleWhatsAppWebhook(req.body).catch((err) => console.error('[WhatsApp webhook] processing failed:', err));
+});
+
+async function handleWhatsAppWebhook(payload: any) {
+  const changes = (payload?.entry || []).flatMap((e: any) => e?.changes || []);
+  for (const change of changes) {
+    const value = change?.value || {};
+    const contacts = value.contacts || [];
+    for (const msg of value.messages || []) {
+      const from = String(msg?.from || '').replace(/[^0-9]/g, '');
+      if (!from || !msg?.id) continue;
+
+      // WhatsApp may deliver the same message twice; process each id once
+      try {
+        await adminDb.collection('wa_processed').doc(String(msg.id)).create({ at: new Date().toISOString() });
+      } catch {
+        continue;
+      }
+
+      const name = contacts.find((c: any) => c?.wa_id === from)?.profile?.name || `WhatsApp ${from}`;
+      const text =
+        msg.type === 'text'
+          ? String(msg.text?.body || '').slice(0, 2000)
+          : `[${msg.type || 'unknown'} message — please check WhatsApp]`;
+      const now = new Date().toISOString();
+
+      const ref = adminDb.collection('support_tickets').doc(`wa-${from}`);
+      const snap = await ref.get();
+      const ticket: CustomerTicket = snap.exists
+        ? (snap.data() as CustomerTicket)
+        : {
+            id: `wa-${from}`,
+            ticketNumber: newTicketNumber(),
+            name: String(name).slice(0, 110),
+            email: '',
+            phone: `+${from}`,
+            category: 'WHATSAPP',
+            subject: `WhatsApp: "${text.slice(0, 45)}"`,
+            message: text,
+            status: 'OPEN',
+            channel: 'WHATSAPP',
+            createdAt: now,
+            waId: from,
+            messages: [],
+          };
+
+      const thread: ThreadMessage[] = [...(ticket.messages || []), { role: 'customer', text, at: now }];
+      const humanActive = Boolean(ticket.humanActiveUntil && new Date(ticket.humanActiveUntil).getTime() > Date.now());
+      const aiEnabled = process.env.WHATSAPP_AI_REPLIES !== 'false';
+      const withinLimit = checkRateLimit(`wa:${from}`, 10, 60_000);
+
+      let reply: string | null = null;
+      if (aiEnabled && !humanActive && withinLimit && msg.type === 'text') {
+        const store = await loadStoreSettingsForSupport();
+        reply = await generateSupportReply({ store, history: ticket.messages || [], message: text, channel: 'WHATSAPP' });
+        const sent = await sendWhatsAppText(from, reply);
+        thread.push({
+          role: 'ai',
+          text: reply,
+          at: new Date().toISOString(),
+          delivery: sent.ok ? 'whatsapp' : `failed: ${sent.error}`,
+        });
+      }
+
+      await ref.set({
+        ...ticket,
+        messages: trimThread(thread),
+        lastMessageAt: now,
+        status: ticket.status === 'RESOLVED' ? 'OPEN' : ticket.status,
+        needsHuman: Boolean(ticket.needsHuman || HUMAN_REQUEST_PATTERN.test(text) || msg.type !== 'text'),
+        ...(reply ? { aiAutoReply: reply, aiAutoRepliedAt: new Date().toISOString(), aiAutoReplyStatus: 'SENT' } : {}),
+      });
+    }
+  }
+}
+
+// GET /api/helpline/tickets (Admin Inbox)
 app.get('/api/helpline/tickets', requireAdmin, async (_req, res) => {
   try {
     const snap = await adminDb.collection('support_tickets').orderBy('createdAt', 'desc').limit(100).get();
-    const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-    res.json({ success: true, tickets: list });
+    const list = snap.docs.map((d) => {
+      const { chatKeyHash: _omit, ...rest } = d.data() as any;
+      return { id: d.id, ...rest };
+    });
+    list.sort((a: any, b: any) => String(b.lastMessageAt || b.createdAt).localeCompare(String(a.lastMessageAt || a.createdAt)));
+    res.json({ success: true, tickets: list, whatsappConnected: whatsappConfigured() });
   } catch (err: any) {
     console.error('Failed to fetch support tickets from Firestore:', err);
     res.status(503).json({ error: 'Service temporarily unavailable: failed to fetch support tickets.' });
   }
 });
 
-// POST /api/helpline/tickets/:id/merchant-reply (Merchant sends manual reply from Inbox)
+// POST /api/helpline/tickets/:id/merchant-reply
+// The admin's reply goes into the conversation (website chat shows it), and is also sent by
+// WhatsApp for WhatsApp chats or by email when the customer left a real email address.
 app.post('/api/helpline/tickets/:id/merchant-reply', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const { merchantReply, status } = req.body;
+    const { merchantReply, status } = req.body || {};
+    const replyText = String(merchantReply || '').trim().slice(0, 4000);
     const ticketRef = adminDb.collection('support_tickets').doc(id);
     const ticketSnap = await ticketRef.get();
     if (!ticketSnap.exists) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
     const existing = ticketSnap.data() as CustomerTicket;
-    const updates: any = {};
-    if (merchantReply) {
-      updates.merchantReply = String(merchantReply).trim();
-      updates.merchantRepliedAt = new Date().toISOString();
+    const now = new Date().toISOString();
+    const updates: any = { updatedAt: now };
+    const deliveredTo: string[] = [];
+    const deliveryErrors: string[] = [];
+
+    if (replyText) {
+      if (existing.channel === 'WHATSAPP' && existing.waId) {
+        const sent = await sendWhatsAppText(existing.waId, replyText);
+        if (sent.ok) deliveredTo.push('WhatsApp');
+        else deliveryErrors.push(`WhatsApp: ${sent.error}`);
+      } else if (existing.channel === 'AI_CHAT') {
+        deliveredTo.push('website chat');
+      }
+
+      if (isRealEmail(existing.email)) {
+        const store = await loadStoreSettingsForSupport();
+        const mail = await sendSupportReplyEmail(adminDb, {
+          to: existing.email,
+          customerName: existing.name,
+          ticketNumber: existing.ticketNumber,
+          replyText,
+          storeName: store.storeName,
+          supportEmail: store.supportEmail || store.contactEmail,
+        });
+        if (mail.success) deliveredTo.push('email');
+        else deliveryErrors.push(`Email: ${mail.error}`);
+      }
+
+      const thread: ThreadMessage[] = [
+        ...(existing.messages || []),
+        { role: 'admin', text: replyText, at: now, delivery: deliveredTo.join(', ') || 'saved only' },
+      ];
+      updates.messages = trimThread(thread);
+      updates.merchantReply = replyText;
+      updates.merchantRepliedAt = now;
+      updates.lastMessageAt = now;
+      updates.needsHuman = false;
+      updates.humanActiveUntil = new Date(Date.now() + HUMAN_TAKEOVER_MS).toISOString();
     }
-    if (status) {
+    if (status && ['OPEN', 'IN_PROGRESS', 'RESOLVED'].includes(status)) {
       updates.status = status;
     }
     await ticketRef.update(updates);
-    res.json({ success: true, ticket: { ...existing, ...updates, id } });
+    const { chatKeyHash: _omit, ...publicExisting } = existing as any;
+    res.json({
+      success: true,
+      deliveredTo,
+      deliveryErrors,
+      ticket: { ...publicExisting, ...updates, id },
+    });
   } catch (err: any) {
     console.error('Error updating merchant reply in Firestore:', err);
     res.status(503).json({ error: 'Service temporarily unavailable: failed to update ticket in database.' });
   }
 });
+
 
 // PATCH /api/helpline/tickets/:id (Update ticket status)
 app.patch('/api/helpline/tickets/:id', requireAdmin, async (req, res) => {
