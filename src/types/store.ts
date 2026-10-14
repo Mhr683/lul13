@@ -76,6 +76,32 @@ export interface Product {
   updatedAt?: string;
 }
 
+// Admin-only product data, stored in product_private/{productId} so customers can never read it.
+export interface ProductPrivate {
+  productId: string;
+  costPrice?: number;
+  supplierName?: SupplierName | string;
+  supplierProductUrl?: string;
+  supplierSku?: string;
+  supplierCostPrice?: number;
+  updatedAt?: string;
+}
+
+// Admin-only order data (supplier per item), stored in order_private/{orderId}.
+export interface OrderPrivateItem {
+  productId: string;
+  supplierName?: SupplierName | string;
+  supplierSku?: string;
+  supplierProductUrl?: string;
+  supplierCostPrice?: number;
+}
+
+export interface OrderPrivate {
+  orderId: string;
+  items: OrderPrivateItem[];
+  updatedAt?: string;
+}
+
 export interface Category {
   id: string;
   name: string;

@@ -154,32 +154,35 @@ export class ShippingCalculationService {
     const isDomestic = destIso === 'PK';
 
     // 1. Calculate Subtotal, Actual Weight, and Volumetric Weight
+    // Prices are stored in PKR, so the subtotal needs no currency conversion.
+    // Weights are always computed from the items so the browser and the server
+    // arrive at the same shipping fee.
     let subtotalPkr = merchandiseSubtotalPkr ?? 0;
     let totalActualWeightKg = req.actualWeightKg ?? 0;
     let totalVolumetricWeightKg = req.volumetricWeightKg ?? 0;
 
-    if (items.length > 0 && merchandiseSubtotalPkr === undefined) {
-      subtotalPkr = 0;
-      totalActualWeightKg = 0;
-      totalVolumetricWeightKg = 0;
+    if (items.length > 0) {
+      let computedSubtotal = 0;
+      let computedActual = 0;
+      let computedVolumetric = 0;
 
       for (const item of items) {
         const prod = catalogProducts.find((p) => p.id === item.productId);
         const unitPrice = prod ? prod.price : item.price;
-        const unitPriceInPkr =
-          settings.currency === 'PKR'
-            ? unitPrice * (settings.usdToPkrRate || 278.5)
-            : unitPrice;
-        subtotalPkr += unitPriceInPkr * item.quantity;
+        computedSubtotal += unitPrice * item.quantity;
 
         const unitWeight = prod?.weightKg ?? 0.8;
-        totalActualWeightKg += unitWeight * item.quantity;
+        computedActual += unitWeight * item.quantity;
 
         const dims = this.parseDimensions(prod?.dimensions);
         const divisor = settings.domesticVolumetricDivisor || 5000;
         const volWeightItem = (dims.length * dims.width * dims.height) / divisor;
-        totalVolumetricWeightKg += volWeightItem * item.quantity;
+        computedVolumetric += volWeightItem * item.quantity;
       }
+
+      if (merchandiseSubtotalPkr === undefined) subtotalPkr = computedSubtotal;
+      if (req.actualWeightKg === undefined) totalActualWeightKg = computedActual;
+      if (req.volumetricWeightKg === undefined) totalVolumetricWeightKg = computedVolumetric;
     }
 
     const calculatedBillable = Math.max(totalActualWeightKg, totalVolumetricWeightKg);

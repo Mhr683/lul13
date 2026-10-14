@@ -166,8 +166,9 @@ export class EmailNotificationService {
   }
 }
 
-// 4. Configurable Multi-Currency & Pricing Mathematics
-// Merchant base currency: PKR. Secondary display currency: USD.
+// 4. Pricing Mathematics
+// All prices, costs, shipping fees and order totals are stored and calculated in PKR.
+// The USD rate is kept only for legacy/reference display and is never used for checkout math.
 export const DEFAULT_STATIC_USD_TO_PKR_RATE = 278.5;
 export const USD_TO_PKR_RATE = DEFAULT_STATIC_USD_TO_PKR_RATE;
 
@@ -186,22 +187,15 @@ export function formatMoney(val: MoneyValue): string {
   return `${val.currency} ${val.amount.toFixed(2)}`;
 }
 
-export function formatPKR(usdAmount: number, rate = DEFAULT_STATIC_USD_TO_PKR_RATE): string {
-  const pkr = Math.round((Number(usdAmount) || 0) * rate);
+// Amounts are already in PKR; this only formats them.
+export function formatPKR(pkrAmount: number): string {
+  const pkr = Math.round(Number(pkrAmount) || 0);
   return `PKR ${pkr.toLocaleString('en-US')}`;
 }
 
-export function formatDualPrice(
-  usdAmount: number,
-  includeDecimals = false,
-  rate = DEFAULT_STATIC_USD_TO_PKR_RATE
-): string {
-  const num = Number(usdAmount) || 0;
-  const usdStr = includeDecimals
-    ? `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : `$${num.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-  const pkrStr = formatPKR(num, rate);
-  return `${usdStr} (${pkrStr})`;
+// Kept for existing call sites; the store is PKR-only so this is the same as formatPKR.
+export function formatDualPrice(pkrAmount: number, _includeDecimals = false): string {
+  return formatPKR(pkrAmount);
 }
 
 export function sanitizeSlug(input: string): string {

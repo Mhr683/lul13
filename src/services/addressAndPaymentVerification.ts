@@ -1,5 +1,20 @@
-import { Country, State, City, ICountry, IState, ICity } from 'country-state-city';
 import { PaymentMethod } from '../types/store';
+import { GEO_COUNTRIES, GEO_STATES, GEO_PK_CITIES } from '../data/geoData';
+
+// Same shapes as country-state-city's IState / ICity (only the fields the store uses)
+export interface IState {
+  name: string;
+  isoCode: string;
+  countryCode: string;
+}
+
+export interface ICity {
+  name: string;
+  countryCode: string;
+  stateCode: string;
+}
+
+const countryNameByIso = (iso: string) => GEO_COUNTRIES.find((c) => c[0] === iso)?.[1];
 
 export interface WorldwideCountryInfo {
   isoCode: string;
@@ -12,16 +27,15 @@ export interface WorldwideCountryInfo {
 
 // Load all 250+ countries of the world with Pakistan ('PK') prioritized first
 export function getAllWorldCountries(): WorldwideCountryInfo[] {
-  const all: ICountry[] = Country.getAllCountries();
-  const mapped: WorldwideCountryInfo[] = all.map((c) => {
-    const rawCode = c.phonecode.startsWith('+') ? c.phonecode : `+${c.phonecode}`;
+  const mapped: WorldwideCountryInfo[] = GEO_COUNTRIES.map(([isoCode, name, flag, phonecode, currency]) => {
+    const rawCode = phonecode.startsWith('+') ? phonecode : `+${phonecode}`;
     return {
-      isoCode: c.isoCode,
-      name: c.name,
-      flag: c.flag || '',
+      isoCode,
+      name,
+      flag: flag || '',
       phonePrefix: rawCode.split(' and ')[0],
-      isNational: c.isoCode === 'PK',
-      currency: c.currency || 'USD',
+      isNational: isoCode === 'PK',
+      currency: currency || 'USD',
     };
   });
 
@@ -39,13 +53,14 @@ export const ALL_WORLD_COUNTRIES: WorldwideCountryInfo[] = getAllWorldCountries(
 // Get all official States / Provinces / Regions for a Country ISO code
 export function getStatesForCountry(countryIsoCode: string): IState[] {
   if (!countryIsoCode) return [];
-  const states = State.getStatesOfCountry(countryIsoCode);
+  const states: IState[] = (GEO_STATES[countryIsoCode] || [])
+    .map(([isoCode, name]) => ({ name, isoCode, countryCode: countryIsoCode }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   if (states.length === 0) {
     // Fallback for city-states or small islands (e.g., Monaco, Vatican, Gibraltar)
-    const country = Country.getCountryByCode(countryIsoCode);
     return [
       {
-        name: `${country?.name || countryIsoCode} Metropolitan Region`,
+        name: `${countryNameByIso(countryIsoCode) || countryIsoCode} Metropolitan Region`,
         isoCode: 'CENTRAL',
         countryCode: countryIsoCode,
       },
@@ -57,18 +72,20 @@ export function getStatesForCountry(countryIsoCode: string): IState[] {
 // Get all official Cities for a Country ISO code + State ISO code
 export function getCitiesForState(countryIsoCode: string, stateIsoCode: string): ICity[] {
   if (!countryIsoCode) return [];
-  if (stateIsoCode && stateIsoCode !== 'CENTRAL') {
-    const stateCities = City.getCitiesOfState(countryIsoCode, stateIsoCode);
-    if (stateCities.length > 0) return stateCities;
+  // City lists ship for Pakistan only; other countries use their state/region as the "city"
+  if (countryIsoCode === 'PK') {
+    const toCity = (name: string, stateCode: string): ICity => ({ name, countryCode: 'PK', stateCode });
+    if (stateIsoCode && stateIsoCode !== 'CENTRAL' && GEO_PK_CITIES[stateIsoCode]?.length) {
+      return GEO_PK_CITIES[stateIsoCode].map((name) => toCity(name, stateIsoCode));
+    }
+    const allPk = Object.entries(GEO_PK_CITIES).flatMap(([st, names]) => names.map((n) => toCity(n, st)));
+    if (allPk.length > 0) return allPk;
   }
-  const countryCities = City.getCitiesOfCountry(countryIsoCode) || [];
-  if (countryCities.length > 0) return countryCities;
 
-  const stateObj = State.getStateByCodeAndCountry(stateIsoCode, countryIsoCode);
-  const countryObj = Country.getCountryByCode(countryIsoCode);
+  const stateName = (GEO_STATES[countryIsoCode] || []).find(([iso]) => iso === stateIsoCode)?.[1];
   return [
     {
-      name: stateObj?.name || countryObj?.name || 'Central District',
+      name: stateName || countryNameByIso(countryIsoCode) || 'Central District',
       countryCode: countryIsoCode,
       stateCode: stateIsoCode || 'CENTRAL',
     },

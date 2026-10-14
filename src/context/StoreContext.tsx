@@ -40,16 +40,17 @@ import {
   PaymentStatus,
   PaymentMethod,
   OrderShipment,
+  ProductPrivate,
+  OrderPrivate,
 } from '../types/store';
 import { generateCourierTrackingUrl } from '../services/shippingService';
+import { INITIAL_SETTINGS } from '../data/seedData';
 import {
-  INITIAL_CATEGORIES,
-  INITIAL_COUPONS,
-  INITIAL_PRODUCTS,
-  INITIAL_REVIEWS,
-  INITIAL_SETTINGS,
-  IMG_HANDBAG,
-} from '../data/seedData';
+  splitProductPrivate,
+  mergeProductPrivate,
+  mergeOrderPrivate,
+  splitOrderItemsPrivate,
+} from '../services/privateData';
 import {
   PaymentGatewayService,
   sanitizeDocId,
@@ -167,8 +168,8 @@ const StoreContext = createContext<StoreContextValue | undefined>(undefined);
 
 const CART_STORAGE_KEY = 'store_cart_v1';
 const WISHLIST_STORAGE_KEY = 'store_wishlist_v1';
-const PRODUCTS_STORAGE_KEY = 'store_products_v1';
-const CATEGORIES_STORAGE_KEY = 'store_categories_v1';
+const PRODUCTS_STORAGE_KEY = 'store_products_v2';
+const CATEGORIES_STORAGE_KEY = 'store_categories_v2';
 const SETTINGS_STORAGE_KEY = 'store_settings_config';
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -186,7 +187,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // ignore
     }
-    return INITIAL_PRODUCTS;
+    return [];
   });
 
   const [categories, setCategories] = useState<Category[]>(() => {
@@ -199,11 +200,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // ignore
     }
-    return INITIAL_CATEGORIES;
+    return [];
   });
 
-  const [coupons, setCoupons] = useState<Coupon[]>(INITIAL_COUPONS);
-  const [reviews, setReviews] = useState<Review[]>(INITIAL_REVIEWS);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  // Admin-only supplier/cost data, merged into products and orders for admins only
+  const [productPrivate, setProductPrivate] = useState<Record<string, ProductPrivate>>({});
+  const [orderPrivate, setOrderPrivate] = useState<Record<string, OrderPrivate>>({});
   const [orders, setOrders] = useState<Order[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [aiTasks, setAiTasks] = useState<AITask[]>([]);
@@ -483,8 +487,39 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     let unsubAudit = () => {};
     let unsubTasks = () => {};
+    let unsubProductPrivate = () => {};
+    let unsubOrderPrivate = () => {};
+
+    if (!isAdmin) {
+      setProductPrivate({});
+      setOrderPrivate({});
+    }
 
     if (isAdmin) {
+      unsubProductPrivate = onSnapshot(
+        collection(db, 'product_private'),
+        (snap) => {
+          const map: Record<string, ProductPrivate> = {};
+          snap.docs.forEach((d) => {
+            map[d.id] = d.data() as ProductPrivate;
+          });
+          setProductPrivate(map);
+        },
+        (err) => console.warn('product_private listener error:', err.message)
+      );
+
+      unsubOrderPrivate = onSnapshot(
+        collection(db, 'order_private'),
+        (snap) => {
+          const map: Record<string, OrderPrivate> = {};
+          snap.docs.forEach((d) => {
+            map[d.id] = d.data() as OrderPrivate;
+          });
+          setOrderPrivate(map);
+        },
+        (err) => console.warn('order_private listener error:', err.message)
+      );
+
       unsubAudit = onSnapshot(
         collection(db, 'audit_logs'),
         (snap) => {
@@ -511,8 +546,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unsubNotifs();
       unsubAudit();
       unsubTasks();
+      unsubProductPrivate();
+      unsubOrderPrivate();
     };
   }, [authReady, firebaseUser, isAdmin]);
+
+  // Order documents are customer-readable, so supplier fields must never be written into them.
+  const toPublicOrder = (o: Order): Order =>
+    Array.isArray(o.items) ? { ...o, items: splitOrderItemsPrivate(o.items).publicItems } : o;
+
+  // Admins see products/orders with their supplier data merged in; customers never receive it.
+  const productsView = React.useMemo(
+    () => (isAdmin ? products.map((p) => mergeProductPrivate(p, productPrivate[p.id])) : products),
+    [isAdmin, products, productPrivate]
+  );
+  const ordersView = React.useMemo(
+    () => (isAdmin ? orders.map((o) => mergeOrderPrivate(o, orderPrivate[o.id])) : orders),
+    [isAdmin, orders, orderPrivate]
+  );
 
   // Auth Actions
   const signInWithGoogle = async () => {
@@ -854,7 +905,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (firebaseUser && isAdmin) {
       try {
-        await setDoc(doc(db, 'orders', target.id), updatedOrder);
+        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
         await recordAuditLog(
           action === 'APPROVE' ? 'PAYMENT_VERIFIED' : 'PAYMENT_REJECTED',
           `Order:${target.orderNumber}`,
@@ -926,7 +977,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (firebaseUser && isAdmin) {
       try {
-        await setDoc(doc(db, 'orders', target.id), updatedOrder);
+        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
         await recordAuditLog(
           'SHIPPING_QUOTE_ISSUED',
           `Order:${target.orderNumber}`,
@@ -974,7 +1025,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           };
           if (firebaseUser && isAdmin) {
             try {
-              await setDoc(doc(db, 'orders', target.id), expiredOrder);
+              await setDoc(doc(db, 'orders', target.id), toPublicOrder(expiredOrder));
               await recordAuditLog(
                 'QUOTE_EXPIRED',
                 `Order:${target.orderNumber}`,
@@ -1001,7 +1052,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (firebaseUser) {
         try {
-          await setDoc(doc(db, 'orders', target.id), updatedOrder);
+          await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
           await recordAuditLog(
             resData.auditLog?.action || (accept ? 'QUOTE_ACCEPTED' : 'QUOTE_REJECTED'),
             `Order:${target.orderNumber}`,
@@ -1071,13 +1122,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ''
       ).slice(0, 4900),
       price: Math.max(0, Number(input.price ?? existingProd?.price ?? 0)),
+      // No invented "was" price: only show a crossed-out price when the admin sets one
       compareAtPrice: Math.max(
         0,
-        Number(input.compareAtPrice ?? existingProd?.compareAtPrice ?? Math.round((input.price || 100) * 1.15))
-      ),
-      costPrice: Math.max(
-        0,
-        Number(input.costPrice ?? existingProd?.costPrice ?? Math.round((input.price || 100) * 0.35))
+        Number(('compareAtPrice' in input ? input.compareAtPrice : existingProd?.compareAtPrice) ?? 0) || 0
       ),
       stock: Math.max(0, Math.round(Number(input.stock ?? existingProd?.stock ?? 15))),
       reservedStock: Math.max(0, Math.round(Number(input.reservedStock ?? existingProd?.reservedStock ?? 0))),
@@ -1105,12 +1153,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ).slice(0, 390),
       primaryImage: (input.primaryImage || existingProd?.primaryImage || '').slice(0, 980),
       rating: Number(input.rating ?? existingProd?.rating ?? 5.0),
-      reviewCount: Math.round(Number(input.reviewCount ?? existingProd?.reviewCount ?? 1)),
+      reviewCount: Math.round(Number(input.reviewCount ?? existingProd?.reviewCount ?? 0)),
       weightKg: Number(input.weightKg ?? existingProd?.weightKg ?? 0.8),
       dimensions: (input.dimensions || existingProd?.dimensions || '30cm x 20cm x 10cm').slice(0, 95),
       createdAt: existingProd?.createdAt || now,
       updatedAt: now,
     };
+
+    // Admin-only supplier/cost data lives in product_private/{id}, never on the public product
+    const existingPrivate = productPrivate[prodId];
+    const pickNumber = (v: unknown) =>
+      v === undefined || v === null || v === '' || isNaN(Number(v)) ? undefined : Math.max(0, Number(v));
+    const privateFields: ProductPrivate = {
+      productId: prodId,
+      supplierName: (input.supplierName ?? existingPrivate?.supplierName ?? 'Own Stock') as string,
+      supplierProductUrl: String(input.supplierProductUrl ?? existingPrivate?.supplierProductUrl ?? '').slice(0, 1000),
+      supplierSku: String(input.supplierSku ?? existingPrivate?.supplierSku ?? '').slice(0, 100),
+      updatedAt: now,
+    };
+    const supplierCost = pickNumber(input.supplierCostPrice ?? existingPrivate?.supplierCostPrice);
+    if (supplierCost !== undefined) privateFields.supplierCostPrice = supplierCost;
+    const costPrice = pickNumber(input.costPrice ?? existingPrivate?.costPrice);
+    if (costPrice !== undefined) privateFields.costPrice = costPrice;
+
+    const fullProduct: Product = mergeProductPrivate(cleanProduct, privateFields);
 
     // Always update local reactive state and localStorage immediately
     setProducts((prev) => {
@@ -1123,8 +1189,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       } catch {}
       return next;
     });
+    setProductPrivate((prev) => ({ ...prev, [prodId]: privateFields }));
 
-    // Persist to server disk storage so refresh never loses the product
+    // Persist through the server (it splits public and private data)
     (async () => {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       fetch('/api/catalog/products/save', {
@@ -1133,17 +1200,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(cleanProduct),
+        body: JSON.stringify(fullProduct),
       }).catch(() => {});
     })();
 
     if (firebaseUser && isAdmin) {
       try {
         await setDoc(doc(db, 'products', prodId), cleanProduct);
+        await setDoc(doc(db, 'product_private', prodId), privateFields);
         await recordAuditLog(
           actionLabel || (existingProd ? 'PRODUCT_UPDATED' : 'PRODUCT_CREATED'),
           `Product:${cleanProduct.sku}`,
-          `${cleanProduct.name} ($${cleanProduct.price}, Stock: ${cleanProduct.stock})`
+          `${cleanProduct.name} (PKR ${cleanProduct.price}, Stock: ${cleanProduct.stock})`
         );
         if (cleanProduct.stock <= (cleanProduct.lowStockThreshold || 5)) {
           await pushNotification(
@@ -1157,12 +1225,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     }
 
-    return cleanProduct;
+    return fullProduct;
   };
 
   // Bulk import products atomically (Persists to React state, localStorage, server disk, & Firestore)
   const importProductsBatch: StoreContextValue['importProductsBatch'] = async (items) => {
     if (!items || items.length === 0) return { count: 0 };
+
+    // Supplier/cost columns from the CSV stay admin-only (product_private)
+    const splitItems = items
+      .filter((p) => p && p.id)
+      .map((p) => ({ id: p.id, ...splitProductPrivate(p) }));
 
     // 1. Update React state immediately with deduplication
     setProducts((prev) => {
@@ -1170,8 +1243,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       prev.forEach((p) => {
         if (p && p.id) map.set(p.id, p);
       });
-      items.forEach((p) => {
-        if (p && p.id) map.set(p.id, p);
+      splitItems.forEach((s) => {
+        map.set(s.id, s.publicData as Product);
       });
       const next = Array.from(map.values());
       try {
@@ -1231,9 +1304,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // 4. If logged in with admin privileges, sync to Firestore
     if (firebaseUser && isAdmin) {
       try {
-        for (const prod of items) {
+        for (const s of splitItems) {
           try {
-            await setDoc(doc(db, 'products', prod.id), prod);
+            await setDoc(doc(db, 'products', s.id), s.publicData);
+            if (s.privateData) {
+              await setDoc(doc(db, 'product_private', s.id), {
+                ...s.privateData,
+                updatedAt: new Date().toISOString(),
+              });
+            }
           } catch {}
         }
       } catch (err) {
@@ -1269,6 +1348,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (firebaseUser && isAdmin) {
       try {
         await deleteDoc(doc(db, 'products', productId));
+        await deleteDoc(doc(db, 'product_private', productId)).catch(() => {});
         await recordAuditLog(
           'PRODUCT_DELETED',
           `Product:${target?.sku || productId}`,
@@ -1407,7 +1487,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (firebaseUser && isAdmin) {
       try {
-        await setDoc(doc(db, 'orders', target.id), updatedOrder);
+        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
         await recordAuditLog(
           `ORDER_${status}`,
           `Order:${target.orderNumber}`,
@@ -1458,7 +1538,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (firebaseUser && isAdmin) {
       try {
-        await setDoc(doc(db, 'orders', target.id), updatedOrder);
+        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
         await recordAuditLog(
           'ORDER_CONFIRMED',
           `Order:${target.orderNumber}`,
@@ -1503,7 +1583,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (firebaseUser && isAdmin) {
       try {
-        await setDoc(doc(db, 'orders', target.id), updatedOrder);
+        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
         await recordAuditLog(
           'ORDER_CANCELLED_FAKE',
           `Order:${target.orderNumber}`,
@@ -1593,7 +1673,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (firebaseUser && isAdmin) {
       try {
-        await setDoc(doc(db, 'orders', target.id), updatedOrder);
+        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
         await recordAuditLog(
           'ORDER_SHIPMENT_UPDATED',
           `Order:${target.orderNumber}`,
@@ -1781,11 +1861,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isAdmin,
         signInWithGoogle,
         signOut,
-        products,
+        products: productsView,
         categories,
         coupons,
         reviews,
-        orders,
+        orders: ordersView,
         auditLogs,
         aiTasks,
         notifications,

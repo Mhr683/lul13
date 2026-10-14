@@ -59,8 +59,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'sku', 'name', 'slug', 'price', 'stock', 'category', 'brand', 'status', 'createdAt']) &&
         data.keys().hasOnly([
           'id', 'sku', 'name', 'slug', 'shortDescription', 'description',
-          'price', 'compareAtPrice', 'costPrice', 'supplierName', 'supplierProductUrl',
-          'supplierSku', 'supplierCostPrice', 'stock', 'reservedStock',
+          'price', 'compareAtPrice', 'stock', 'reservedStock',
           'lowStockThreshold', 'category', 'subcategory', 'brand', 'status',
           'featured', 'bestSeller', 'newArrival', 'seoTitle', 'seoDescription',
           'seoKeywords', 'primaryImage', 'rating', 'reviewCount', 'weightKg',
@@ -74,11 +73,6 @@ service cloud.firestore {
         (!('description' in data) || (data.description is string && data.description.size() <= 5000)) &&
         data.price is number && data.price >= 0 &&
         (!('compareAtPrice' in data) || (data.compareAtPrice is number && data.compareAtPrice >= 0)) &&
-        (!('costPrice' in data) || (data.costPrice is number && data.costPrice >= 0)) &&
-        (!('supplierName' in data) || (data.supplierName is string && data.supplierName.size() <= 100)) &&
-        (!('supplierProductUrl' in data) || (data.supplierProductUrl is string && data.supplierProductUrl.size() <= 1000)) &&
-        (!('supplierSku' in data) || (data.supplierSku is string && data.supplierSku.size() <= 100)) &&
-        (!('supplierCostPrice' in data) || (data.supplierCostPrice is number && data.supplierCostPrice >= 0)) &&
         data.stock is int && data.stock >= 0 &&
         (!('reservedStock' in data) || (data.reservedStock is int && data.reservedStock >= 0)) &&
         (!('lowStockThreshold' in data) || (data.lowStockThreshold is int && data.lowStockThreshold >= 0)) &&
@@ -424,6 +418,18 @@ service cloud.firestore {
     // Collection 12: /support_tickets/{ticketId}
     match /support_tickets/{ticketId} {
       allow read, write: if isSignedIn() && isAdmin();
+    }
+
+    // Collection 13: /product_private/{productId}
+    // Supplier name, supplier link/SKU and cost prices. Admin-only; customers can never read it.
+    match /product_private/{productId} {
+      allow read, write: if isSignedIn() && isValidId(productId) && isAdmin();
+    }
+
+    // Collection 14: /order_private/{orderId}
+    // Per-item supplier data for each order. Admin-only; written by the server on order creation.
+    match /order_private/{orderId} {
+      allow read, write: if isSignedIn() && isValidId(orderId) && isAdmin();
     }
   }
 }

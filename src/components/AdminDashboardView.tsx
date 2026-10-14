@@ -272,7 +272,9 @@ export const AdminDashboardView: React.FC<{
   const [quoteDeliveryTime, setQuoteDeliveryTime] = useState<string>('4–6 business days');
   const [quoteCustomsRule, setQuoteCustomsRule] = useState<'DAP' | 'DDP'>('DAP');
   const [quoteSpecialInstructions, setQuoteSpecialInstructions] = useState<string>('');
-  const [orderPaymentFilter, setOrderPaymentFilter] = useState<'ALL' | 'PENDING_VERIFICATION' | 'PAID' | 'COD'>('ALL');
+  const [orderPaymentFilter, setOrderPaymentFilter] = useState<
+    'ALL' | 'TO_CONFIRM' | 'TO_SHIP' | 'PENDING_VERIFICATION' | 'PAID' | 'COD'
+  >('ALL');
 
   // Unified Communications Inbox & Customer Inquiries State
   const [inboxTickets, setInboxTickets] = useState<CustomerInquiryTicket[]>([]);
@@ -419,6 +421,78 @@ export const AdminDashboardView: React.FC<{
     [orders]
   );
 
+  // WhatsApp helpers for confirming orders and sharing tracking with customers
+  const buildWhatsAppLink = (phone: string | undefined, message: string) => {
+    let digits = String(phone || '').replace(/[^0-9]/g, '');
+    if (digits.startsWith('0')) digits = `92${digits.slice(1)}`;
+    return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+  };
+
+  const buildConfirmMessage = (order: Order) => {
+    const itemsText = (order.items || []).map((i) => `• ${i.name} x${i.quantity}`).join('\n');
+    return (
+      `Assalam-o-Alaikum ${order.customerName}!\n\n` +
+      `${settings.storeName || 'Our store'} par aap ka order #${order.orderNumber} mila hai:\n${itemsText}\n\n` +
+      `Total: ${formatPKR(order.total)} (${order.paymentMethod === 'COD' ? 'Cash on Delivery' : order.paymentMethod})\n` +
+      `Address: ${order.shippingAddressSummary || ''}\n\n` +
+      `Order confirm karne ke liye "YES" reply karein. Shukriya!`
+    );
+  };
+
+  const buildTrackingMessage = (order: Order) => {
+    const shipments = order.shipments || [];
+    const lines = shipments.length
+      ? shipments
+          .map((s) => `• ${s.courierName}: ${s.trackingNumber}${s.trackingUrl ? `\n  ${s.trackingUrl}` : ''}`)
+          .join('\n')
+      : order.trackingNumber
+      ? `• ${order.courierName || 'Courier'}: ${order.trackingNumber}`
+      : '';
+    return (
+      `Assalam-o-Alaikum ${order.customerName}!\n\n` +
+      `Aap ka order #${order.orderNumber} courier ke hawale kar diya gaya hai.\n${lines}\n\n` +
+      `Aap hamari website par bhi order track kar sakte hain (order number + phone number).\n` +
+      `${order.paymentMethod === 'COD' ? `Delivery par ${formatPKR(order.total)} ada karein.\n` : ''}` +
+      `Shukriya! ${settings.storeName || ''}`
+    );
+  };
+
+  // Text the admin pastes into the supplier's portal when forwarding an order
+  const buildSupplierCopyText = (order: Order, supplier?: string) => {
+    const items = (order.items || []).filter(
+      (i) => !supplier || (i.supplierName || 'Own Stock') === supplier
+    );
+    const itemsText = items
+      .map(
+        (i) =>
+          `${i.name} | Qty: ${i.quantity}${i.supplierSku ? ` | Supplier SKU: ${i.supplierSku}` : ''}${
+            i.supplierProductUrl ? ` | ${i.supplierProductUrl}` : ''
+          }`
+      )
+      .join('\n');
+    const itemsValue = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const isWholeOrder = items.length === (order.items || []).length;
+    const codAmount = order.paymentMethod === 'COD' ? (isWholeOrder ? order.total : itemsValue) : 0;
+    return (
+      `Order: ${order.orderNumber}\n` +
+      `Name: ${order.customerName}\n` +
+      `Phone: ${order.customerPhone || ''}\n` +
+      `Address: ${order.shippingAddressSummary || ''}\n` +
+      `City: ${order.district || ''}\n` +
+      `Items:\n${itemsText}\n` +
+      `COD Amount: ${order.paymentMethod === 'COD' ? formatPKR(codAmount) : 'PAID (no cash to collect)'}`
+    );
+  };
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(`${label} copied.`);
+    } catch {
+      window.prompt('Copy this text:', text);
+    }
+  };
+
   // Helper: Profit calculation per order (selling price - supplierCostPrice - shipping cost)
   const getOrderProfitStats = (order: Order) => {
     if (order.status === 'CANCELLED' || order.status === 'REFUNDED') {
@@ -426,12 +500,15 @@ export const AdminDashboardView: React.FC<{
     }
     const sellingPrice = Number(order.total) || 0;
     let supplierCost = 0;
+    let missingCost = false;
     if (Array.isArray(order.items)) {
       for (const item of order.items) {
-        const itemCost = Number(item.supplierCostPrice ?? (item.price ? item.price * 0.6 : 0));
+        if (item.supplierCostPrice === undefined || item.supplierCostPrice === null) missingCost = true;
+        const itemCost = Number(item.supplierCostPrice ?? 0);
         supplierCost += itemCost * (item.quantity || 1);
       }
     }
+    // Delivery charged to the customer is paid on to the supplier/courier
     const shippingCost = Number(order.shippingFee) || 0;
     const profit = sellingPrice - supplierCost - shippingCost;
     const marginPercent = sellingPrice > 0 ? (profit / sellingPrice) * 100 : 0;
@@ -440,6 +517,7 @@ export const AdminDashboardView: React.FC<{
       supplierCost,
       shippingCost,
       profit,
+      missingCost,
       marginPercent: Number(marginPercent.toFixed(1)),
     };
   };
@@ -524,6 +602,12 @@ export const AdminDashboardView: React.FC<{
   );
 
   const displayedOrders = useMemo(() => {
+    if (orderPaymentFilter === 'TO_CONFIRM') {
+      return orders.filter((o) => o.status === 'PENDING_CONFIRMATION');
+    }
+    if (orderPaymentFilter === 'TO_SHIP') {
+      return orders.filter((o) => ['CONFIRMED', 'PROCESSING', 'PACKED'].includes(o.status));
+    }
     if (orderPaymentFilter === 'PENDING_VERIFICATION') {
       return orders.filter((o) => o.paymentStatus === 'PENDING_VERIFICATION');
     }
@@ -705,12 +789,13 @@ export const AdminDashboardView: React.FC<{
         const hasAmt = args.amountChange !== undefined && args.amountChange !== null && !isNaN(Number(args.amountChange));
         const rawAmt = hasAmt ? Number(args.amountChange) : null;
         const pct = args.percentageChange !== undefined && args.percentageChange !== null && !isNaN(Number(args.percentageChange)) ? Number(args.percentageChange) : null;
-        const rawCurrency = String(args.currency || 'USD').toUpperCase().trim();
-        const isPkr = rawCurrency === 'PKR' || rawCurrency === 'RS' || rawCurrency === 'RUPEES';
+        const rawCurrency = String(args.currency || 'PKR').toUpperCase().trim();
+        const isUsd = rawCurrency === 'USD' || rawCurrency === '$' || rawCurrency === 'DOLLAR' || rawCurrency === 'DOLLARS';
 
-        // When PKR is specified, convert to base USD using USD_TO_PKR_RATE (278.5)
-        const amtInUsd = rawAmt !== null
-          ? (isPkr ? rawAmt / USD_TO_PKR_RATE : rawAmt)
+        // Catalog prices are stored in PKR; a USD amount is converted at the configured rate.
+        const usdRate = settings.usdToPkrRate || USD_TO_PKR_RATE;
+        const amtInPkr = rawAmt !== null
+          ? (isUsd ? Math.round(rawAmt * usdRate) : rawAmt)
           : null;
 
         const matching = products.filter(
@@ -718,13 +803,8 @@ export const AdminDashboardView: React.FC<{
         );
 
         let changeDesc = '';
-        if (rawAmt !== null) {
-          if (isPkr) {
-            changeDesc = `${rawAmt >= 0 ? `+PKR ${rawAmt.toLocaleString()}` : `-PKR ${Math.abs(rawAmt).toLocaleString()}`} (≈ ${amtInUsd! >= 0 ? `+$${amtInUsd!.toFixed(2)}` : `-$${Math.abs(amtInUsd!).toFixed(2)}`} USD)`;
-          } else {
-            const approxPkr = Math.round(Math.abs(rawAmt) * USD_TO_PKR_RATE);
-            changeDesc = `${rawAmt >= 0 ? `+$${rawAmt}` : `-$${Math.abs(rawAmt)}`} USD (≈ ${rawAmt >= 0 ? `+PKR ${approxPkr.toLocaleString()}` : `-PKR ${approxPkr.toLocaleString()}`})`;
-          }
+        if (amtInPkr !== null) {
+          changeDesc = `${amtInPkr >= 0 ? '+' : '-'}PKR ${Math.abs(amtInPkr).toLocaleString()}`;
         } else {
           changeDesc = `${(pct ?? 0) >= 0 ? `+${pct ?? 0}%` : `${pct}%`}`;
         }
@@ -750,8 +830,8 @@ export const AdminDashboardView: React.FC<{
               let count = 0;
               for (const prod of matching) {
                 let nextPrice: number;
-                if (amtInUsd !== null) {
-                  nextPrice = Math.max(1, Math.round((prod.price + amtInUsd) * 100) / 100);
+                if (amtInPkr !== null) {
+                  nextPrice = Math.max(1, Math.round(prod.price + amtInPkr));
                 } else {
                   nextPrice = Math.max(1, Math.round(prod.price * (1 + (pct ?? 0) / 100)));
                 }
@@ -1587,14 +1667,15 @@ export const AdminDashboardView: React.FC<{
       let finalPrice = isNaN(rawProductPrice) ? 0 : rawProductPrice;
       let finalCompareAt = rawCompareAt;
 
-      // Currency conversion:
-      // 'PKR': CSV has Pakistani Rupees (e.g., Rs. 2,500) -> converts to USD ($8.98) -> customer sees PKR 2,500 ($8.98)
-      // 'USD': CSV has US Dollars (e.g., $25) -> stored as $25
-      // 'DIRECT': Exact store price without any conversion
-      if (activeCurrency === 'PKR' && finalPrice > 0) {
-        finalPrice = Number((finalPrice / USD_TO_PKR_RATE).toFixed(2));
+      // Currency conversion (catalog prices are stored in PKR):
+      // 'PKR': CSV has Pakistani Rupees (e.g., Rs. 2,500) -> stored as PKR 2,500
+      // 'USD': CSV has US Dollars (e.g., $25) -> converted to PKR at the store rate
+      // 'DIRECT': Exact numbers without any conversion
+      if (activeCurrency === 'USD' && finalPrice > 0) {
+        const usdRate = settings.usdToPkrRate || USD_TO_PKR_RATE;
+        finalPrice = Math.round(finalPrice * usdRate);
         if (finalCompareAt && !isNaN(finalCompareAt) && finalCompareAt > 0) {
-          finalCompareAt = Number((finalCompareAt / USD_TO_PKR_RATE).toFixed(2));
+          finalCompareAt = Math.round(finalCompareAt * usdRate);
         }
       }
 
@@ -2471,11 +2552,8 @@ export const AdminDashboardView: React.FC<{
               {/* 4 Key KPI Stat Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="p-6 bg-white border border-black/[0.08] space-y-1">
-                  <div className="text-xs text-[#575653]">Gross Revenue (USD & PKR)</div>
+                  <div className="text-xs text-[#575653]">Gross Revenue (PKR)</div>
                   <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
-                    ${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </div>
-                  <div className="text-xs font-mono tabular-nums text-[#C5A059]">
                     {formatPKR(totalRevenue)}
                   </div>
                   <div className="text-[11px] text-emerald-400 font-mono">
@@ -2486,9 +2564,6 @@ export const AdminDashboardView: React.FC<{
                 <div className="p-6 bg-white border border-black/[0.08] space-y-1">
                   <div className="text-xs text-[#575653]">Average Order Value (AOV)</div>
                   <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
-                    ${avgOrderValue.toFixed(2)}
-                  </div>
-                  <div className="text-xs font-mono tabular-nums text-[#C5A059]">
                     {formatPKR(avgOrderValue)}
                   </div>
                   <div className="text-[11px] text-[#575653] font-mono">
@@ -2517,6 +2592,42 @@ export const AdminDashboardView: React.FC<{
                 </div>
               </div>
 
+              {/* Dropshipping profit for the selected date range (cancelled/refunded orders excluded) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="p-6 bg-white border border-black/[0.08] space-y-1">
+                  <div className="text-xs text-[#575653]">Sales ({dateFilter})</div>
+                  <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
+                    {formatPKR(dateFinancials.grossRevenue)}
+                  </div>
+                  <div className="text-[11px] text-[#575653] font-mono">{dateFinancials.eligibleCount} orders</div>
+                </div>
+                <div className="p-6 bg-white border border-black/[0.08] space-y-1">
+                  <div className="text-xs text-[#575653]">Supplier Cost ({dateFilter})</div>
+                  <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
+                    {formatPKR(dateFinancials.totalSupplierCost)}
+                  </div>
+                </div>
+                <div className="p-6 bg-white border border-black/[0.08] space-y-1">
+                  <div className="text-xs text-[#575653]">Delivery Charges ({dateFilter})</div>
+                  <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
+                    {formatPKR(dateFinancials.totalShippingCost)}
+                  </div>
+                </div>
+                <div className="p-6 bg-white border border-black/[0.08] space-y-1">
+                  <div className="text-xs text-[#575653]">Estimated Profit ({dateFilter})</div>
+                  <div
+                    className={`text-2xl font-mono tabular-nums font-semibold ${
+                      dateFinancials.totalProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                    }`}
+                  >
+                    {formatPKR(dateFinancials.totalProfit)}
+                  </div>
+                  <div className="text-[11px] text-[#575653] font-mono">
+                    Margin {dateFinancials.netMarginPercent}% · returns not included
+                  </div>
+                </div>
+              </div>
+
               {/* Category Valuation Chart & Low Stock Table */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 <div className="lg:col-span-6 p-6 bg-white border border-black/[0.08] space-y-5">
@@ -2537,7 +2648,7 @@ export const AdminDashboardView: React.FC<{
                               {item.name} ({item.count} SKUs)
                             </span>
                             <span className="font-mono tabular-nums text-[#C5A059]">
-                              ${item.stockValue.toLocaleString()} ({formatPKR(item.stockValue)})
+                              {formatPKR(item.stockValue)}
                             </span>
                           </div>
                           <div className="w-full h-2 bg-black/[0.04] overflow-hidden">
@@ -2604,6 +2715,19 @@ export const AdminDashboardView: React.FC<{
                     placeholder="Filter by SKU, title, category, status..."
                     className="px-3.5 py-2 bg-white border border-black/[0.12] text-xs text-[#141413] w-72"
                   />
+                  <select
+                    value={supplierFilter}
+                    onChange={(e) => setSupplierFilter(e.target.value)}
+                    className="px-3 py-2 bg-white border border-black/[0.12] text-xs text-[#141413]"
+                    aria-label="Filter by supplier"
+                  >
+                    <option value="ALL">All suppliers</option>
+                    {SUPPLIER_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
                   {selectedProductIds.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -2701,6 +2825,10 @@ export const AdminDashboardView: React.FC<{
                     {products
                       .filter(
                         (p) =>
+                          supplierFilter === 'ALL' || (p.supplierName || 'Own Stock') === supplierFilter
+                      )
+                      .filter(
+                        (p) =>
                           !productSearch.trim() ||
                           p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
                           p.sku.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -2729,7 +2857,13 @@ export const AdminDashboardView: React.FC<{
                             />
                           </td>
                           <td className="py-3 px-4 font-mono font-bold text-black">{p.sku}</td>
-                          <td className="py-3 px-4 font-bold text-black text-sm">{p.name}</td>
+                          <td className="py-3 px-4 font-bold text-black text-sm">
+                            <div>{p.name}</div>
+                            <div className="text-[10px] font-mono font-semibold text-amber-800">
+                              {p.supplierName || 'Own Stock'}
+                              {p.supplierCostPrice ? ` · cost ${formatPKR(p.supplierCostPrice)}` : ' · cost not set'}
+                            </div>
+                          </td>
                           <td className="py-3 px-4 text-black">
                             <div className="font-bold text-black">{p.category}</div>
                             <div className="text-[10px] font-mono uppercase text-stone-800 font-bold">
@@ -2738,7 +2872,6 @@ export const AdminDashboardView: React.FC<{
                           </td>
                           <td className="py-3 px-4 text-right font-mono tabular-nums text-black">
                             <div className="font-extrabold text-black text-sm">{formatPKR(p.price)}</div>
-                            <div className="text-[11px] text-stone-900 font-semibold">${p.price.toLocaleString()} USD</div>
                           </td>
                           <td className="py-3 px-4 text-right font-mono tabular-nums">
                             <span
@@ -2881,7 +3014,7 @@ export const AdminDashboardView: React.FC<{
                       </div>
                       <div>
                         <label className="block text-[#575653] mb-1">
-                          Price (USD) — <span className="text-[#C5A059] font-mono">{formatPKR(editingProduct.price || 0)}</span>
+                          Selling Price (PKR) — <span className="text-[#C5A059] font-mono">{formatPKR(editingProduct.price || 0)}</span>
                         </label>
                         <input
                           type="number"
@@ -2913,6 +3046,146 @@ export const AdminDashboardView: React.FC<{
                           }
                           className="w-full px-3 py-2 bg-[#FBFBF9] border border-black/[0.12] text-[#141413]"
                         />
+                      </div>
+                      <div>
+                        <label className="block text-[#575653] mb-1">Compare-at Price (PKR, optional)</label>
+                        <input
+                          type="number"
+                          value={editingProduct.compareAtPrice ?? ''}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              compareAtPrice: e.target.value === '' ? undefined : Number(e.target.value),
+                            })
+                          }
+                          placeholder="Crossed-out old price"
+                          className="w-full px-3 py-2 bg-[#FBFBF9] border border-black/[0.12] text-[#141413] font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[#575653] mb-1">Weight (kg)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={editingProduct.weightKg ?? ''}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              weightKg: e.target.value === '' ? undefined : Number(e.target.value),
+                            })
+                          }
+                          placeholder="0.8"
+                          className="w-full px-3 py-2 bg-[#FBFBF9] border border-black/[0.12] text-[#141413] font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[#575653] mb-1">Status</label>
+                        <select
+                          value={editingProduct.status || 'ACTIVE'}
+                          onChange={(e) =>
+                            setEditingProduct({ ...editingProduct, status: e.target.value as Product['status'] })
+                          }
+                          className="w-full px-3 py-2 bg-[#FBFBF9] border border-black/[0.12] text-[#141413]"
+                        >
+                          <option value="ACTIVE">ACTIVE (visible in store)</option>
+                          <option value="DRAFT">DRAFT (hidden)</option>
+                          <option value="ARCHIVED">ARCHIVED (hidden)</option>
+                        </select>
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="block text-[#575653] mb-1">Product Image URL</label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="url"
+                            value={editingProduct.primaryImage || ''}
+                            onChange={(e) =>
+                              setEditingProduct({ ...editingProduct, primaryImage: e.target.value.trim() })
+                            }
+                            placeholder="https://... (paste the product photo link)"
+                            className="flex-1 px-3 py-2 bg-[#FBFBF9] border border-black/[0.12] text-[#141413] font-mono"
+                          />
+                          {editingProduct.primaryImage && (
+                            <img
+                              src={editingProduct.primaryImage}
+                              alt=""
+                              className="w-12 h-12 object-cover border border-black/[0.12]"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Supplier / dropshipping details: admin-only, never shown to customers */}
+                    <div className="p-4 bg-amber-50 border border-amber-300 space-y-3 text-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="font-semibold text-amber-900">Supplier (private — customers never see this)</div>
+                        {(() => {
+                          const cost = Number(editingProduct.supplierCostPrice ?? 0);
+                          const price = Number(editingProduct.price ?? 0);
+                          if (!cost || !price) return null;
+                          const margin = price - cost;
+                          return (
+                            <div className={`font-mono font-semibold ${margin >= 0 ? 'text-emerald-800' : 'text-rose-700'}`}>
+                              Margin per unit: {formatPKR(margin)} ({((margin / price) * 100).toFixed(1)}%)
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-[#575653] mb-1">Supplier</label>
+                          <select
+                            value={editingProduct.supplierName || 'Own Stock'}
+                            onChange={(e) =>
+                              setEditingProduct({ ...editingProduct, supplierName: e.target.value })
+                            }
+                            className="w-full px-3 py-2 bg-white border border-black/[0.12] text-[#141413]"
+                          >
+                            {SUPPLIER_OPTIONS.map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[#575653] mb-1">Supplier Cost (PKR)</label>
+                          <input
+                            type="number"
+                            value={editingProduct.supplierCostPrice ?? ''}
+                            onChange={(e) =>
+                              setEditingProduct({
+                                ...editingProduct,
+                                supplierCostPrice: e.target.value === '' ? undefined : Number(e.target.value),
+                              })
+                            }
+                            placeholder="What the supplier charges you"
+                            className="w-full px-3 py-2 bg-white border border-black/[0.12] text-[#141413] font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[#575653] mb-1">Supplier SKU / Code</label>
+                          <input
+                            type="text"
+                            value={editingProduct.supplierSku || ''}
+                            onChange={(e) =>
+                              setEditingProduct({ ...editingProduct, supplierSku: e.target.value })
+                            }
+                            className="w-full px-3 py-2 bg-white border border-black/[0.12] text-[#141413] font-mono"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <label className="block text-[#575653] mb-1">Supplier Product Link</label>
+                          <input
+                            type="url"
+                            value={editingProduct.supplierProductUrl || ''}
+                            onChange={(e) =>
+                              setEditingProduct({ ...editingProduct, supplierProductUrl: e.target.value.trim() })
+                            }
+                            placeholder="https://... (the product page on Oshi / YourMart / HHC)"
+                            className="w-full px-3 py-2 bg-white border border-black/[0.12] text-[#141413] font-mono"
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -3260,7 +3533,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="text-xs text-[#454441] font-mono">
                   {csvCurrency === 'PKR' ? (
                     <span className="text-emerald-400">
-                      ✓ Active: Pakistani Rupees (e.g., Rs. 2,500 in CSV → $8.98 USD in catalog, customer sees PKR 2,500)
+                      ✓ Active: Pakistani Rupees (e.g., Rs. 2,500 in CSV → PKR 2,500 in catalog)
                     </span>
                   ) : csvCurrency === 'DIRECT' ? (
                     <span className="text-sky-400">
@@ -3268,7 +3541,7 @@ export const AdminDashboardView: React.FC<{
                     </span>
                   ) : (
                     <span className="text-amber-400">
-                      ✓ Active: Direct USD (e.g., 45 in CSV → $45.00 USD in catalog)
+                      ✓ Active: US Dollars (e.g., $45 in CSV → converted to PKR at the store USD rate)
                     </span>
                   )}
                 </div>
@@ -3614,26 +3887,7 @@ export const AdminDashboardView: React.FC<{
                                 </div>
                               </td>
                               <td className="py-2.5 px-3 text-right font-mono">
-                                {r.csvCurrency === 'PKR' ? (
-                                  <div>
-                                    <div className="font-extrabold text-emerald-800">
-                                      PKR {(r.originalCsvPrice ?? Math.round(r.price * USD_TO_PKR_RATE)).toLocaleString()}
-                                    </div>
-                                    <div className="text-[11px] text-stone-900 font-semibold">${r.price.toFixed(2)} USD catalog</div>
-                                  </div>
-                                ) : r.csvCurrency === 'DIRECT' ? (
-                                  <div>
-                                    <div className="font-extrabold text-sky-800">
-                                      {r.price.toLocaleString()}
-                                    </div>
-                                    <div className="text-[11px] text-stone-900 font-semibold">Direct Value</div>
-                                  </div>
-                                ) : (
-                                  <div>
-                                    <div className="font-extrabold text-black">${r.price.toLocaleString()} USD</div>
-                                    <div className="text-[11px] text-stone-900 font-semibold">{formatPKR(r.price)}</div>
-                                  </div>
-                                )}
+                                <div className="font-extrabold text-emerald-800">{formatPKR(r.price)}</div>
                               </td>
                               <td className="py-2.5 px-3 text-right font-mono font-bold text-black">
                                 {r.stock}
@@ -3749,6 +4003,26 @@ export const AdminDashboardView: React.FC<{
                   }`}
                 >
                   All Orders ({orders.length})
+                </button>
+                <button
+                  onClick={() => setOrderPaymentFilter('TO_CONFIRM')}
+                  className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
+                    orderPaymentFilter === 'TO_CONFIRM'
+                      ? 'bg-violet-600 text-white font-bold'
+                      : 'bg-violet-50 text-violet-800 hover:bg-violet-100 border border-violet-300'
+                  }`}
+                >
+                  📞 Call to Confirm ({orders.filter((o) => o.status === 'PENDING_CONFIRMATION').length})
+                </button>
+                <button
+                  onClick={() => setOrderPaymentFilter('TO_SHIP')}
+                  className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
+                    orderPaymentFilter === 'TO_SHIP'
+                      ? 'bg-orange-600 text-white font-bold'
+                      : 'bg-orange-50 text-orange-800 hover:bg-orange-100 border border-orange-300'
+                  }`}
+                >
+                  📦 Send to Supplier ({orders.filter((o) => ['CONFIRMED', 'PROCESSING', 'PACKED'].includes(o.status)).length})
                 </button>
                 <button
                   onClick={() => setOrderPaymentFilter('PENDING_VERIFICATION')}
@@ -3903,6 +4177,7 @@ export const AdminDashboardView: React.FC<{
                             className="bg-[#FBFBF9] border border-black/[0.12] px-2.5 py-1 text-xs font-mono text-[#141413]"
                           >
                             {[
+                              'PENDING_CONFIRMATION',
                               'PENDING',
                               'CONFIRMED',
                               'PROCESSING',
@@ -3923,6 +4198,38 @@ export const AdminDashboardView: React.FC<{
                               </option>
                             ))}
                           </select>
+                          {ord.status === 'PENDING_CONFIRMATION' && (
+                            <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                              <a
+                                href={buildWhatsAppLink(ord.customerPhone, buildConfirmMessage(ord))}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block px-2 py-1 bg-[#25D366] text-white text-[10px] font-semibold text-center rounded"
+                              >
+                                WhatsApp: ask to confirm
+                              </a>
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => confirmOrder(ord.id)}
+                                  className="flex-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold rounded cursor-pointer"
+                                >
+                                  ✓ Confirmed
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm(`Cancel order ${ord.orderNumber} as fake / not responding? Stock will be restored.`)) {
+                                      cancelFakeOrder(ord.id);
+                                    }
+                                  }}
+                                  className="flex-1 px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-semibold rounded cursor-pointer"
+                                >
+                                  ✕ Fake
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4">
                           <form
@@ -3982,10 +4289,22 @@ export const AdminDashboardView: React.FC<{
                           </form>
                         </td>
                         <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold text-[#141413]">
-                          <div>${ord.total.toFixed(2)}</div>
-                          <div className="text-[11px] text-[#C5A059]">{formatPKR(ord.total)}</div>
+                          <div>{formatPKR(ord.total)}</div>
                         </td>
                         <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedOrderForFulfillment(ord);
+                              setEditingShipment(null);
+                              setCustomTrackingUrlOverride(false);
+                            }}
+                            className="px-2.5 py-1 bg-[#141413] hover:bg-black text-white text-[11px] font-semibold cursor-pointer"
+                            title="Supplier details, copy for supplier portal, shipments & tracking"
+                          >
+                            📦 Supplier & Tracking
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -4017,7 +4336,9 @@ export const AdminDashboardView: React.FC<{
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              updateOrderState(ord.id, 'REFUNDED');
+                              if (window.confirm(`Mark order ${ord.orderNumber} as REFUNDED?`)) {
+                                updateOrderState(ord.id, 'REFUNDED');
+                              }
                             }}
                             className="px-2.5 py-1 border border-rose-500/40 text-rose-300 text-[11px] cursor-pointer"
                           >
@@ -4030,6 +4351,415 @@ export const AdminDashboardView: React.FC<{
                   </tbody>
                 </table>
               </div>
+
+              {/* Supplier Fulfillment & Tracking Modal (dropshipping) */}
+              {selectedOrderForFulfillment && (() => {
+                const fOrder =
+                  orders.find((o) => o.id === selectedOrderForFulfillment.id) || selectedOrderForFulfillment;
+                const fItems = fOrder.items || [];
+                const suppliersInOrder = Array.from(
+                  new Set(fItems.map((i) => i.supplierName || 'Own Stock'))
+                );
+                const profitStats = getOrderProfitStats(fOrder);
+                const shipmentDraft = editingShipment;
+                const draftAutoUrl = shipmentDraft
+                  ? generateCourierTrackingUrl(shipmentDraft.courierName || 'TCS', shipmentDraft.trackingNumber || '')
+                  : '';
+                return (
+                  <div
+                    className="fixed inset-0 bg-black/70 z-50 flex items-start justify-center p-4 overflow-y-auto"
+                    onClick={() => setSelectedOrderForFulfillment(null)}
+                  >
+                    <div
+                      className="bg-white border border-black/15 w-full max-w-3xl my-6 p-6 space-y-5 text-xs"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-start justify-between border-b border-black/[0.08] pb-3">
+                        <div>
+                          <h3 className="text-base font-semibold text-[#141413]">
+                            Order {fOrder.orderNumber} — Supplier & Tracking
+                          </h3>
+                          <div className="text-[11px] text-[#575653] font-mono mt-0.5">
+                            {fOrder.status} · {fOrder.paymentMethod} · {fOrder.paymentStatus} · {formatPKR(fOrder.total)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrderForFulfillment(null)}
+                          className="p-1 text-[#575653] hover:text-[#141413] cursor-pointer"
+                          aria-label="Close"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      {/* Step 1: confirm with customer */}
+                      {fOrder.status === 'PENDING_CONFIRMATION' && (
+                        <div className="p-3 bg-violet-50 border border-violet-300 space-y-2">
+                          <div className="font-semibold text-violet-900">
+                            Step 1: Customer se confirm karein (fake orders se bachne ke liye)
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <a
+                              href={buildWhatsAppLink(fOrder.customerPhone, buildConfirmMessage(fOrder))}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 bg-[#25D366] text-white font-semibold rounded"
+                            >
+                              WhatsApp par confirm karwayein
+                            </a>
+                            <a
+                              href={`tel:${fOrder.customerPhone || ''}`}
+                              className="px-3 py-1.5 border border-violet-400 text-violet-900 font-semibold rounded"
+                            >
+                              Call {fOrder.customerPhone}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => confirmOrder(fOrder.id)}
+                              className="px-3 py-1.5 bg-emerald-600 text-white font-semibold rounded cursor-pointer"
+                            >
+                              ✓ Customer ne confirm kar diya
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Cancel ${fOrder.orderNumber} as fake / not responding? Stock will be restored.`)) {
+                                  cancelFakeOrder(fOrder.id);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-rose-600 text-white font-semibold rounded cursor-pointer"
+                            >
+                              ✕ Fake / jawab nahi
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Step 2: forward to supplier */}
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-semibold text-[#141413]">
+                            Step 2: Supplier ke portal par order lagayein
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {suppliersInOrder.map((s) => (
+                              <button
+                                key={s}
+                                type="button"
+                                onClick={() =>
+                                  copyToClipboard(
+                                    buildSupplierCopyText(fOrder, suppliersInOrder.length > 1 ? s : undefined),
+                                    `Order details for ${s}`
+                                  )
+                                }
+                                className="px-2.5 py-1 bg-[#C5A059] text-[#0B0F17] font-semibold cursor-pointer"
+                              >
+                                📋 Copy for {s}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="p-3 bg-[#FBFBF9] border border-black/[0.08] text-[11px] space-y-0.5">
+                          <div><strong>{fOrder.customerName}</strong> · {fOrder.customerPhone}</div>
+                          <div>{fOrder.shippingAddressSummary}</div>
+                          {fOrder.notes && <div className="text-[#575653]">Note: {fOrder.notes}</div>}
+                        </div>
+                        <div className="overflow-x-auto border border-black/[0.08]">
+                          <table className="w-full text-left text-[11px]">
+                            <thead>
+                              <tr className="bg-[#F5F4F0] text-[#575653] uppercase font-mono text-[10px]">
+                                <th className="py-2 px-2">Item</th>
+                                <th className="py-2 px-2 text-right">Qty</th>
+                                <th className="py-2 px-2 text-right">Sold at</th>
+                                <th className="py-2 px-2">Supplier</th>
+                                <th className="py-2 px-2 text-right">Cost</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-black/[0.06]">
+                              {fItems.map((item, idx) => (
+                                <tr key={`${item.productId}-${idx}`}>
+                                  <td className="py-2 px-2">
+                                    <div className="flex items-center gap-2">
+                                      {item.image && (
+                                        <img src={item.image} alt="" className="w-8 h-8 object-cover border border-black/10" />
+                                      )}
+                                      <div>
+                                        <div className="font-semibold text-[#141413]">{item.name}</div>
+                                        <div className="font-mono text-[10px] text-[#575653]">{item.sku}</div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono">{item.quantity}</td>
+                                  <td className="py-2 px-2 text-right font-mono">{formatPKR(item.price * item.quantity)}</td>
+                                  <td className="py-2 px-2">
+                                    <div className="font-semibold text-amber-900">{item.supplierName || 'Own Stock'}</div>
+                                    {item.supplierSku && (
+                                      <div className="font-mono text-[10px] text-[#575653]">{item.supplierSku}</div>
+                                    )}
+                                    {item.supplierProductUrl && (
+                                      <a
+                                        href={item.supplierProductUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-blue-700 underline"
+                                      >
+                                        Open supplier page
+                                      </a>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono">
+                                    {item.supplierCostPrice !== undefined
+                                      ? formatPKR(item.supplierCostPrice * item.quantity)
+                                      : <span className="text-rose-700">not set</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="flex flex-wrap gap-4 font-mono text-[11px]">
+                          <span>Customer pays: <strong>{formatPKR(profitStats.sellingPrice)}</strong></span>
+                          <span>Supplier cost: <strong>{formatPKR(profitStats.supplierCost)}</strong></span>
+                          <span>Delivery: <strong>{formatPKR(profitStats.shippingCost)}</strong></span>
+                          <span className={profitStats.profit >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                            Profit: <strong>{formatPKR(profitStats.profit)}</strong>
+                          </span>
+                          {'missingCost' in profitStats && profitStats.missingCost && (
+                            <span className="text-rose-700">(kuch items ki cost set nahi — product mein supplier cost daalein)</span>
+                          )}
+                        </div>
+                        {['CONFIRMED', 'PENDING'].includes(fOrder.status) && (
+                          <button
+                            type="button"
+                            onClick={() => updateOrderState(fOrder.id, 'PROCESSING')}
+                            className="px-3 py-1.5 border border-black/20 font-semibold cursor-pointer"
+                          >
+                            Mark "Supplier ko bhej diya" (PROCESSING)
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Step 3: shipments & tracking */}
+                      <div className="space-y-2 border-t border-black/[0.08] pt-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-semibold text-[#141413]">
+                            Step 3: Supplier se mili tracking ID yahan daalein
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const supplier = suppliersInOrder.find(
+                                (s) => !(fOrder.shipments || []).some((sh) => sh.supplierName === s)
+                              ) || suppliersInOrder[0] || 'Own Stock';
+                              setEditingShipment({
+                                supplierName: supplier,
+                                courierName: 'TCS',
+                                trackingNumber: '',
+                                status: 'SHIPPED',
+                                trackingUrl: '',
+                                itemIds: fItems
+                                  .filter((i) => (i.supplierName || 'Own Stock') === supplier)
+                                  .map((i) => i.productId),
+                              });
+                              setCustomTrackingUrlOverride(false);
+                            }}
+                            className="px-2.5 py-1 bg-[#141413] text-white font-semibold cursor-pointer"
+                          >
+                            + Add shipment
+                          </button>
+                        </div>
+
+                        {(fOrder.shipments || []).length === 0 && !shipmentDraft && (
+                          <div className="text-[#575653]">Abhi koi shipment nahi. Tracking ID milne par "Add shipment" dabayein.</div>
+                        )}
+
+                        {(fOrder.shipments || []).map((s) => (
+                          <div
+                            key={s.id}
+                            className="p-2.5 border border-black/[0.08] flex flex-wrap items-center justify-between gap-2"
+                          >
+                            <div className="font-mono text-[11px]">
+                              <strong>{s.supplierName || 'Own Stock'}</strong> · {s.courierName} · {s.trackingNumber} ·{' '}
+                              <span className="text-emerald-700">{s.status}</span>
+                              {s.trackingUrl && (
+                                <a
+                                  href={s.trackingUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="ml-2 text-blue-700 underline"
+                                >
+                                  Track
+                                </a>
+                              )}
+                            </div>
+                            <div className="flex gap-1.5">
+                              {(['OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'] as const)
+                                .filter((st) => st !== s.status)
+                                .map((st) => (
+                                  <button
+                                    key={st}
+                                    type="button"
+                                    onClick={() => addOrUpdateOrderShipment(fOrder.id, { ...s, status: st })}
+                                    className="px-2 py-0.5 border border-black/20 text-[10px] cursor-pointer"
+                                  >
+                                    {st}
+                                  </button>
+                                ))}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingShipment({ ...s });
+                                  setCustomTrackingUrlOverride(
+                                    Boolean(s.trackingUrl) &&
+                                      s.trackingUrl !== generateCourierTrackingUrl(s.courierName, s.trackingNumber)
+                                  );
+                                }}
+                                className="px-2 py-0.5 border border-black/20 text-[10px] cursor-pointer"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+
+                        {shipmentDraft && (
+                          <div className="p-3 bg-[#FBFBF9] border border-black/[0.12] space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                              <div>
+                                <label className="block text-[#575653] mb-1">Supplier</label>
+                                <select
+                                  value={shipmentDraft.supplierName || 'Own Stock'}
+                                  onChange={(e) => {
+                                    const supplier = e.target.value;
+                                    setEditingShipment({
+                                      ...shipmentDraft,
+                                      supplierName: supplier,
+                                      itemIds: fItems
+                                        .filter((i) => (i.supplierName || 'Own Stock') === supplier)
+                                        .map((i) => i.productId),
+                                    });
+                                  }}
+                                  className="w-full px-2 py-1.5 bg-white border border-black/[0.12]"
+                                >
+                                  {Array.from(new Set([...suppliersInOrder, ...SUPPLIER_OPTIONS])).map((s) => (
+                                    <option key={s} value={s}>
+                                      {s}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[#575653] mb-1">Courier</label>
+                                <select
+                                  value={shipmentDraft.courierName || 'TCS'}
+                                  onChange={(e) => setEditingShipment({ ...shipmentDraft, courierName: e.target.value })}
+                                  className="w-full px-2 py-1.5 bg-white border border-black/[0.12]"
+                                >
+                                  {COURIER_OPTIONS.map((c) => (
+                                    <option key={c.name} value={c.name}>
+                                      {c.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[#575653] mb-1">Tracking ID</label>
+                                <input
+                                  type="text"
+                                  value={shipmentDraft.trackingNumber || ''}
+                                  onChange={(e) => setEditingShipment({ ...shipmentDraft, trackingNumber: e.target.value })}
+                                  placeholder="From the supplier"
+                                  className="w-full px-2 py-1.5 bg-white border border-black/[0.12] font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[#575653] mb-1">Status</label>
+                                <select
+                                  value={shipmentDraft.status || 'SHIPPED'}
+                                  onChange={(e) =>
+                                    setEditingShipment({ ...shipmentDraft, status: e.target.value as OrderShipment['status'] })
+                                  }
+                                  className="w-full px-2 py-1.5 bg-white border border-black/[0.12]"
+                                >
+                                  {['PROCESSING', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'].map((st) => (
+                                    <option key={st} value={st}>
+                                      {st}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="flex items-center gap-2 text-[#575653]">
+                                <input
+                                  type="checkbox"
+                                  checked={customTrackingUrlOverride}
+                                  onChange={(e) => setCustomTrackingUrlOverride(e.target.checked)}
+                                />
+                                Apna tracking link likhein (warna courier ka link khud ban jayega)
+                              </label>
+                              {customTrackingUrlOverride ? (
+                                <input
+                                  type="url"
+                                  value={shipmentDraft.trackingUrl || ''}
+                                  onChange={(e) => setEditingShipment({ ...shipmentDraft, trackingUrl: e.target.value })}
+                                  placeholder="https://..."
+                                  className="w-full px-2 py-1.5 bg-white border border-black/[0.12] font-mono"
+                                />
+                              ) : (
+                                <div className="font-mono text-[10px] text-[#575653] break-all">
+                                  {draftAutoUrl || 'Tracking ID likhne par link yahan dikhega'}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingShipment(null)}
+                                className="px-3 py-1.5 border border-black/20 cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const trackingNumber = (shipmentDraft.trackingNumber || '').trim();
+                                  if (!trackingNumber) {
+                                    showToast('Tracking ID likhein.');
+                                    return;
+                                  }
+                                  await addOrUpdateOrderShipment(fOrder.id, {
+                                    ...shipmentDraft,
+                                    courierName: shipmentDraft.courierName || 'TCS',
+                                    trackingNumber,
+                                    trackingUrl: customTrackingUrlOverride ? shipmentDraft.trackingUrl || '' : '',
+                                  });
+                                  setEditingShipment(null);
+                                }}
+                                className="px-4 py-1.5 bg-[#C5A059] text-[#0B0F17] font-semibold cursor-pointer"
+                              >
+                                Save shipment
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {((fOrder.shipments || []).length > 0 || fOrder.trackingNumber) && (
+                          <a
+                            href={buildWhatsAppLink(fOrder.customerPhone, buildTrackingMessage(fOrder))}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block px-3 py-1.5 bg-[#25D366] text-white font-semibold rounded"
+                          >
+                            WhatsApp par customer ko tracking bhejein
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Interactive Freight Quotation Modal */}
               {quotingOrder && (
@@ -4263,7 +4993,7 @@ export const AdminDashboardView: React.FC<{
                         <div className="flex justify-between border-b border-black/[0.08] pb-1.5">
                           <span className="text-[#73726E]">Total Amount:</span>
                           <span className="text-emerald-400 font-bold">
-                            PKR {formatPKR(viewingReceiptOrder.total)} (${viewingReceiptOrder.total.toFixed(2)})
+                            {formatPKR(viewingReceiptOrder.total)}
                           </span>
                         </div>
                         {viewingReceiptOrder.district && (
@@ -5397,228 +6127,18 @@ export const AdminDashboardView: React.FC<{
                   </span>
                 </div>
 
-                {/* 3A. JazzCash Merchant Gateway */}
-                <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-4 rounded-xs">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded bg-red-600/15 text-red-700 flex items-center justify-center font-black text-xs">
-                        JC
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-[#141413]">JazzCash Merchant Gateway</span>
-                          <span className={`text-[11px] px-2 py-0.5 rounded font-mono font-bold ${settings.jazzcashMerchantId ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-neutral-200 text-[#141413]'}`}>
-                            {settings.jazzcashMerchantId ? 'Configured' : 'Credentials Pending'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-[#141413] font-semibold mt-0.5">
-                          Accept direct JazzCash payments via official Merchant API.
-                        </p>
-                      </div>
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(settings.jazzcashEnabled)}
-                        onChange={(e) => updateStoreSettings({ jazzcashEnabled: e.target.checked })}
-                        className="rounded accent-black w-4 h-4"
-                      />
-                      <span className={settings.jazzcashEnabled ? 'text-emerald-700 font-bold' : 'text-[#575653]'}>
-                        {settings.jazzcashEnabled ? 'Active' : 'Disabled'}
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs pt-3 border-t-2 border-black/10">
-                    {/* Environment */}
-                    <div>
-                      <label className="block text-[#141413] font-bold text-xs mb-1.5">Gateway Environment</label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => updateStoreSettings({ jazzcashEnvironment: 'sandbox' })}
-                          className={`px-3.5 py-2 text-xs font-mono font-bold border-2 transition-colors cursor-pointer ${
-                            (settings.jazzcashEnvironment || 'sandbox') === 'sandbox'
-                              ? 'bg-[#141413] text-[#FBFBF9] border-[#141413]'
-                              : 'bg-white text-[#141413] border-black/30 hover:bg-black/5'
-                          }`}
-                        >
-                          Sandbox (Testing)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateStoreSettings({ jazzcashEnvironment: 'production' })}
-                          className={`px-3.5 py-2 text-xs font-mono font-bold border-2 transition-colors cursor-pointer ${
-                            settings.jazzcashEnvironment === 'production'
-                              ? 'bg-emerald-700 text-white border-emerald-700'
-                              : 'bg-white text-[#141413] border-black/30 hover:bg-black/5'
-                          }`}
-                        >
-                          Production (Live)
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Merchant ID */}
-                    <div>
-                      <label className="block text-[#141413] font-bold text-xs mb-1.5">Merchant ID</label>
-                      <input
-                        type="text"
-                        value={settings.jazzcashMerchantId || ''}
-                        onChange={(e) => updateStoreSettings({ jazzcashMerchantId: e.target.value })}
-                        placeholder="e.g. MC12345 (From JazzCash Portal)"
-                        className="w-full px-3.5 py-2.5 bg-white border-2 border-black/30 text-[#141413] font-mono font-bold focus:border-black focus:outline-none"
-                      />
-                    </div>
-
-                    {/* Gateway API Password */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-[#141413] font-bold text-xs">Gateway API Password</label>
-                        <span className="text-[11px] text-amber-900 font-bold bg-amber-100 px-1.5 py-0.5 rounded">Not personal MPIN</span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type={showJazzPassword ? 'text' : 'password'}
-                          value={settings.jazzcashPassword || ''}
-                          onChange={(e) => updateStoreSettings({ jazzcashPassword: e.target.value })}
-                          placeholder="JazzCash API Merchant Password"
-                          className="w-full pl-3.5 pr-10 py-2.5 bg-white border-2 border-black/30 text-[#141413] font-mono font-bold focus:border-black focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowJazzPassword(!showJazzPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#141413] hover:text-black cursor-pointer"
-                        >
-                          {showJazzPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-[#141413] font-semibold mt-1">
-                        Issued in JazzCash Developer Portal for automated merchant requests.
-                      </p>
-                    </div>
-
-                    {/* Integrity Salt */}
-                    <div>
-                      <label className="block text-[#141413] font-bold text-xs mb-1.5">Integrity Salt / Secret Hash Key</label>
-                      <div className="relative">
-                        <input
-                          type={showJazzSalt ? 'text' : 'password'}
-                          value={settings.jazzcashIntegritySalt || ''}
-                          onChange={(e) => updateStoreSettings({ jazzcashIntegritySalt: e.target.value })}
-                          placeholder="Hexadecimal Integrity Salt"
-                          className="w-full pl-3.5 pr-10 py-2.5 bg-white border-2 border-black/30 text-[#141413] font-mono font-bold focus:border-black focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowJazzSalt(!showJazzSalt)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#141413] hover:text-black cursor-pointer"
-                        >
-                          {showJazzSalt ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-[#141413] font-semibold mt-1">
-                        Used to calculate secure SHA-256 HMAC checksums.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3B. Easypaisa Merchant Gateway */}
-                <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-4 rounded-xs">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded bg-emerald-600/15 text-emerald-800 flex items-center justify-center font-black text-xs">
-                        EP
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-[#141413]">Easypaisa Merchant Gateway</span>
-                          <span className={`text-[11px] px-2 py-0.5 rounded font-mono font-bold ${settings.easypaisaStoreId ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-neutral-200 text-[#141413]'}`}>
-                            {settings.easypaisaStoreId ? 'Configured' : 'Credentials Pending'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-[#141413] font-semibold mt-0.5">
-                          Accept direct Easypaisa wallet and online checkout payments.
-                        </p>
-                      </div>
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(settings.easypaisaEnabled)}
-                        onChange={(e) => updateStoreSettings({ easypaisaEnabled: e.target.checked })}
-                        className="rounded accent-black w-4 h-4"
-                      />
-                      <span className={settings.easypaisaEnabled ? 'text-emerald-700 font-bold' : 'text-[#575653]'}>
-                        {settings.easypaisaEnabled ? 'Active' : 'Disabled'}
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs pt-3 border-t-2 border-black/10">
-                    {/* Environment */}
-                    <div>
-                      <label className="block text-[#141413] font-bold text-xs mb-1.5">Gateway Environment</label>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => updateStoreSettings({ easypaisaEnvironment: 'sandbox' })}
-                          className={`px-3.5 py-2 text-xs font-mono font-bold border-2 transition-colors cursor-pointer ${
-                            (settings.easypaisaEnvironment || 'sandbox') === 'sandbox'
-                              ? 'bg-[#141413] text-[#FBFBF9] border-[#141413]'
-                              : 'bg-white text-[#141413] border-black/30 hover:bg-black/5'
-                          }`}
-                        >
-                          Sandbox
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateStoreSettings({ easypaisaEnvironment: 'production' })}
-                          className={`px-3.5 py-2 text-xs font-mono font-bold border-2 transition-colors cursor-pointer ${
-                            settings.easypaisaEnvironment === 'production'
-                              ? 'bg-emerald-700 text-white border-emerald-700'
-                              : 'bg-white text-[#141413] border-black/30 hover:bg-black/5'
-                          }`}
-                        >
-                          Live
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Store ID */}
-                    <div>
-                      <label className="block text-[#141413] font-bold text-xs mb-1.5">Store ID</label>
-                      <input
-                        type="text"
-                        value={settings.easypaisaStoreId || ''}
-                        onChange={(e) => updateStoreSettings({ easypaisaStoreId: e.target.value })}
-                        placeholder="e.g. 102938 (From Easypaisa)"
-                        className="w-full px-3.5 py-2.5 bg-white border-2 border-black/30 text-[#141413] font-mono font-bold focus:border-black focus:outline-none"
-                      />
-                    </div>
-
-                    {/* Hash Key */}
-                    <div>
-                      <label className="block text-[#141413] font-bold text-xs mb-1.5">Hash Key</label>
-                      <div className="relative">
-                        <input
-                          type={showEasypaisaHash ? 'text' : 'password'}
-                          value={settings.easypaisaHashKey || ''}
-                          onChange={(e) => updateStoreSettings({ easypaisaHashKey: e.target.value })}
-                          placeholder="Secret Hash Key"
-                          className="w-full pl-3.5 pr-10 py-2.5 bg-white border-2 border-black/30 text-[#141413] font-mono font-bold focus:border-black focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowEasypaisaHash(!showEasypaisaHash)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#141413] hover:text-black cursor-pointer"
-                        >
-                          {showEasypaisaHash ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                {/* Online gateway credentials are never stored here: the settings document is publicly
+                    readable, so secret keys belong in server environment variables (AI Studio Secrets). */}
+                <div className="p-4 sm:p-5 bg-amber-50 border-2 border-amber-300 space-y-2 rounded-xs text-xs text-[#141413]">
+                  <div className="font-bold">Online payments (JazzCash / Easypaisa / cards)</div>
+                  <p className="font-semibold">
+                    Abhi store par Cash on Delivery aur bank / NayaPay / Raast transfer (TID ke saath) chalte hain.
+                    Online gateway lagane ke liye pehle merchant account (Safepay, PayFast, JazzCash ya Easypaisa) banwayein.
+                  </p>
+                  <p>
+                    Gateway ki secret keys (password, integrity salt, hash key) yahan kabhi na likhein. Ye settings har visitor
+                    parh sakta hai. Keys sirf AI Studio ke <strong>Secrets</strong> panel mein daalein, phir gateway ka integration karwayein.
+                  </p>
                 </div>
 
                 {/* 3C. Google Maps Platform API Key */}

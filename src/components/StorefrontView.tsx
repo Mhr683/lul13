@@ -53,7 +53,7 @@ import { CustomerHelplineDrawer } from './CustomerHelplineDrawer';
 import { PWAInstallButton } from './PWAInstallButton';
 import { PWAInstallModal } from './PWAInstallModal';
 import { HERO_IMAGE_PATH } from '../data/seedData';
-import { SHIPPING_METHODS, calculateShippingFee, formatDualPrice, formatPKR, DEFAULT_STATIC_USD_TO_PKR_RATE } from '../services/abstractions';
+import { SHIPPING_METHODS, calculateShippingFee, formatDualPrice, formatPKR } from '../services/abstractions';
 import { ShippingCalculationService, ShippingCalculationResponse } from '../services/shippingService';
 import {
   ALL_WORLD_COUNTRIES,
@@ -187,7 +187,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         offers: {
           '@type': 'Offer',
           price: selectedProduct.price,
-          priceCurrency: 'USD',
+          priceCurrency: 'PKR',
           availability:
             selectedProduct.stock > 0
               ? 'https://schema.org/InStock'
@@ -694,27 +694,27 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
       settings,
       selectedCourier: shippingMethodId,
       hasFreeShippingCoupon: appliedCoupon?.type === 'FREE_SHIPPING',
+      discountPkr: discountAmount,
     });
-  }, [countryIso, cart, products, settings, shippingMethodId, appliedCoupon]);
+  }, [countryIso, cart, products, settings, shippingMethodId, appliedCoupon, discountAmount]);
 
   const isQuoteFlow = liveShippingCalc.requiresManualQuote || paymentMethod === 'MANUAL_QUOTE';
 
-  // Shipping Fee in USD for calculation
-  const shippingFeeUsd = useMemo(() => {
+  // Shipping fee in PKR (same unit as product prices and the server-side order total)
+  const shippingFee = useMemo(() => {
     if (isQuoteFlow) return 0;
-    const rate = settings.usdToPkrRate || DEFAULT_STATIC_USD_TO_PKR_RATE;
-    return Number((liveShippingCalc.finalShippingFee / rate).toFixed(2));
-  }, [isQuoteFlow, liveShippingCalc.finalShippingFee, settings.usdToPkrRate]);
+    return Number(liveShippingCalc.finalShippingFee.toFixed(2));
+  }, [isQuoteFlow, liveShippingCalc.finalShippingFee]);
 
   // Tax: Sales tax applies to domestic Pakistan orders; international is export (0% PK sales tax, customs handled at destination DAP)
   const taxAmount = useMemo(() => {
     if (!isNationalPakistan) return 0;
-    const taxableUsd = Math.max(0, cartSubtotal - discountAmount);
-    return Number(((taxableUsd * (settings.taxRate || 0)) / 100).toFixed(2));
+    const taxable = Math.max(0, cartSubtotal - discountAmount);
+    return Number(((taxable * (settings.taxRate || 0)) / 100).toFixed(2));
   }, [isNationalPakistan, cartSubtotal, discountAmount, settings.taxRate]);
 
   const grandTotal = Number(
-    (Math.max(0, cartSubtotal - discountAmount) + taxAmount + shippingFeeUsd).toFixed(2)
+    (Math.max(0, cartSubtotal - discountAmount) + taxAmount + shippingFee).toFixed(2)
   );
 
   const handleSelectProduct = (product: Product) => {
@@ -1474,9 +1474,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-stone-900 font-bold">
-                          ${product.price.toLocaleString()} USD
-                        </div>
                       </div>
 
                       <button
@@ -1769,17 +1766,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       Max Price
                     </span>
                     <span className="font-mono tabular-nums text-[#141413] text-right">
-                      ${priceCeiling.toLocaleString()}
-                      <span className="block text-[10px] text-[#8C6D46]">
-                        {formatPKR(priceCeiling)}
-                      </span>
+                      {formatPKR(priceCeiling)}
                     </span>
                   </div>
                   <input
                     type="range"
-                    min={200}
-                    max={20000}
-                    step={100}
+                    min={500}
+                    max={500000}
+                    step={500}
                     value={priceCeiling}
                     onChange={(e) => setPriceCeiling(Number(e.target.value))}
                     className="w-full accent-[#141413]"
@@ -1810,7 +1804,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       onClick={() => {
                         setActiveCategory('ALL');
                         setActiveBrand('ALL');
-                        setPriceCeiling(20000);
+                        setPriceCeiling(500000);
                         setSearchQuery('');
                         setInStockOnly(false);
                       }}
@@ -1860,9 +1854,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           <div className="font-mono tabular-nums">
                             <span className="text-base font-extrabold text-black block">
                               {formatPKR(product.price)}
-                            </span>
-                            <span className="text-[11px] text-stone-900 font-bold block">
-                              ${product.price.toLocaleString()} USD
                             </span>
                           </div>
                           <button
@@ -1946,13 +1937,10 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       <span className="text-2xl font-semibold text-[#141413]">
                         {formatPKR(selectedProduct.price)}
                       </span>
-                      <span className="text-base font-medium text-[#8C6D46]">
-                        (${selectedProduct.price.toLocaleString()} USD)
-                      </span>
                       {selectedProduct.compareAtPrice &&
                         selectedProduct.compareAtPrice > selectedProduct.price && (
                           <span className="text-sm text-[#787774] line-through">
-                            {formatPKR(selectedProduct.compareAtPrice)} (${selectedProduct.compareAtPrice.toLocaleString()})
+                            {formatPKR(selectedProduct.compareAtPrice)}
                           </span>
                         )}
                     </div>
@@ -2193,7 +2181,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           {rel.name}
                         </div>
                         <div className="text-xs font-mono tabular-nums text-[#141413] mt-1">
-                          <span className="font-semibold">{formatPKR(rel.price)}</span> · <span className="text-[#8C6D46]">${rel.price.toLocaleString()} USD</span>
+                          <span className="font-semibold">{formatPKR(rel.price)}</span>
                         </div>
                       </div>
                     </div>
@@ -2215,7 +2203,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               const activeTid = confirmedOrder?.paymentReference || wireReferenceNumber || 'TID-PENDING';
               const activeRecipientEmail = customerEmail || userProfile?.email || 'customer@gmail.com';
               const activeStoreName = settings.storeName || 'Online Store';
-              const activeTotalPkr = Math.round(grandTotal * (settings.usdToPkrRate || 278.5));
+              const activeTotalPkr = Math.round(confirmedOrder?.total ?? grandTotal);
 
               const paymentMethodLabel =
                 paymentMethod === 'HBL_BANK' || paymentMethod === 'BANK_ACCOUNT'
@@ -2368,7 +2356,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
                       <span className="text-[#787774]">{isOrderPaid ? 'Total Amount Paid:' : 'Total Payable:'}</span>
                       <strong className="text-[#141413] font-bold">
-                        PKR {activeTotalPkr.toLocaleString()} (${grandTotal.toFixed(2)})
+                        PKR {activeTotalPkr.toLocaleString()}
                       </strong>
                     </div>
                     <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
@@ -3637,7 +3625,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                                 ? `Confirm Order (Cash on Delivery) · ${formatPKR(grandTotal)}`
                                 : `Submit Order with TID (${paymentMethod === 'NAYAPAY' ? 'NayaPay' : 'Bank/RAAST'}) · ${formatPKR(grandTotal)}`}
                             </span>
-                            <span className="text-[10px] opacity-80">(${grandTotal.toFixed(2)})</span>
                           </>
                         )}
                       </button>
@@ -3677,8 +3664,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           </div>
                         </div>
                         <div className="text-xs font-mono tabular-nums font-semibold text-right">
-                          <div>${(item.price * item.quantity).toLocaleString()}</div>
-                          <div className="text-[10px] text-[#8C6D46]">{formatPKR(item.price * item.quantity)}</div>
+                          <div>{formatPKR(item.price * item.quantity)}</div>
                         </div>
                       </div>
                     ))}
@@ -3711,10 +3697,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           <span className="text-emerald-700">COMPLIMENTARY</span>
                         ) : (
                           <>
-                            ${shippingFeeUsd.toFixed(2)}
-                            <span className="block text-[10px] text-[#8C6D46]">
-                              {formatPKR(shippingFeeUsd)}
-                            </span>
+                            {formatPKR(shippingFee)}
                           </>
                         )}
                       </span>
@@ -3742,8 +3725,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     <div className="flex justify-between text-base font-semibold text-[#141413] pt-3 border-t border-black/[0.07]">
                       <span>Total Due</span>
                       <span className="font-mono tabular-nums text-right">
-                        ${grandTotal.toFixed(2)}
-                        <span className="block text-xs text-[#8C6D46]">{formatPKR(grandTotal)}</span>
+                        {formatPKR(grandTotal)}
                       </span>
                     </div>
                   </div>
@@ -3890,8 +3872,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         </div>
 
                         <div className="font-mono tabular-nums text-sm font-semibold text-[#141413] text-right">
-                          <span>${order.total.toFixed(2)}</span>
-                          <span className="block text-xs text-[#8C6D46]">{formatPKR(order.total)}</span>
+                          <span>{formatPKR(order.total)}</span>
                         </div>
                       </div>
 
@@ -4065,7 +4046,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         </div>
                         <h3 className="text-sm font-semibold text-[#141413]">{product.name}</h3>
                         <p className="text-xs font-mono tabular-nums text-[#575653] mt-1">
-                          <span className="font-semibold text-[#141413]">{formatPKR(product.price)}</span> (${product.price.toLocaleString()} USD) · {product.stock} in stock
+                          <span className="font-semibold text-[#141413]">{formatPKR(product.price)}</span> · {product.stock} in stock
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -4174,8 +4155,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           </button>
                         </div>
                         <div className="text-xs font-mono tabular-nums font-semibold text-right">
-                          <div>${(item.price * item.quantity).toLocaleString()}</div>
-                          <div className="text-[10px] text-[#8C6D46]">{formatPKR(item.price * item.quantity)}</div>
+                          <div>{formatPKR(item.price * item.quantity)}</div>
                         </div>
                       </div>
                     </div>
@@ -4239,10 +4219,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                   <div className="flex justify-between text-sm font-semibold text-[#141413] pt-2 border-t border-black/[0.06]">
                     <span>Estimated Total</span>
                     <span className="font-mono tabular-nums text-right">
-                      ${Math.max(0, cartSubtotal - discountAmount).toFixed(2)}
-                      <span className="block text-xs text-[#8C6D46]">
-                        {formatPKR(Math.max(0, cartSubtotal - discountAmount))}
-                      </span>
+                      {formatPKR(Math.max(0, cartSubtotal - discountAmount))}
                     </span>
                   </div>
                 </div>

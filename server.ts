@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { initializeApp as initAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
-import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
+import { getFirestore as getAdminFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage as getAdminStorage } from 'firebase-admin/storage';
 import { initializeApp as initClientApp, getApps as getClientApps } from 'firebase/app';
 import {
@@ -27,6 +27,19 @@ import { canExecuteAITool } from './src/ai/permissions';
 import { validateAIToolArgs } from './src/validation/validators';
 import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus, OrderShipment } from './src/types/store';
 import { ShippingCalculationService, generateCourierTrackingUrl } from './src/services/shippingService';
+import {
+  PRODUCT_PRIVATE_FIELDS,
+  hasProductPrivateFields,
+  splitProductPrivate,
+  mergeProductPrivate,
+  orderItemsHavePrivateFields,
+  splitOrderItemsPrivate,
+} from './src/services/privateData';
+
+// Removes admin-only supplier/cost fields from a public product document.
+const PRODUCT_PRIVATE_DELETE_PATCH = Object.fromEntries(
+  PRODUCT_PRIVATE_FIELDS.map((k) => [k, FieldValue.delete()])
+);
 // Seed data import removed - Firestore is the ONLY source of truth
 const DEFAULT_SETTINGS = {
   storeName: 'Online Store',
@@ -260,7 +273,7 @@ const storeToolDeclarations: FunctionDeclaration[] = [
       properties: {
         name: { type: Type.STRING, description: 'Product title' },
         sku: { type: Type.STRING, description: 'Alphanumeric SKU (e.g. AA-LTH-099)' },
-        price: { type: Type.NUMBER, description: 'Retail price in USD' },
+        price: { type: Type.NUMBER, description: 'Retail price in PKR' },
         compareAtPrice: { type: Type.NUMBER, description: 'Optional original price before discount' },
         costPrice: { type: Type.NUMBER, description: 'Unit cost price' },
         stock: { type: Type.INTEGER, description: 'Initial inventory count' },
@@ -283,7 +296,7 @@ const storeToolDeclarations: FunctionDeclaration[] = [
       type: Type.OBJECT,
       properties: {
         productIdOrName: { type: Type.STRING, description: 'Exact product ID, SKU, or product name substring' },
-        price: { type: Type.NUMBER, description: 'New price in USD' },
+        price: { type: Type.NUMBER, description: 'New price in PKR' },
         stock: { type: Type.INTEGER, description: 'New stock quantity' },
         description: { type: Type.STRING, description: 'Updated full description' },
         shortDescription: { type: Type.STRING, description: 'Updated short description' },
@@ -356,14 +369,14 @@ const storeToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'bulkUpdateCategoryPrices',
-    description: 'Adjust the price of all products in a specific category (or "ALL" for all products in the store) by either a fixed amount in USD or PKR (e.g. 100 PKR, 200 USD) OR by a percentage (e.g. 10 for +10%).',
+    description: 'Adjust the price of all products in a specific category (or "ALL" for all products in the store) by either a fixed amount in PKR or USD (e.g. 100 PKR, 2 USD) OR by a percentage (e.g. 10 for +10%).',
     parameters: {
       type: Type.OBJECT,
       properties: {
         category: { type: Type.STRING, description: 'Target category name (e.g. Horology, Leather Goods, or "ALL" for all products in store)' },
         amountChange: { type: Type.NUMBER, description: 'Fixed amount to add or subtract from current price, e.g. 100 to increase by 100, -100 to decrease/revert by 100.' },
         percentageChange: { type: Type.NUMBER, description: 'Percentage change, e.g. 10 for +10%, -15 for -15%.' },
-        currency: { type: Type.STRING, description: 'Currency of amountChange: "PKR" (Pakistani Rupees) or "USD" (US Dollars). Default is "USD", but MUST be "PKR" if the user mentions PKR, Rs, روپے, or rupees.' },
+        currency: { type: Type.STRING, description: 'Currency of amountChange: "PKR" (Pakistani Rupees) or "USD" (US Dollars). Default is "PKR"; use "USD" only if the user explicitly mentions USD, dollars or $.' },
       },
       required: ['category'],
     },
@@ -762,20 +775,21 @@ app.get('/api/catalog/products', async (req, res) => {
     let products: any[] = [];
     if (isAdminUser) {
       try {
-        const snap = await clientGetDocs(clientCollection(clientDb, 'products'));
-        products = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        const [snap, privateSnap] = await Promise.all([
+          adminDb.collection('products').get(),
+          adminDb.collection('product_private').get(),
+        ]);
+        const privateById = new Map(privateSnap.docs.map((d) => [d.id, d.data() as any]));
+        products = snap.docs.map((d) =>
+          mergeProductPrivate({ id: d.id, ...(d.data() as any) }, privateById.get(d.id))
+        );
       } catch {
-        try {
-          const snap = await adminDb.collection('products').get();
-          products = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-        } catch {
-          const q = clientQuery(
-            clientCollection(clientDb, 'products'),
-            clientWhere('status', '==', 'ACTIVE')
-          );
-          const snap = await clientGetDocs(q);
-          products = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-        }
+        const q = clientQuery(
+          clientCollection(clientDb, 'products'),
+          clientWhere('status', '==', 'ACTIVE')
+        );
+        const snap = await clientGetDocs(q);
+        products = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
       }
     } else {
       // Public customer access: only ACTIVE products from Firestore
@@ -797,16 +811,7 @@ app.get('/api/catalog/products', async (req, res) => {
       }
 
       // Admin-only fields MUST NEVER be exposed to public customers
-      products = products.map((p) => {
-        const {
-          supplierName,
-          supplierProductUrl,
-          supplierSku,
-          supplierCostPrice,
-          ...publicProduct
-        } = p;
-        return publicProduct;
-      });
+      products = products.map((p) => splitProductPrivate(p).publicData);
     }
 
     return res.json({ success: true, products });
@@ -825,11 +830,23 @@ app.post('/api/catalog/products/batch', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'products array is required' });
     }
 
+    const now = new Date().toISOString();
     try {
       const batch = adminDb.batch();
       for (const p of products) {
         if (p && p.id) {
-          batch.set(adminDb.collection('products').doc(p.id), p, { merge: true });
+          const { publicData, privateData } = splitProductPrivate(p);
+          const productRef = adminDb.collection('products').doc(p.id);
+          batch.set(productRef, publicData, { merge: true });
+          // Make sure no supplier/cost field lingers on the public document
+          batch.update(productRef, PRODUCT_PRIVATE_DELETE_PATCH);
+          if (privateData) {
+            batch.set(
+              adminDb.collection('product_private').doc(p.id),
+              { ...privateData, updatedAt: now },
+              { merge: true }
+            );
+          }
         }
       }
       await batch.commit();
@@ -837,7 +854,7 @@ app.post('/api/catalog/products/batch', requireAdmin, async (req, res) => {
       const batch = clientWriteBatch(clientDb);
       for (const p of products) {
         if (p && p.id) {
-          batch.set(clientDoc(clientDb, 'products', p.id), p, { merge: true });
+          batch.set(clientDoc(clientDb, 'products', p.id), splitProductPrivate(p).publicData, { merge: true });
         }
       }
       await batch.commit();
@@ -859,10 +876,22 @@ app.post('/api/catalog/products/save', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Valid product with id is required' });
     }
 
+    const { publicData, privateData } = splitProductPrivate(product);
     try {
-      await adminDb.collection('products').doc(product.id).set(product, { merge: true });
+      const productRef = adminDb.collection('products').doc(product.id);
+      const batch = adminDb.batch();
+      batch.set(productRef, publicData, { merge: true });
+      batch.update(productRef, PRODUCT_PRIVATE_DELETE_PATCH);
+      if (privateData) {
+        batch.set(
+          adminDb.collection('product_private').doc(product.id),
+          { ...privateData, updatedAt: new Date().toISOString() },
+          { merge: true }
+        );
+      }
+      await batch.commit();
     } catch {
-      await clientSetDoc(clientDoc(clientDb, 'products', product.id), product, { merge: true });
+      await clientSetDoc(clientDoc(clientDb, 'products', product.id), publicData, { merge: true });
     }
 
     return res.json({ success: true, product });
@@ -879,6 +908,7 @@ app.delete('/api/catalog/products/:id', requireAdmin, async (req, res) => {
     const { id } = req.params;
     try {
       await adminDb.collection('products').doc(id).delete();
+      await adminDb.collection('product_private').doc(id).delete();
     } catch {
       await clientDeleteDoc(clientDoc(clientDb, 'products', id));
     }
@@ -1013,13 +1043,13 @@ Current Live Store Snapshot:
 - Current User Role: ${effectiveRole}
 - Active Admin Tab / Page: ${storeContext?.currentTab || 'AI_COMMAND_CENTER'}
 - Active Search/Filter Query: "${storeContext?.currentFilter || 'None'}"
-- Store Base Currency: ${storeContext?.currency || 'USD'} (with live PKR conversion at 1 USD = 278.5 PKR)
+- Store Base Currency: PKR (all product prices, costs and order totals are in Pakistani Rupees)
 - Total Products: ${storeContext?.productCount ?? 0}
 - Low Stock Products (<=5 units): ${JSON.stringify(storeContext?.lowStockProducts ?? [])}
 - Products Missing SEO: ${JSON.stringify(storeContext?.missingSeoProducts ?? [])}
 - Staged CSV Rows Ready for Import: ${storeContext?.stagedCsvRowCount ?? 0}
 - Total Orders: ${storeContext?.orderCount ?? 0}
-- Total Revenue: $${storeContext?.totalRevenue ?? 0} (PKR ${Math.round((storeContext?.totalRevenue ?? 0) * 278.5).toLocaleString()})
+- Total Revenue: PKR ${Math.round(storeContext?.totalRevenue ?? 0).toLocaleString()}
 - Unshipped Orders: ${JSON.stringify(storeContext?.unshippedOrders ?? [])}
 - Active Coupons: ${JSON.stringify(storeContext?.coupons ?? [])}
 - Available Categories: ${JSON.stringify(storeContext?.categories ?? [])}
@@ -2120,25 +2150,33 @@ app.post('/api/orders/create', async (req, res) => {
     }
 
     // 6. Execute atomic Firestore Transaction with firebase-admin (with local persistence fallback if ADC is unconfigured in container)
-    let result: { orderId: string; orderNumber: string; orderAccessToken: string; order: Order };
+    let result: { orderId: string; orderNumber: string; orderAccessToken: string; order: Order; ownerOrder?: Order };
     try {
       result = await adminDb.runTransaction(async (transaction) => {
-        // Step A: Read each product and verify stock & active status
-        const productDocs: Array<{ ref: FirebaseFirestore.DocumentReference; data: any; reqQty: number }> = [];
+        // Step A: Read each product (and its admin-only supplier data) and verify stock & active status.
+        // The same product can appear on several cart lines, so quantities are combined per product.
+        const qtyByProduct = new Map<string, number>();
         for (const item of items) {
-          const prodRef = adminDb.collection('products').doc(item.productId);
+          qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.quantity);
+        }
+        const productDocs: Array<{ ref: FirebaseFirestore.DocumentReference; data: any; privateData: any; reqQty: number }> = [];
+        for (const [productId, reqQty] of qtyByProduct) {
+          const prodRef = adminDb.collection('products').doc(productId);
           const prodDoc = await transaction.get(prodRef);
           if (!prodDoc.exists) {
-            throw new Error(`Product "${item.productId}" not found in catalog.`);
+            throw new Error(`Product "${productId}" not found in catalog.`);
           }
           const pData = prodDoc.data();
           if (!pData || pData.status !== 'ACTIVE') {
-            throw new Error(`Product "${pData?.name || item.productId}" is not active or available for sale.`);
+            throw new Error(`Product "${pData?.name || productId}" is not active or available for sale.`);
           }
-          if (typeof pData.stock !== 'number' || pData.stock < item.quantity) {
-            throw new Error(`Insufficient stock for "${pData.name}". Available: ${pData.stock ?? 0}, Requested: ${item.quantity}.`);
+          if (typeof pData.stock !== 'number' || pData.stock < reqQty) {
+            throw new Error(`Insufficient stock for "${pData.name}". Available: ${pData.stock ?? 0}, Requested: ${reqQty}.`);
           }
-          productDocs.push({ ref: prodRef, data: pData, reqQty: item.quantity });
+          const privateDoc = await transaction.get(adminDb.collection('product_private').doc(productId));
+          // Older products may still carry supplier fields on the public doc until migrated
+          const privateData = { ...pData, ...(privateDoc.exists ? privateDoc.data() : {}) };
+          productDocs.push({ ref: prodRef, data: pData, privateData, reqQty });
         }
 
         // Step B: Read store settings
@@ -2148,13 +2186,17 @@ app.post('/api/orders/create', async (req, res) => {
 
         // Step C: Read coupon if provided
         let couponData: any = null;
+        let couponRef: FirebaseFirestore.DocumentReference | null = null;
         if (couponCode && typeof couponCode === 'string' && couponCode.trim()) {
           const cQuery = adminDb.collection('coupons').where('code', '==', couponCode.trim().toUpperCase()).limit(1);
           const cSnap = await transaction.get(cQuery);
           if (!cSnap.empty) {
             const cd = cSnap.docs[0].data();
-            if (cd.active !== false) {
+            const notExpired = !cd.expiresAt || new Date(cd.expiresAt).getTime() > Date.now();
+            const underLimit = !cd.usageLimit || Number(cd.usedCount || 0) < Number(cd.usageLimit);
+            if (cd.active !== false && notExpired && underLimit) {
               couponData = cd;
+              couponRef = cSnap.docs[0].ref;
             }
           }
         }
@@ -2172,10 +2214,10 @@ app.post('/api/orders/create', async (req, res) => {
             price,
             quantity: p.reqQty,
             image: p.data.primaryImage,
-            supplierName: p.data.supplierName || 'Own Stock',
-            supplierSku: p.data.supplierSku || p.data.sku || '',
-            supplierProductUrl: p.data.supplierProductUrl || '',
-            supplierCostPrice: Number(p.data.supplierCostPrice ?? p.data.costPrice ?? 0),
+            supplierName: p.privateData.supplierName || 'Own Stock',
+            supplierSku: p.privateData.supplierSku || p.data.sku || '',
+            supplierProductUrl: p.privateData.supplierProductUrl || '',
+            supplierCostPrice: Number(p.privateData.supplierCostPrice ?? p.privateData.costPrice ?? 0),
           });
         }
         merchandiseSubtotal = Number(merchandiseSubtotal.toFixed(2));
@@ -2184,7 +2226,8 @@ app.post('/api/orders/create', async (req, res) => {
         let discount = 0;
         let hasFreeShippingCoupon = false;
         if (couponData && paymentMethod !== 'MANUAL_QUOTE') {
-          if (!couponData.minOrderAmount || merchandiseSubtotal >= couponData.minOrderAmount) {
+          const minAmount = Number(couponData.minCartAmount ?? couponData.minOrderAmount ?? 0);
+          if (!minAmount || merchandiseSubtotal >= minAmount) {
             if (couponData.type === 'PERCENTAGE') {
               discount = (merchandiseSubtotal * (Number(couponData.value) || 0)) / 100;
               if (couponData.maxDiscount) {
@@ -2227,6 +2270,10 @@ app.post('/api/orders/create', async (req, res) => {
           });
         }
 
+        if (couponRef && (discount > 0 || hasFreeShippingCoupon)) {
+          transaction.update(couponRef, { usedCount: FieldValue.increment(1) });
+        }
+
         // Step H: Generate unique order number & guest tracking token
         const orderNumber = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
         const orderId = `ord-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
@@ -2252,12 +2299,15 @@ app.post('/api/orders/create', async (req, res) => {
           ? shippingAddress
           : `${addressLine}, ${city}${district && district !== city ? `, ${district}` : ''}${tehsil ? `, Tehsil: ${tehsil}` : ''}, Pakistan (Phone: ${cleanPhone})`;
 
+        // Supplier name/cost per item is admin-only and goes to order_private
+        const { publicItems, privateItems } = splitOrderItemsPrivate(orderItems);
+
         const orderData: Order = {
           id: orderId,
           orderNumber,
           userId: userId || null,
           orderAccessToken,
-          items: orderItems,
+          items: publicItems,
           customerName: (customerName || req.body.name || '').toString().trim(),
           customerEmail: (customerEmail || req.body.email || '').toString().trim().toLowerCase(),
           customerPhone: cleanPhone,
@@ -2271,7 +2321,7 @@ app.post('/api/orders/create', async (req, res) => {
           tax,
           shippingFee,
           total,
-          currency: storeSettings?.currency || 'PKR',
+          currency: 'PKR',
           exchangeRateSnapshot: Number(storeSettings?.usdToPkrRate) || 278.5,
           ...(couponData ? { couponCode: couponData.code } : {}),
           shippingAddressSummary: fullAddressSummary,
@@ -2285,12 +2335,19 @@ app.post('/api/orders/create', async (req, res) => {
 
         const orderRef = adminDb.collection('orders').doc(orderId);
         transaction.set(orderRef, orderData);
+        transaction.set(adminDb.collection('order_private').doc(orderId), {
+          orderId,
+          items: privateItems,
+          updatedAt: now,
+        });
 
         return {
           orderId,
           orderNumber,
           orderAccessToken,
           order: orderData,
+          // Full item details (with supplier info) are used only for the store owner's email
+          ownerOrder: { ...orderData, items: orderItems },
         };
       });
     } catch (txnError: any) {
@@ -2335,7 +2392,7 @@ app.post('/api/orders/create', async (req, res) => {
         }
 
         try {
-          await sendOrderPlacedOwnerEmail(adminDb, result.order, emailSettings);
+          await sendOrderPlacedOwnerEmail(adminDb, result.ownerOrder || result.order, emailSettings);
         } catch (ownerErr) {
           console.error('[Order Placed Owner Email Error]:', ownerErr);
         }
@@ -2526,21 +2583,25 @@ app.post('/api/orders/cancel', async (req, res) => {
           throw new Error('Order is already cancelled.');
         }
 
-        // Restore stock for items in Firestore
-        if (Array.isArray(freshOrder.items) && freshOrder.items.length > 0) {
-          for (const item of freshOrder.items) {
-            if (item.productId && item.quantity > 0) {
-              const prodRef = adminDb.collection('products').doc(item.productId);
-              const prodDoc = await transaction.get(prodRef);
-              if (prodDoc.exists) {
-                const currentStock = prodDoc.data()?.stock ?? 0;
-                transaction.update(prodRef, {
-                  stock: currentStock + item.quantity,
-                  updatedAt: new Date().toISOString(),
-                });
-              }
-            }
+        // Restore stock for items in Firestore.
+        // Firestore transactions need every read before any write, so read all products first.
+        const restoreQty = new Map<string, number>();
+        for (const item of Array.isArray(freshOrder.items) ? freshOrder.items : []) {
+          if (item.productId && item.quantity > 0) {
+            restoreQty.set(item.productId, (restoreQty.get(item.productId) || 0) + item.quantity);
           }
+        }
+        const restoreTargets: Array<{ ref: FirebaseFirestore.DocumentReference; qty: number }> = [];
+        for (const [productId, qty] of restoreQty) {
+          const prodRef = adminDb.collection('products').doc(productId);
+          const prodDoc = await transaction.get(prodRef);
+          if (prodDoc.exists) restoreTargets.push({ ref: prodRef, qty });
+        }
+        for (const target of restoreTargets) {
+          transaction.update(target.ref, {
+            stock: FieldValue.increment(target.qty),
+            updatedAt: new Date().toISOString(),
+          });
         }
 
         transaction.update(orderDocRef!, {
@@ -2655,11 +2716,30 @@ app.post('/api/orders/update-status', requireAdmin, async (req, res) => {
       updates.paymentStatus = 'PAID';
     }
 
+    // Put stock back when an order is cancelled or returned (only once per order)
+    const stockReleasedStatuses = ['CANCELLED', 'RETURNED', 'REFUNDED'];
+    const shouldRestoreStock =
+      ['CANCELLED', 'RETURNED'].includes(status) && !stockReleasedStatuses.includes(orderData.status);
+
     try {
       await orderDocRef.update(updates);
     } catch (dbErr) {
       console.error('Failed to update Firestore order in update-status:', dbErr);
       return res.status(503).json({ error: 'Service temporarily unavailable: failed to update order in database.' });
+    }
+
+    if (shouldRestoreStock && Array.isArray(orderData.items)) {
+      for (const item of orderData.items) {
+        if (!item.productId || !(item.quantity > 0)) continue;
+        try {
+          const pRef = adminDb.collection('products').doc(item.productId);
+          if ((await pRef.get()).exists) {
+            await pRef.update({ stock: FieldValue.increment(item.quantity), updatedAt: now });
+          }
+        } catch (stockErr) {
+          console.error(`[UpdateStatus] Failed to restore stock for ${item.productId}:`, stockErr);
+        }
+      }
     }
 
     const mergedOrder: Order = {
@@ -2811,6 +2891,10 @@ app.post('/api/orders/cancel-fake', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Order not found.' });
     }
 
+    if (['CANCELLED', 'REFUNDED'].includes(orderData.status)) {
+      return res.status(400).json({ error: 'Order is already cancelled or refunded.' });
+    }
+
     const now = new Date().toISOString();
     const cancellationReason = reason || 'Fake / Customer not responding';
 
@@ -2822,16 +2906,10 @@ app.post('/api/orders/cancel-fake', requireAdmin, async (req, res) => {
             const pRef = adminDb.collection('products').doc(item.productId);
             const pDoc = await pRef.get();
             if (pDoc.exists) {
-              await pRef.update({ stock: (pDoc.data()?.stock || 0) + item.quantity, updatedAt: now });
+              await pRef.update({ stock: FieldValue.increment(item.quantity), updatedAt: now });
             }
-          } catch {
-            try {
-              const cpRef = clientDoc(clientDb, 'products', item.productId);
-              const cpDoc = await clientGetDoc(cpRef);
-              if (cpDoc.exists()) {
-                await clientSetDoc(cpRef, { stock: (cpDoc.data()?.stock || 0) + item.quantity, updatedAt: now }, { merge: true });
-              }
-            } catch {}
+          } catch (stockErr) {
+            console.error(`Failed to restore stock for ${item.productId}:`, stockErr);
           }
         }
       }
@@ -3043,7 +3121,7 @@ app.post('/api/orders/shipments', requireAdmin, async (req, res) => {
 
 // 7. POST /api/orders/respond-quote (Server-Side Freight Quote Expiry & Response Security)
 // Authorized for Admins or Customers via order owner/orderAccessToken check (same as /api/orders/cancel)
-app.post('/api/orders/respond-quote', async (req, res) => {
+async function handleRespondQuote(req: express.Request, res: express.Response) {
   const {
     orderId,
     orderNumber,
@@ -3180,12 +3258,14 @@ app.post('/api/orders/respond-quote', async (req, res) => {
       createdAt: serverNowIso,
     },
   });
-});
+}
+
+app.post('/api/orders/respond-quote', handleRespondQuote);
 
 // Also support parameterized route: POST /api/orders/:orderId/respond-quote
 app.post('/api/orders/:orderId/respond-quote', (req, res) => {
-  req.body.orderId = req.params.orderId;
-  app._router.handle(req, res, () => {});
+  req.body = { ...(req.body || {}), orderId: req.params.orderId };
+  return handleRespondQuote(req, res);
 });
 
 // ============================================================================
@@ -3973,11 +4053,68 @@ app.patch('/api/helpline/tickets/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// One-time, idempotent move of supplier/cost data out of public product and order documents
+// into the admin-only product_private and order_private collections.
+async function migratePrivateSupplierData() {
+  let movedProducts = 0;
+  let movedOrders = 0;
+
+  const productsSnap = await adminDb.collection('products').get();
+  for (const docSnap of productsSnap.docs) {
+    const data = docSnap.data();
+    if (!hasProductPrivateFields(data)) continue;
+    const { privateData } = splitProductPrivate({ id: docSnap.id, ...data });
+    const batch = adminDb.batch();
+    if (privateData) {
+      batch.set(
+        adminDb.collection('product_private').doc(docSnap.id),
+        { ...privateData, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+    }
+    batch.update(docSnap.ref, PRODUCT_PRIVATE_DELETE_PATCH);
+    await batch.commit();
+    movedProducts++;
+  }
+
+  const ordersSnap = await adminDb.collection('orders').get();
+  for (const docSnap of ordersSnap.docs) {
+    const data = docSnap.data() as Order;
+    if (!orderItemsHavePrivateFields(data.items)) continue;
+    const { publicItems, privateItems } = splitOrderItemsPrivate(data.items || []);
+    const batch = adminDb.batch();
+    batch.set(
+      adminDb.collection('order_private').doc(docSnap.id),
+      { orderId: docSnap.id, items: privateItems, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+    batch.update(docSnap.ref, { items: publicItems });
+    await batch.commit();
+    movedOrders++;
+  }
+
+  if (movedProducts || movedOrders) {
+    console.log(`[Private Data Migration] Moved supplier data for ${movedProducts} products and ${movedOrders} orders.`);
+  }
+
+  // Gateway secrets must never live in the publicly readable settings document
+  const settingsRef = adminDb.collection('settings').doc('store_config');
+  const settingsSnap = await settingsRef.get();
+  const secretKeys = ['jazzcashPassword', 'jazzcashIntegritySalt', 'easypaisaHashKey'];
+  if (settingsSnap.exists && secretKeys.some((k) => settingsSnap.data()?.[k])) {
+    await settingsRef.update(Object.fromEntries(secretKeys.map((k) => [k, FieldValue.delete()])));
+    console.warn('[Settings] Removed payment gateway secrets from the public settings document. Store them in server secrets instead.');
+  }
+}
+
 async function startServer() {
   // Test read from Firestore with firebase-admin at server startup
   try {
     await adminDb.collection('settings').limit(1).get();
     console.log('[Firestore Admin] Initial test read succeeded.');
+    migratePrivateSupplierData().catch((migErr) =>
+      console.error('[Private Data Migration] Failed:', migErr)
+    );
   } catch (dbTestErr) {
     console.error('FIRESTORE ADMIN ACCESS FAILED:', dbTestErr);
   }
