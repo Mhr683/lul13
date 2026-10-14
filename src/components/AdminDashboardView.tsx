@@ -5914,11 +5914,8 @@ export const AdminDashboardView: React.FC<{
 
                               {/* Message Content & AI Auto-Reply */}
                               <div className="p-4 space-y-4">
-                                {(ticket.needsHuman || ticket.channel === 'WHATSAPP') && (
+                                {ticket.needsHuman && (
                                   <div className="flex flex-wrap gap-2 text-[11px] font-bold">
-                                    {ticket.channel === 'WHATSAPP' && (
-                                      <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">WhatsApp</span>
-                                    )}
                                     {ticket.needsHuman && (
                                       <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300">
                                         Customer wants a person — please reply

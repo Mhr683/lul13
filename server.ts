@@ -302,15 +302,7 @@ async function getOptionalUser(
 const app = express();
 const PORT = 3000;
 
-app.use(
-  express.json({
-    limit: '10mb',
-    // Keep the exact bytes so webhook signatures (WhatsApp) can be verified
-    verify: (req, _res, buf) => {
-      (req as any).rawBody = buf;
-    },
-  })
-);
+app.use(express.json({ limit: '10mb' }));
 
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -4033,7 +4025,6 @@ interface CustomerTicket {
   needsHuman?: boolean;
   humanActiveUntil?: string;
   lastMessageAt?: string;
-  waId?: string;
 }
 
 // After an admin replies, the AI stays quiet in that conversation for this long
@@ -4064,7 +4055,7 @@ async function generateSupportReply(params: {
   store: any;
   history: ThreadMessage[];
   message: string;
-  channel: 'WEBSITE' | 'WHATSAPP' | 'FORM';
+  channel: 'WEBSITE' | 'FORM';
   orderNumber?: string;
 }): Promise<string> {
   const { store, history, message, channel, orderNumber } = params;
@@ -4080,11 +4071,9 @@ async function generateSupportReply(params: {
     : '';
 
   const systemPrompt = `You are the customer support assistant for "${storeName}", an online store in Pakistan (prices in PKR).
-You are replying on ${channel === 'WHATSAPP' ? 'WhatsApp' : channel === 'FORM' ? 'an email ticket' : 'the website helpline chat'}.
+You are replying on ${channel === 'FORM' ? 'an email ticket' : 'the website helpline chat'}.
 
-Language: reply in the customer's language (English, Urdu or Roman Urdu). Be polite, short and clear${
-    channel === 'WHATSAPP' ? ' (WhatsApp style: 1-4 short lines, no markdown headings)' : ''
-  }.
+Language: reply in the customer's language (English, Urdu or Roman Urdu). Be polite, short and clear.
 
 Store facts (only use these, never invent others):
 - Payment: Cash on Delivery, bank transfer${raastDetails ? ', Raast' : ''}${nayapayDetails ? ', NayaPay' : ''}. For transfers the customer enters the Transaction ID (TID) at checkout and the store verifies it.
@@ -4125,50 +4114,6 @@ Rules:
   return whatsapp
     ? `Shukriya! Aap ka message mil gaya hai. Hamari team jald jawab degi. WhatsApp: ${whatsapp}`
     : 'Shukriya! Aap ka message mil gaya hai. Hamari team jald jawab degi.';
-}
-
-// ---------------------------------------------------------------------------
-// WhatsApp Business Platform (Cloud API). Stays off until these secrets are set:
-// WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET
-// Optional: WHATSAPP_API_VERSION (check the current version in the Meta dashboard),
-//           WHATSAPP_AI_REPLIES=false to receive messages without AI answers.
-// ---------------------------------------------------------------------------
-const whatsappConfigured = () =>
-  Boolean(
-    process.env.WHATSAPP_TOKEN &&
-      process.env.WHATSAPP_PHONE_NUMBER_ID &&
-      process.env.WHATSAPP_VERIFY_TOKEN &&
-      process.env.WHATSAPP_APP_SECRET
-  );
-
-async function sendWhatsAppText(to: string, body: string): Promise<{ ok: boolean; error?: string }> {
-  if (!whatsappConfigured()) return { ok: false, error: 'WhatsApp API is not configured.' };
-  const version = process.env.WHATSAPP_API_VERSION || 'v22.0';
-  try {
-    const res = await fetch(
-      `https://graph.facebook.com/${version}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: to.replace(/[^0-9]/g, ''),
-          type: 'text',
-          text: { body: body.slice(0, 4000) },
-        }),
-      }
-    );
-    if (!res.ok) {
-      const data: any = await res.json().catch(() => ({}));
-      return { ok: false, error: data?.error?.message || `WhatsApp API error ${res.status}` };
-    }
-    return { ok: true };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || 'WhatsApp request failed' };
-  }
 }
 
 function trimThread(messages: ThreadMessage[]): ThreadMessage[] {
@@ -4371,109 +4316,6 @@ app.post('/api/helpline/contact-ticket', async (req, res) => {
   });
 });
 
-// WhatsApp webhook verification (Meta calls this once when you add the webhook URL)
-app.get('/api/whatsapp/webhook', (req, res) => {
-  if (
-    process.env.WHATSAPP_VERIFY_TOKEN &&
-    req.query['hub.mode'] === 'subscribe' &&
-    req.query['hub.verify_token'] === process.env.WHATSAPP_VERIFY_TOKEN
-  ) {
-    return res.status(200).send(String(req.query['hub.challenge'] || ''));
-  }
-  res.sendStatus(403);
-});
-
-// Incoming WhatsApp messages. The signature proves the request really comes from Meta.
-app.post('/api/whatsapp/webhook', (req, res) => {
-  if (!whatsappConfigured()) return res.sendStatus(503);
-  const signature = String(req.headers['x-hub-signature-256'] || '');
-  const rawBody: Buffer | undefined = (req as any).rawBody;
-  const expected =
-    'sha256=' + crypto.createHmac('sha256', String(process.env.WHATSAPP_APP_SECRET)).update(rawBody || '').digest('hex');
-  const valid =
-    rawBody &&
-    signature.length === expected.length &&
-    crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  if (!valid) return res.sendStatus(401);
-
-  // Answer Meta immediately; process in the background
-  res.sendStatus(200);
-  handleWhatsAppWebhook(req.body).catch((err) => console.error('[WhatsApp webhook] processing failed:', err));
-});
-
-async function handleWhatsAppWebhook(payload: any) {
-  const changes = (payload?.entry || []).flatMap((e: any) => e?.changes || []);
-  for (const change of changes) {
-    const value = change?.value || {};
-    const contacts = value.contacts || [];
-    for (const msg of value.messages || []) {
-      const from = String(msg?.from || '').replace(/[^0-9]/g, '');
-      if (!from || !msg?.id) continue;
-
-      // WhatsApp may deliver the same message twice; process each id once
-      try {
-        await adminDb.collection('wa_processed').doc(String(msg.id)).create({ at: new Date().toISOString() });
-      } catch {
-        continue;
-      }
-
-      const name = contacts.find((c: any) => c?.wa_id === from)?.profile?.name || `WhatsApp ${from}`;
-      const text =
-        msg.type === 'text'
-          ? String(msg.text?.body || '').slice(0, 2000)
-          : `[${msg.type || 'unknown'} message — please check WhatsApp]`;
-      const now = new Date().toISOString();
-
-      const ref = adminDb.collection('support_tickets').doc(`wa-${from}`);
-      const snap = await ref.get();
-      const ticket: CustomerTicket = snap.exists
-        ? (snap.data() as CustomerTicket)
-        : {
-            id: `wa-${from}`,
-            ticketNumber: newTicketNumber(),
-            name: String(name).slice(0, 110),
-            email: '',
-            phone: `+${from}`,
-            category: 'WHATSAPP',
-            subject: `WhatsApp: "${text.slice(0, 45)}"`,
-            message: text,
-            status: 'OPEN',
-            channel: 'WHATSAPP',
-            createdAt: now,
-            waId: from,
-            messages: [],
-          };
-
-      const thread: ThreadMessage[] = [...(ticket.messages || []), { role: 'customer', text, at: now }];
-      const humanActive = Boolean(ticket.humanActiveUntil && new Date(ticket.humanActiveUntil).getTime() > Date.now());
-      const aiEnabled = process.env.WHATSAPP_AI_REPLIES !== 'false';
-      const withinLimit = checkRateLimit(`wa:${from}`, 10, 60_000);
-
-      let reply: string | null = null;
-      if (aiEnabled && !humanActive && withinLimit && msg.type === 'text') {
-        const store = await loadStoreSettingsForSupport();
-        reply = await generateSupportReply({ store, history: ticket.messages || [], message: text, channel: 'WHATSAPP' });
-        const sent = await sendWhatsAppText(from, reply);
-        thread.push({
-          role: 'ai',
-          text: reply,
-          at: new Date().toISOString(),
-          delivery: sent.ok ? 'whatsapp' : `failed: ${sent.error}`,
-        });
-      }
-
-      await ref.set({
-        ...ticket,
-        messages: trimThread(thread),
-        lastMessageAt: now,
-        status: ticket.status === 'RESOLVED' ? 'OPEN' : ticket.status,
-        needsHuman: Boolean(ticket.needsHuman || HUMAN_REQUEST_PATTERN.test(text) || msg.type !== 'text'),
-        ...(reply ? { aiAutoReply: reply, aiAutoRepliedAt: new Date().toISOString(), aiAutoReplyStatus: 'SENT' } : {}),
-      });
-    }
-  }
-}
-
 // GET /api/helpline/tickets (Admin Inbox)
 app.get('/api/helpline/tickets', requireAdmin, async (_req, res) => {
   try {
@@ -4483,7 +4325,7 @@ app.get('/api/helpline/tickets', requireAdmin, async (_req, res) => {
       return { id: d.id, ...rest };
     });
     list.sort((a: any, b: any) => String(b.lastMessageAt || b.createdAt).localeCompare(String(a.lastMessageAt || a.createdAt)));
-    res.json({ success: true, tickets: list, whatsappConnected: whatsappConfigured() });
+    res.json({ success: true, tickets: list });
   } catch (err: any) {
     console.error('Failed to fetch support tickets from Firestore:', err);
     res.status(503).json({ error: 'Service temporarily unavailable: failed to fetch support tickets.' });
@@ -4492,7 +4334,7 @@ app.get('/api/helpline/tickets', requireAdmin, async (_req, res) => {
 
 // POST /api/helpline/tickets/:id/merchant-reply
 // The admin's reply goes into the conversation (website chat shows it), and is also sent by
-// WhatsApp for WhatsApp chats or by email when the customer left a real email address.
+// email when the customer left a real email address.
 app.post('/api/helpline/tickets/:id/merchant-reply', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -4510,11 +4352,7 @@ app.post('/api/helpline/tickets/:id/merchant-reply', requireAdmin, async (req, r
     const deliveryErrors: string[] = [];
 
     if (replyText) {
-      if (existing.channel === 'WHATSAPP' && existing.waId) {
-        const sent = await sendWhatsAppText(existing.waId, replyText);
-        if (sent.ok) deliveredTo.push('WhatsApp');
-        else deliveryErrors.push(`WhatsApp: ${sent.error}`);
-      } else if (existing.channel === 'AI_CHAT') {
+      if (existing.channel === 'AI_CHAT') {
         deliveredTo.push('website chat');
       }
 
