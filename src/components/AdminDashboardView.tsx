@@ -668,7 +668,7 @@ export const AdminDashboardView: React.FC<{
             price: Number(args.price || 450),
             compareAtPrice: args.compareAtPrice ? Number(args.compareAtPrice) : undefined,
             costPrice: args.costPrice ? Number(args.costPrice) : undefined,
-            stock: Number(args.stock ?? 15),
+            stock: Number(args.stock ?? 100),
             category: args.category || (categories[0]?.name || 'General'),
             brand: args.brand || settings.storeName || 'Store Brand',
             shortDescription: args.shortDescription,
@@ -676,7 +676,12 @@ export const AdminDashboardView: React.FC<{
             seoTitle: args.seoTitle,
             seoDescription: args.seoDescription,
             seoKeywords: args.seoKeywords,
-            featured: Boolean(args.featured ?? true),
+            featured: Boolean(args.featured ?? false),
+            ...(args.imageUrl && /^https?:\/\//i.test(String(args.imageUrl)) ? { primaryImage: String(args.imageUrl) } : {}),
+            supplierName: args.supplierName ? String(args.supplierName) : 'Own Stock',
+            ...(args.supplierCostPrice ? { supplierCostPrice: Number(args.supplierCostPrice) } : {}),
+            ...(args.supplierProductUrl ? { supplierProductUrl: String(args.supplierProductUrl) } : {}),
+            ...(args.supplierSku ? { supplierSku: String(args.supplierSku) } : {}),
           },
           'AI_TOOL:createProduct'
         );
@@ -713,6 +718,11 @@ export const AdminDashboardView: React.FC<{
             ...(args.seoTitle ? { seoTitle: String(args.seoTitle) } : {}),
             ...(args.seoDescription ? { seoDescription: String(args.seoDescription) } : {}),
             ...(args.status ? { status: args.status } : {}),
+            ...(args.imageUrl && /^https?:\/\//i.test(String(args.imageUrl)) ? { primaryImage: String(args.imageUrl) } : {}),
+            ...(args.supplierName ? { supplierName: String(args.supplierName) } : {}),
+            ...(args.supplierCostPrice !== undefined ? { supplierCostPrice: Number(args.supplierCostPrice) } : {}),
+            ...(args.supplierProductUrl ? { supplierProductUrl: String(args.supplierProductUrl) } : {}),
+            ...(args.supplierSku ? { supplierSku: String(args.supplierSku) } : {}),
           },
           'AI_TOOL:updateProduct'
         );
@@ -1097,17 +1107,25 @@ export const AdminDashboardView: React.FC<{
       }
 
       case 'createCoupon': {
+        if (!args.code || args.value === undefined) {
+          return {
+            status: 'EXECUTED',
+            summary: 'Coupon ka code aur discount (value) dono batayein, masalan: "EID10, 10% off, 3000 se upar".',
+          };
+        }
         const saved = await saveCoupon({
-          code: String(args.code || 'ATELIER20'),
+          code: String(args.code),
           type: (args.type as any) || 'PERCENTAGE',
-          value: Number(args.value || 20),
-          minCartAmount: Number(args.minCartAmount || 100),
+          value: Number(args.value),
+          minCartAmount: Number(args.minCartAmount || 0),
           categoryFilter: args.categoryFilter,
           usageLimit: Number(args.usageLimit || 100),
         });
         return {
           status: 'EXECUTED',
-          summary: `Created active promotional coupon "${saved.code}" (${saved.type}: ${saved.value}).`,
+          summary: `Created active coupon "${saved.code}" (${saved.type}: ${saved.value}${
+            saved.minCartAmount ? `, min order ${formatPKR(saved.minCartAmount)}` : ''
+          }).`,
         };
       }
 
@@ -1120,10 +1138,22 @@ export const AdminDashboardView: React.FC<{
             summary: `Coupon "${codeStr}" not found.`,
           };
         }
-        await deleteCouponById(targetCoupon.id);
+        setPendingConfirmations((prev) => [
+          ...prev,
+          {
+            id: `conf-coupon-${Date.now()}`,
+            description: `Delete coupon "${targetCoupon.code}"? Customers will no longer be able to use it.`,
+            toolName: 'deleteCoupon',
+            args,
+            onConfirm: async () => {
+              await deleteCouponById(targetCoupon.id);
+              return `Deleted coupon "${targetCoupon.code}".`;
+            },
+          },
+        ]);
         return {
-          status: 'EXECUTED',
-          summary: `Deleted coupon "${targetCoupon.code}".`,
+          status: 'PENDING_CONFIRMATION',
+          summary: `Confirmation required to delete coupon "${targetCoupon.code}".`,
         };
       }
 
@@ -1233,16 +1263,30 @@ export const AdminDashboardView: React.FC<{
       }
 
       case 'sendCustomerEmail': {
-        const dispatchSummary = EmailNotificationService.formatDispatchLog({
-          to: String(args.toEmail || settings.helplineEmail || 'customer@example.com'),
-          subject: String(args.subject || `${settings.storeName || 'Store'} Order Update`),
-          template: 'PROMOTIONAL',
-          summary: String(args.message || ''),
-        });
-        await recordAuditLog('AI_EMAIL_DISPATCHED', String(args.toEmail), dispatchSummary);
+        // Draft only: the admin reviews it and sends it from their own email app
+        const toEmail = String(args.toEmail || '').trim();
+        const subject = String(args.subject || `${settings.storeName || 'Store'} order update`);
+        const message = String(args.message || '');
+        setPendingConfirmations((prev) => [
+          ...prev,
+          {
+            id: `conf-email-${Date.now()}`,
+            description: `Email draft for ${toEmail || '(no address)'} — "${subject}":\n\n${message}\n\nConfirm to open it in your email app.`,
+            toolName: 'sendCustomerEmail',
+            args,
+            onConfirm: async () => {
+              window.open(
+                `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`,
+                '_blank'
+              );
+              await recordAuditLog('AI_EMAIL_DRAFT_OPENED', toEmail, subject);
+              return `Opened the email draft to ${toEmail} in your email app. Press send there.`;
+            },
+          },
+        ]);
         return {
-          status: 'EXECUTED',
-          summary: `Logged concierge dispatch to ${args.toEmail} ("${args.subject}").`,
+          status: 'PENDING_CONFIRMATION',
+          summary: `Email draft ready for ${toEmail}. Review it below; nothing has been sent.`,
         };
       }
 
@@ -1252,15 +1296,167 @@ export const AdminDashboardView: React.FC<{
           setCsvRawText(rawContent);
         }
         const rows = handleParseCsv(rawContent, args.delimiter, args.currency);
-        let workingRows = rows;
-        if (args.enrichMissingWithAI && workingRows.length > 0) {
-          workingRows = await handleAIEnrichCsv(workingRows);
-        }
-        const result = await handleCommitCsvImport(workingRows);
         setActiveTab('CSV_WORKFLOW');
+        if (rows.length === 0) {
+          return { status: 'EXECUTED', summary: 'No CSV rows to import.' };
+        }
+        setPendingConfirmations((prev) => [
+          ...prev,
+          {
+            id: `conf-csv-${Date.now()}`,
+            description: `Import ${rows.length} CSV rows into the catalog${
+              args.enrichMissingWithAI ? ' (with AI-written missing descriptions)' : ''
+            }? Existing products with the same SKU will be updated.`,
+            toolName: 'importCSV',
+            args,
+            onConfirm: async () => {
+              let workingRows = rows;
+              if (args.enrichMissingWithAI) {
+                workingRows = await handleAIEnrichCsv(workingRows);
+              }
+              const result = await handleCommitCsvImport(workingRows);
+              return `CSV import done: ${result.imported} created, ${result.updated} updated, ${result.failed} failed.`;
+            },
+          },
+        ]);
+        return {
+          status: 'PENDING_CONFIRMATION',
+          summary: `${rows.length} CSV rows are ready. Confirm to import them.`,
+        };
+      }
+
+      case 'getOrdersToConfirm': {
+        const pending = orders.filter((o) => o.status === 'PENDING_CONFIRMATION');
         return {
           status: 'EXECUTED',
-          summary: `Executed CSV Import: ${result.imported} created, ${result.updated} updated, ${result.failed} failed.`,
+          summary: pending.length
+            ? `${pending.length} order(s) need a confirmation call/WhatsApp: ${pending
+                .map(
+                  (o) =>
+                    `${o.orderNumber} — ${o.customerName}, ${o.customerPhone || 'no phone'}, ${formatPKR(o.total)} (${o.paymentMethod})`
+                )
+                .join('; ')}. Open Orders → "Call to Confirm" to confirm or mark fake.`
+            : 'No orders are waiting for confirmation.',
+        };
+      }
+
+      case 'getSupplierOrders': {
+        const supplier = String(args.supplierName || 'ALL').trim();
+        const isAll = supplier.toUpperCase() === 'ALL';
+        const toForward = orders.filter((o) => ['CONFIRMED', 'PROCESSING', 'PACKED'].includes(o.status));
+        const lines: string[] = [];
+        for (const o of toForward) {
+          const items = (o.items || []).filter(
+            (i) => isAll || (i.supplierName || 'Own Stock').toLowerCase() === supplier.toLowerCase()
+          );
+          if (items.length === 0) continue;
+          lines.push(
+            `${o.orderNumber} [${o.status}] ${o.customerName}, ${o.customerPhone || ''}, ${o.shippingAddressSummary || ''} — ${items
+              .map((i) => `${i.name} x${i.quantity} (${i.supplierName || 'Own Stock'}${i.supplierSku ? ` ${i.supplierSku}` : ''})`)
+              .join(', ')}${o.paymentMethod === 'COD' ? ` — COD ${formatPKR(o.total)}` : ' — PAID'}`
+          );
+        }
+        return {
+          status: 'EXECUTED',
+          summary: lines.length
+            ? `${lines.length} order(s) to place with ${isAll ? 'suppliers' : supplier}:\n${lines.join('\n')}\nUse "📦 Supplier & Tracking" on each order to copy the details.`
+            : `No confirmed orders waiting for ${isAll ? 'any supplier' : supplier}.`,
+        };
+      }
+
+      case 'getProfitReport': {
+        const period = String(args.period || '30D').toUpperCase();
+        const now = Date.now();
+        const dayMs = 24 * 60 * 60 * 1000;
+        const inPeriod = orders.filter((o) => {
+          if (['CANCELLED', 'REFUNDED'].includes(o.status)) return false;
+          const t = new Date(o.createdAt).getTime();
+          if (period === 'TODAY') return new Date(o.createdAt).toDateString() === new Date().toDateString();
+          if (period === '7D') return now - t <= 7 * dayMs;
+          if (period === '30D') return now - t <= 30 * dayMs;
+          return true;
+        });
+        let sales = 0;
+        let cost = 0;
+        let delivery = 0;
+        const byProduct = new Map<string, { name: string; profit: number; qty: number }>();
+        for (const o of inPeriod) {
+          const stats = getOrderProfitStats(o);
+          sales += stats.sellingPrice;
+          cost += stats.supplierCost;
+          delivery += stats.shippingCost;
+          for (const i of o.items || []) {
+            const entry = byProduct.get(i.productId) || { name: i.name, profit: 0, qty: 0 };
+            entry.qty += i.quantity;
+            entry.profit += (i.price - Number(i.supplierCostPrice ?? 0)) * i.quantity;
+            byProduct.set(i.productId, entry);
+          }
+        }
+        const top = Array.from(byProduct.values())
+          .sort((a, b) => b.profit - a.profit)
+          .slice(0, 5)
+          .map((p) => `${p.name} (${p.qty} sold, ${formatPKR(p.profit)})`);
+        const missingCost = products.filter((p) => p.status === 'ACTIVE' && !p.supplierCostPrice).length;
+        return {
+          status: 'EXECUTED',
+          summary: `Profit report (${period}): ${inPeriod.length} orders, sales ${formatPKR(sales)}, supplier cost ${formatPKR(
+            cost
+          )}, delivery ${formatPKR(delivery)}, estimated profit ${formatPKR(sales - cost - delivery)}.${
+            top.length ? ` Top products by profit: ${top.join('; ')}.` : ''
+          }${missingCost ? ` Warning: ${missingCost} active product(s) have no supplier cost, so profit is overstated.` : ''}`,
+        };
+      }
+
+      case 'suggestSellingPrice': {
+        const queryStr = String(args.productIdOrName || '').toLowerCase();
+        const product = queryStr
+          ? products.find(
+              (p) =>
+                p.id.toLowerCase() === queryStr ||
+                p.sku.toLowerCase() === queryStr ||
+                p.name.toLowerCase().includes(queryStr)
+            )
+          : selectedAdminProduct || undefined;
+        const supplierCost = Number(args.supplierCost ?? product?.supplierCostPrice ?? 0);
+        if (!supplierCost || supplierCost <= 0) {
+          return {
+            status: 'EXECUTED',
+            summary: 'Supplier cost batayein (ya product mein supplier cost set karein), phir main price suggest karunga.',
+          };
+        }
+        const margin = Math.min(90, Math.max(1, Number(args.marginPercent ?? 30)));
+        const raw = supplierCost / (1 - margin / 100);
+        // Round up to a price ending in 9 (e.g. 1,249)
+        const suggested = Math.ceil(raw / 10) * 10 - 1;
+        return {
+          status: 'EXECUTED',
+          summary: `${product ? `${product.name}: ` : ''}supplier cost ${formatPKR(supplierCost)} + ${margin}% margin → suggested price ${formatPKR(
+            suggested
+          )} (profit about ${formatPKR(suggested - supplierCost)} per piece before delivery/returns).${
+            product ? ` Current price is ${formatPKR(product.price)}.` : ''
+          } Nothing was changed.`,
+        };
+      }
+
+      case 'draftCustomerMessage': {
+        const orderRef = String(args.orderNumber || '').toUpperCase();
+        const order =
+          orders.find((o) => o.orderNumber.toUpperCase() === orderRef || o.id.toUpperCase() === orderRef) ||
+          selectedAdminOrder;
+        if (!order) {
+          return { status: 'EXECUTED', summary: `Order "${args.orderNumber}" not found.` };
+        }
+        const type = String(args.messageType || 'CONFIRM').toUpperCase();
+        const text =
+          type === 'TRACKING'
+            ? buildTrackingMessage(order)
+            : type === 'CUSTOM'
+            ? `Assalam-o-Alaikum ${order.customerName}!\n\n${String(args.customText || '')}\n\nOrder #${order.orderNumber}\n${settings.storeName || ''}`
+            : buildConfirmMessage(order);
+        const link = buildWhatsAppLink(order.customerPhone, text);
+        return {
+          status: 'EXECUTED',
+          summary: `WhatsApp draft for ${order.customerName} (${order.customerPhone || 'no phone'}):\n\n${text}\n\nOpen to send: ${link}`,
         };
       }
 
@@ -2407,7 +2603,7 @@ export const AdminDashboardView: React.FC<{
               >
                 <div className="flex items-center gap-3 text-xs text-amber-200">
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>
+                  <span className="whitespace-pre-wrap">
                     <strong>AI Safety Confirmation Required:</strong> {conf.description}
                   </span>
                 </div>

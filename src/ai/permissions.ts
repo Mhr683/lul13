@@ -115,6 +115,11 @@ export const AI_TOOL_REQUIRED_PERMISSION: Record<string, AdminPermission> = {
   sendCustomerEmail: 'customers.manage',
   bulkUpdateCategoryPrices: 'ai.bulk',
   bulkDeleteProducts: 'products.delete',
+  getOrdersToConfirm: 'orders.view',
+  getSupplierOrders: 'orders.view',
+  getProfitReport: 'analytics.view',
+  suggestSellingPrice: 'products.view',
+  draftCustomerMessage: 'orders.view',
 };
 
 export function hasPermission(role: UserRole | undefined, permission: AdminPermission): boolean {
@@ -128,14 +133,16 @@ export function canExecuteAITool(
   toolName: string
 ): { allowed: boolean; requiredPermission: AdminPermission; reason?: string } {
   const requiredPermission = AI_TOOL_REQUIRED_PERMISSION[toolName] || 'ai.use';
-  // If user is operating in local demo mode before signing in, allow safe preview or check effective role
-  const effectiveRole: UserRole = role || 'SUPER_ADMIN';
-  const allowed = hasPermission(effectiveRole, requiredPermission);
+  // No role (not signed in / profile not loaded) means no AI access
+  if (!role) {
+    return { allowed: false, requiredPermission, reason: `Sign in as an admin to use ${toolName}().` };
+  }
+  const allowed = hasPermission(role, requiredPermission);
   if (!allowed) {
     return {
       allowed: false,
       requiredPermission,
-      reason: `Role "${effectiveRole}" lacks required permission "${requiredPermission}" to execute ${toolName}().`,
+      reason: `Role "${role}" lacks required permission "${requiredPermission}" to execute ${toolName}().`,
     };
   }
   return { allowed: true, requiredPermission };
