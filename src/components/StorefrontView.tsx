@@ -3510,7 +3510,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                               <strong className="text-[#141413]">{settings.raastAccountTitle || settings.storeName || 'Store Account'}</strong>
                             </div>
                             <div className="sm:col-span-2">
-                              <span className="text-[#787774] block">IBAN / RAAST ID:</span>
+                              <span className="text-[#787774] block">Account No. / IBAN / RAAST ID:</span>
                               <strong className="font-mono text-[#006C35] text-xs font-bold select-all">
                                 {settings.raastIban || 'Askari / Meezan (Details in Admin Settings)'}
                               </strong>
