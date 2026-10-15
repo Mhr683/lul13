@@ -244,6 +244,8 @@ export interface Order {
   paymentVerificationNote?: string;
   cancellationReason?: string;
   cancelledAt?: string;
+  /** Set by the server: true while this order's items are back in stock (cancelled/returned) */
+  stockReleased?: boolean;
   confirmedByCustomer?: boolean;
   confirmedAt?: string;
   confirmedBy?: string;

@@ -2751,7 +2751,8 @@ app.post('/api/orders/create', async (req, res) => {
         };
 
         const orderRef = adminDb.collection('orders').doc(orderId);
-        transaction.set(orderRef, orderData);
+        // Stock was just taken for this order's items
+        transaction.set(orderRef, { ...orderData, stockReleased: false });
         transaction.set(adminDb.collection('order_private').doc(orderId), {
           orderId,
           items: privateItems,
@@ -2991,43 +2992,14 @@ app.post('/api/orders/cancel', async (req, res) => {
       return res.status(400).json({ error: 'Order is already cancelled or refunded.' });
     }
 
-    // Execute Firestore cancel transaction
+    // Cancel and put the items back in stock (once) in one transaction
     try {
-      await adminDb.runTransaction(async (transaction) => {
-        const freshOrderDoc = await transaction.get(orderDocRef!);
-        const freshOrder = freshOrderDoc.data() as Order;
-
-        if (['CANCELLED', 'REFUNDED'].includes(freshOrder.status)) {
-          throw new Error('Order is already cancelled.');
-        }
-
-        // Restore stock for items in Firestore.
-        // Firestore transactions need every read before any write, so read all products first.
-        const restoreQty = new Map<string, number>();
-        for (const item of Array.isArray(freshOrder.items) ? freshOrder.items : []) {
-          if (item.productId && item.quantity > 0) {
-            restoreQty.set(item.productId, (restoreQty.get(item.productId) || 0) + item.quantity);
-          }
-        }
-        const restoreTargets: Array<{ ref: FirebaseFirestore.DocumentReference; qty: number }> = [];
-        for (const [productId, qty] of restoreQty) {
-          const prodRef = adminDb.collection('products').doc(productId);
-          const prodDoc = await transaction.get(prodRef);
-          if (prodDoc.exists) restoreTargets.push({ ref: prodRef, qty });
-        }
-        for (const target of restoreTargets) {
-          transaction.update(target.ref, {
-            stock: FieldValue.increment(target.qty),
-            updatedAt: new Date().toISOString(),
-          });
-        }
-
-        transaction.update(orderDocRef!, {
-          status: 'CANCELLED',
-          cancellationReason: reason || 'Cancelled by customer/operator',
-          cancelledAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
+      const cancelledAt = new Date().toISOString();
+      await applyOrderStatusWithStock(orderDocRef!, {
+        status: 'CANCELLED',
+        cancellationReason: reason || 'Cancelled by customer/operator',
+        cancelledAt,
+        updatedAt: cancelledAt,
       });
     } catch (e: any) {
       console.error('Firestore cancel transaction failed:', e);
@@ -3071,13 +3043,85 @@ app.post('/api/orders/cancel', async (req, res) => {
 });
 
 // 6.4. POST /api/orders/update-status (Authoritative Status Transitions & Real Resend Notifications)
+// Every status change goes through applyOrderStatusWithStock, which keeps product stock in step
+// with the order. Each order records in `stockReleased` whether its items are back in stock:
+// - these statuses put the items back (once): the order no longer needs them
+const STOCK_RETURN_STATUSES = ['CANCELLED', 'RETURNED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'];
+// - REFUNDED changes nothing (money back; whether the item came back is recorded by RETURNED)
+// - every other status holds the items, taking them out of stock again if they had been put back
+
+class InsufficientStockError extends Error {}
+
+function isStockReleased(order: any): boolean {
+  // Orders created before the flag existed: cancelled/returned ones already had their stock put back
+  return typeof order?.stockReleased === 'boolean' ? order.stockReleased : STOCK_RETURN_STATUSES.includes(order?.status);
+}
+
+// Applies a status change and the matching stock change atomically. Taking stock again for a
+// reactivated order is refused (InsufficientStockError) when there is not enough left.
+async function applyOrderStatusWithStock(
+  orderRef: FirebaseFirestore.DocumentReference,
+  updates: Partial<Order> & { status: string }
+): Promise<{ restored: boolean; retaken: boolean }> {
+  return adminDb.runTransaction(async (tx) => {
+    const fresh = await tx.get(orderRef);
+    if (!fresh.exists) throw new Error('Order not found.');
+    const order = fresh.data() as Order;
+    const released = isStockReleased(order);
+    const returnsStock = STOCK_RETURN_STATUSES.includes(updates.status);
+    const keepsStock = updates.status === 'REFUNDED';
+    const restore = !released && returnsStock;
+    const retake = released && !returnsStock && !keepsStock;
+
+    const qtyByProduct = new Map<string, number>();
+    if (restore || retake) {
+      for (const item of Array.isArray(order.items) ? order.items : []) {
+        if (item.productId && item.quantity > 0) {
+          qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.quantity);
+        }
+      }
+    }
+
+    // All reads before any write (Firestore transaction rule)
+    const products: Array<{ ref: FirebaseFirestore.DocumentReference; qty: number; stock: number; name: string }> = [];
+    for (const [productId, qty] of qtyByProduct) {
+      const ref = adminDb.collection('products').doc(productId);
+      const snap = await tx.get(ref);
+      if (!snap.exists) continue;
+      const data = snap.data() as any;
+      products.push({ ref, qty, stock: Number(data.stock) || 0, name: String(data.name || productId) });
+    }
+
+    if (retake) {
+      const short = products.find((p) => p.stock < p.qty);
+      if (short) {
+        throw new InsufficientStockError(
+          `"${short.name}" ka stock kaafi nahi (${short.stock} bacha hai, ${short.qty} chahiye). Pehle stock barhayein.`
+        );
+      }
+    }
+
+    const now = new Date().toISOString();
+    for (const p of products) {
+      tx.update(p.ref, { stock: FieldValue.increment(restore ? p.qty : -p.qty), updatedAt: now });
+    }
+    tx.update(orderRef, { ...updates, stockReleased: restore ? true : retake ? false : released } as any);
+    return { restored: restore, retaken: retake };
+  });
+}
+
 app.post('/api/orders/update-status', requireAdmin, async (req, res) => {
   const { orderId, orderNumber, status, trackingNumber, carrier, courierName, reason } = req.body;
   if (!orderId && !orderNumber) {
     return res.status(400).json({ error: 'orderId or orderNumber is required.' });
   }
-  if (!status) {
-    return res.status(400).json({ error: 'Status is required.' });
+  const ORDER_STATUSES = [
+    'PENDING_CONFIRMATION', 'PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY',
+    'DELIVERED', 'CANCELLED', 'REFUNDED', 'RETURNED',
+    'QUOTE_REQUESTED', 'QUOTE_READY', 'QUOTE_ACCEPTED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED',
+  ];
+  if (!status || !ORDER_STATUSES.includes(status)) {
+    return res.status(400).json({ error: 'A valid order status is required.' });
   }
 
   try {
@@ -3132,32 +3176,25 @@ app.post('/api/orders/update-status', requireAdmin, async (req, res) => {
 
     if (status === 'DELIVERED') {
       updates.paymentStatus = 'PAID';
+    } else if (status === 'REFUNDED') {
+      updates.paymentStatus = 'REFUNDED';
+    } else if (status === 'CANCELLED' && orderData.paymentStatus === 'PAID') {
+      updates.paymentStatus = 'REFUND_PENDING';
+    }
+    if (status === 'CANCELLED' && orderData.status !== 'CANCELLED') {
+      updates.cancellationReason = String(reason || 'Cancelled by store').slice(0, 480);
+      updates.cancelledAt = now;
     }
 
-    // Put stock back when an order is cancelled or returned (only once per order)
-    const stockReleasedStatuses = ['CANCELLED', 'RETURNED', 'REFUNDED'];
-    const shouldRestoreStock =
-      ['CANCELLED', 'RETURNED'].includes(status) && !stockReleasedStatuses.includes(orderData.status);
-
+    // Status and stock change together (stock back on cancel/return, taken again on reactivation)
     try {
-      await orderDocRef.update(updates);
-    } catch (dbErr) {
+      await applyOrderStatusWithStock(orderDocRef, { ...updates, status });
+    } catch (dbErr: any) {
+      if (dbErr instanceof InsufficientStockError) {
+        return res.status(409).json({ error: dbErr.message, code: 'INSUFFICIENT_STOCK' });
+      }
       console.error('Failed to update Firestore order in update-status:', dbErr);
       return res.status(503).json({ error: 'Service temporarily unavailable: failed to update order in database.' });
-    }
-
-    if (shouldRestoreStock && Array.isArray(orderData.items)) {
-      for (const item of orderData.items) {
-        if (!item.productId || !(item.quantity > 0)) continue;
-        try {
-          const pRef = adminDb.collection('products').doc(item.productId);
-          if ((await pRef.get()).exists) {
-            await pRef.update({ stock: FieldValue.increment(item.quantity), updatedAt: now });
-          }
-        } catch (stockErr) {
-          console.error(`[UpdateStatus] Failed to restore stock for ${item.productId}:`, stockErr);
-        }
-      }
     }
 
     const mergedOrder: Order = {
@@ -3263,11 +3300,16 @@ app.post('/api/orders/confirm', requireAdmin, async (req, res) => {
       updatedAt: now,
     };
 
+    // Confirming a cancelled order takes its items out of stock again
     try {
-      if (orderDocRef) await orderDocRef.update(updates);
-      else await clientSetDoc(clientDoc(clientDb, 'orders', orderData.id), updates, { merge: true });
-    } catch {
-      await clientSetDoc(clientDoc(clientDb, 'orders', orderData.id), updates, { merge: true });
+      if (!orderDocRef) throw new Error('Order reference unavailable.');
+      await applyOrderStatusWithStock(orderDocRef, updates as Partial<Order> & { status: string });
+    } catch (dbErr: any) {
+      if (dbErr instanceof InsufficientStockError) {
+        return res.status(409).json({ error: dbErr.message, code: 'INSUFFICIENT_STOCK' });
+      }
+      console.error('Failed to confirm order:', dbErr);
+      return res.status(503).json({ error: 'Order confirm nahi ho saka. Dobara try karein.' });
     }
 
     const mergedOrder: Order = { ...orderData, ...updates };
@@ -3316,35 +3358,20 @@ app.post('/api/orders/cancel-fake', requireAdmin, async (req, res) => {
     const now = new Date().toISOString();
     const cancellationReason = reason || 'Fake / Customer not responding';
 
-    // Restore inventory stock for each product in the order
-    if (Array.isArray(orderData.items) && orderData.items.length > 0) {
-      for (const item of orderData.items) {
-        if (item.productId && item.quantity > 0) {
-          try {
-            const pRef = adminDb.collection('products').doc(item.productId);
-            const pDoc = await pRef.get();
-            if (pDoc.exists) {
-              await pRef.update({ stock: FieldValue.increment(item.quantity), updatedAt: now });
-            }
-          } catch (stockErr) {
-            console.error(`Failed to restore stock for ${item.productId}:`, stockErr);
-          }
-        }
-      }
-    }
-
-    const updates: Partial<Order> = {
+    const updates: Partial<Order> & { status: string } = {
       status: 'CANCELLED',
       cancellationReason,
       cancelledAt: now,
       updatedAt: now,
     };
 
+    // Cancel and put the items back in stock (once) in one transaction
     try {
-      if (orderDocRef) await orderDocRef.update(updates);
-      else await clientSetDoc(clientDoc(clientDb, 'orders', orderData.id), updates, { merge: true });
-    } catch {
-      await clientSetDoc(clientDoc(clientDb, 'orders', orderData.id), updates, { merge: true });
+      if (!orderDocRef) throw new Error('Order reference unavailable.');
+      await applyOrderStatusWithStock(orderDocRef, updates);
+    } catch (dbErr) {
+      console.error('Failed to cancel fake order:', dbErr);
+      return res.status(503).json({ error: 'Order cancel nahi ho saka. Dobara try karein.' });
     }
 
     const mergedOrder: Order = { ...orderData, ...updates };
@@ -3636,6 +3663,12 @@ async function handleRespondQuote(req: express.Request, res: express.Response) {
 
   // Strict Expiry Rule: Expired quotes CANNOT be accepted, even through direct API requests
   if (action === 'ACCEPT' && isExpired) {
+    // Record the expiry here (it puts the quote's items back in stock)
+    try {
+      await applyOrderStatusWithStock(orderDocRef, { status: 'QUOTE_EXPIRED', updatedAt: serverNowIso });
+    } catch (expErr) {
+      console.error('Failed to mark quote as expired:', expErr);
+    }
     return res.status(410).json({
       error: `Freight quote expired on ${new Date(expiryTime).toISOString()} (Server time: ${serverNowIso}). Acceptance is strictly prohibited.`,
       rejectedCode: 'QUOTE_EXPIRED',
@@ -3649,7 +3682,8 @@ async function handleRespondQuote(req: express.Request, res: express.Response) {
   const nextPaymentStatus: PaymentStatus = action === 'ACCEPT' ? 'PENDING' : 'FAILED';
 
   try {
-    await orderDocRef.update({
+    // A rejected quote puts its items back in stock
+    await applyOrderStatusWithStock(orderDocRef, {
       status: nextOrderStatus,
       paymentStatus: nextPaymentStatus,
       updatedAt: serverNowIso,

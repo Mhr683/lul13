@@ -127,7 +127,7 @@ service cloud.firestore {
           'subtotal', 'discount', 'tax', 'shippingFee', 'total', 'currency', 'exchangeRateSnapshot',
           'couponCode', 'shippingAddressSummary', 'shippingCalculationSnapshot',
           'trackingNumber', 'courierName', 'shipments', 'confirmedByCustomer', 'confirmedAt', 'confirmedBy',
-          'cancellationReason', 'cancelledAt',
+          'cancellationReason', 'cancelledAt', 'stockReleased',
           'quoteAmount', 'quoteCourier', 'quoteEstimatedDays',
           'quoteCustomsMode', 'quoteAdminNotes', 'quoteExpiresAt', 'district', 'tehsil', 'city', 'notes', 'createdAt', 'updatedAt'
         ]) &&
@@ -175,6 +175,7 @@ service cloud.firestore {
         (!('confirmedBy' in data) || (data.confirmedBy is string && data.confirmedBy.size() <= 150)) &&
         (!('cancellationReason' in data) || (data.cancellationReason is string && data.cancellationReason.size() <= 500)) &&
         (!('cancelledAt' in data) || (data.cancelledAt is string && data.cancelledAt.size() <= 64)) &&
+        (!('stockReleased' in data) || data.stockReleased is bool) &&
         (!('quoteAmount' in data) || (data.quoteAmount is number && data.quoteAmount >= 0)) &&
         (!('quoteCourier' in data) || (data.quoteCourier is string && data.quoteCourier.size() <= 100)) &&
         (!('quoteEstimatedDays' in data) || (data.quoteEstimatedDays is string && data.quoteEstimatedDays.size() <= 100)) &&

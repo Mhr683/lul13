@@ -1237,23 +1237,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (!resp.ok) {
         if (resData.isExpired || resData.rejectedCode === 'QUOTE_EXPIRED') {
-          // Trusted server detected expiry and calculated transition
+          // The server has already saved QUOTE_EXPIRED (and returned the items to stock)
           const expiredOrder: Order = {
             ...target,
             status: 'QUOTE_EXPIRED',
             updatedAt: resData.serverTimestamp || new Date().toISOString(),
           };
           if (firebaseUser && isAdmin) {
-            try {
-              await setDoc(doc(db, 'orders', target.id), toPublicOrder(expiredOrder));
-              await recordAuditLog(
-                'QUOTE_EXPIRED',
-                `Order:${target.orderNumber}`,
-                `Quote expired past deadline ${target.quoteExpiresAt}. Server confirmed expiration.`
-              );
-            } catch {
-              // ignore
-            }
+            recordAuditLog(
+              'QUOTE_EXPIRED',
+              `Order:${target.orderNumber}`,
+              `Quote expired past deadline ${target.quoteExpiresAt}. Server confirmed expiration.`
+            ).catch(() => {});
           }
           setOrders((prev) => prev.map((o) => (o.id === target.id ? expiredOrder : o)));
           showToast(resData.error || 'This freight quote has expired. Please contact concierge for a refreshed quotation.');
@@ -1270,19 +1265,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updatedAt: resData.serverTimestamp || new Date().toISOString(),
       };
 
-      if (firebaseUser) {
-        try {
-          await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
-          await recordAuditLog(
-            resData.auditLog?.action || (accept ? 'QUOTE_ACCEPTED' : 'QUOTE_REJECTED'),
-            `Order:${target.orderNumber}`,
-            resData.auditLog?.details || `Quote ${accept ? 'accepted' : 'declined'} by client.`
-          );
-        } catch (error) {
-          handleFirestoreError(error, OperationType.UPDATE, `orders/${target.id}`);
-        }
-      } else {
-        setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
+      // The server has saved the new status (and stock); only update the screen and the log here
+      if (!(firebaseUser && isAdmin)) setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
+      if (firebaseUser && isAdmin) {
+        recordAuditLog(
+          resData.auditLog?.action || (accept ? 'QUOTE_ACCEPTED' : 'QUOTE_REJECTED'),
+          `Order:${target.orderNumber}`,
+          resData.auditLog?.details || `Quote ${accept ? 'accepted' : 'declined'} by client.`
+        ).catch(() => {});
       }
 
       showToast(accept ? 'Shipping quote accepted. Please submit advance payment.' : 'Shipping quote declined.');
@@ -1712,71 +1702,53 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updatedAt: new Date().toISOString(),
     };
 
-    // Authoritative stock restoration and notification on server when an order is cancelled
-    if (
-      !wasAlreadyCancelledOrRefunded &&
-      status === 'CANCELLED'
-    ) {
-      try {
-        const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-        await fetch('/api/orders/cancel', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            orderId: target.id,
-            orderNumber: target.orderNumber,
-            reason: 'Cancelled by operator/customer',
-          }),
-        });
-      } catch (err) {
-        console.warn('Server order cancellation error:', err);
-      }
-    } else {
-      // Synchronize with server to trigger server-side transactional emails (e.g., Order Shipped via Resend)
-      try {
-        const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-        await fetch('/api/orders/update-status', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            orderId: target.id,
-            orderNumber: target.orderNumber,
-            status,
-            trackingNumber: trackingNumber !== undefined ? trackingNumber : target.trackingNumber,
-            courierName: courierName !== undefined ? courierName : target.courierName,
-          }),
-        });
-      } catch (err) {
-        console.warn('Server order update status error:', err);
-      }
+    // The server is the only place that changes an order's status, so status, payment status and
+    // stock always change together (cancel/return puts items back, reactivating takes them again).
+    // The live order listener then shows the saved result.
+    let statusRes: Response;
+    try {
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      statusRes = await fetch('/api/orders/update-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          orderId: target.id,
+          orderNumber: target.orderNumber,
+          status,
+          trackingNumber: trackingNumber !== undefined ? trackingNumber : target.trackingNumber,
+          courierName: courierName !== undefined ? courierName : target.courierName,
+          reason: status === 'CANCELLED' && !wasAlreadyCancelledOrRefunded ? 'Cancelled by store' : undefined,
+        }),
+      });
+    } catch (err) {
+      console.warn('Server order update status error:', err);
+      showToast('Server se rabta nahi ho saka. Status nahi badla, dobara try karein.');
+      return;
+    }
+    if (!statusRes.ok) {
+      const data = await statusRes.json().catch(() => ({}));
+      showToast(data?.error || 'Status nahi badla. Dobara try karein.');
+      return;
     }
 
+    // Admins see the saved order through the live listener; a local copy here could overwrite it
+    if (!(firebaseUser && isAdmin)) setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
     if (firebaseUser && isAdmin) {
-      try {
-        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
-        await recordAuditLog(
-          `ORDER_${status}`,
-          `Order:${target.orderNumber}`,
-          `Updated status from ${target.status} to ${status} (Payment: ${paymentStatus})`
-        );
-        if (status === 'REFUNDED') {
-          await pushNotification(
-            'REFUND',
-            `Refund Recorded: ${target.orderNumber}`,
-            `Order ${target.orderNumber} ($${target.total.toFixed(2)}) marked as REFUNDED for ${target.customerEmail}.`
-          );
-        }
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `orders/${target.id}`);
+      recordAuditLog(
+        `ORDER_${status}`,
+        `Order:${target.orderNumber}`,
+        `Updated status from ${target.status} to ${status} (Payment: ${paymentStatus})`
+      ).catch(() => {});
+      if (status === 'REFUNDED') {
+        pushNotification(
+          'REFUND',
+          `Refund Recorded: ${target.orderNumber}`,
+          `Order ${target.orderNumber} (PKR ${Math.round(target.total).toLocaleString('en-PK')}) marked as REFUNDED for ${target.customerEmail}.`
+        ).catch(() => {});
       }
-    } else {
-      setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
     }
   };
 
@@ -1794,9 +1766,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updatedAt: now,
     };
 
+    // Saved by the server only (it takes stock again if the order had been cancelled)
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      await fetch('/api/orders/confirm', {
+      const confirmRes = await fetch('/api/orders/confirm', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1804,23 +1777,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         },
         body: JSON.stringify({ orderId: target.id, orderNumber: target.orderNumber }),
       });
+      if (!confirmRes.ok) {
+        const data = await confirmRes.json().catch(() => ({}));
+        showToast(data?.error || 'Order confirm nahi hua. Dobara try karein.');
+        return;
+      }
     } catch (e) {
       console.warn('Confirm order server request error:', e);
+      showToast('Server se rabta nahi ho saka. Order confirm nahi hua.');
+      return;
     }
 
+    // Admins see the saved order through the live listener; a local copy here could overwrite it
+    if (!(firebaseUser && isAdmin)) setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
     if (firebaseUser && isAdmin) {
-      try {
-        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
-        await recordAuditLog(
-          'ORDER_CONFIRMED',
-          `Order:${target.orderNumber}`,
-          'Order confirmed by customer - ready to forward to supplier'
-        );
-      } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `orders/${target.id}`);
-      }
-    } else {
-      setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
+      recordAuditLog('ORDER_CONFIRMED', `Order:${target.orderNumber}`, 'Order confirmed - ready to forward to supplier').catch(() => {});
     }
     showToast(`Order #${target.orderNumber} confirmed! Ready for supplier.`);
   };
@@ -1839,9 +1810,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updatedAt: now,
     };
 
+    // Saved by the server only (it puts the items back in stock, once)
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      await fetch('/api/orders/cancel-fake', {
+      const cancelRes = await fetch('/api/orders/cancel-fake', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1849,23 +1821,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         },
         body: JSON.stringify({ orderId: target.id, orderNumber: target.orderNumber, reason: cancelReason }),
       });
+      if (!cancelRes.ok) {
+        const data = await cancelRes.json().catch(() => ({}));
+        showToast(data?.error || 'Order cancel nahi hua. Dobara try karein.');
+        return;
+      }
     } catch (e) {
       console.warn('Cancel fake order server request error:', e);
+      showToast('Server se rabta nahi ho saka. Order cancel nahi hua.');
+      return;
     }
 
+    // Admins see the saved order through the live listener; a local copy here could overwrite it
+    if (!(firebaseUser && isAdmin)) setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
     if (firebaseUser && isAdmin) {
-      try {
-        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
-        await recordAuditLog(
-          'ORDER_CANCELLED_FAKE',
-          `Order:${target.orderNumber}`,
-          `Cancelled: ${cancelReason}`
-        );
-      } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, `orders/${target.id}`);
-      }
-    } else {
-      setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
+      recordAuditLog('ORDER_CANCELLED_FAKE', `Order:${target.orderNumber}`, `Cancelled: ${cancelReason}`).catch(() => {});
     }
     showToast(`Order #${target.orderNumber} cancelled (${cancelReason}).`);
   };

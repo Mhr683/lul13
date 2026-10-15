@@ -4678,12 +4678,37 @@ export const AdminDashboardView: React.FC<{
                               'QUOTE_READY',
                               'QUOTE_ACCEPTED',
                               'QUOTE_REJECTED',
+                              'QUOTE_EXPIRED',
                             ].map((st) => (
                               <option key={st} value={st}>
                                 {st}
                               </option>
                             ))}
                           </select>
+                          {(() => {
+                            // Shows whether this order's items are out of stock (held) or back in stock
+                            const released =
+                              typeof ord.stockReleased === 'boolean'
+                                ? ord.stockReleased
+                                : ['CANCELLED', 'RETURNED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'].includes(ord.status);
+                            const items = Array.isArray(ord.items) ? ord.items : [];
+                            const pieces = items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+                            const left = items
+                              .map((it) => products.find((p) => p.id === it.productId))
+                              .filter(Boolean)
+                              .map((p) => p!.stock);
+                            return (
+                              <div
+                                className={`mt-1.5 text-[10px] font-semibold ${released ? 'text-sky-800' : 'text-emerald-800'}`}
+                                title="Order ka maal stock mein kahan hai"
+                              >
+                                {released
+                                  ? `↩ Stock mein wapas (${pieces} pc)`
+                                  : `✓ Stock se nikla (${pieces} pc)`}
+                                {left.length === 1 ? ` · ab ${left[0]} bache` : ''}
+                              </div>
+                            );
+                          })()}
                           {ord.status === 'PENDING_CONFIRMATION' && (
                             <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
                               <a
