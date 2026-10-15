@@ -77,7 +77,15 @@ const firebaseConfig = fs.existsSync(firebaseConfigPath)
 // store's Firebase project from any host (e.g. AI Studio under a different Google account).
 // Never commit the key itself; set it as an environment secret.
 function loadServiceAccount() {
-  const raw = (process.env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+  let raw = (process.env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+  const keyFile = (process.env.FIREBASE_SERVICE_ACCOUNT_FILE || '').trim();
+  if (!raw && keyFile) {
+    try {
+      raw = fs.readFileSync(keyFile, 'utf-8').trim();
+    } catch (err) {
+      console.error(`[Firebase] FIREBASE_SERVICE_ACCOUNT_FILE could not be read: ${keyFile}`, err);
+    }
+  }
   if (!raw) return null;
   try {
     const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf-8');

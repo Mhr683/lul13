@@ -62,6 +62,7 @@ import {
   onSnapshot,
   query,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   auth,
@@ -1465,25 +1466,42 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     // 4. If logged in with admin privileges, sync to Firestore
+    // Written with the admin's own sign-in, so the catalog saves even when the server has no
+    // Firebase admin credentials. Each product takes up to 2 writes; a batch allows 500.
+    let failed = 0;
+    let lastError: unknown = null;
     if (firebaseUser && isAdmin) {
-      try {
-        for (const s of splitItems) {
-          try {
-            await setDoc(doc(db, 'products', s.id), s.publicData);
-            if (s.privateData) {
-              await setDoc(doc(db, 'product_private', s.id), {
-                ...s.privateData,
-                updatedAt: new Date().toISOString(),
-              });
+      const now = new Date().toISOString();
+      const BATCH = 200;
+      for (let i = 0; i < splitItems.length; i += BATCH) {
+        const chunk = splitItems.slice(i, i + BATCH);
+        try {
+          const batch = writeBatch(db);
+          for (const s of chunk) {
+            batch.set(doc(db, 'products', s.id), s.publicData);
+            if (s.privateData) batch.set(doc(db, 'product_private', s.id), { ...s.privateData, updatedAt: now });
+          }
+          await batch.commit();
+        } catch (err) {
+          // One invalid product fails the whole batch: retry this chunk one by one
+          for (const s of chunk) {
+            try {
+              await setDoc(doc(db, 'products', s.id), s.publicData);
+              if (s.privateData) await setDoc(doc(db, 'product_private', s.id), { ...s.privateData, updatedAt: now });
+            } catch (itemErr) {
+              failed++;
+              lastError = itemErr;
+              console.warn(`Product ${s.id} could not be saved:`, itemErr);
             }
-          } catch {}
+          }
         }
-      } catch (err) {
-        console.warn('Firestore batch sync error:', err);
+      }
+      if (failed === splitItems.length && splitItems.length > 0) {
+        throw new Error(`Koi product save nahi hua (${(lastError as any)?.message || 'permission error'}).`);
       }
     }
 
-    return { count: items.length };
+    return { count: items.length - failed };
   };
 
   // Delete Product

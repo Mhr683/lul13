@@ -80,7 +80,7 @@ export const BackupRestorePanel: React.FC = () => {
     setBusy(true);
     try {
       setStatus('Settings restore ho rahi hain...');
-      if (backup.settings && typeof backup.settings === 'object') {
+      if (backup.settings && typeof backup.settings === 'object' && Object.keys(backup.settings).length > 0) {
         await updateStoreSettings(backup.settings);
       }
 
@@ -91,9 +91,11 @@ export const BackupRestorePanel: React.FC = () => {
 
       const validProducts = backup.products.filter((p) => p && p.id && p.name && p.sku);
       const CHUNK = 100;
+      let savedProducts = 0;
       for (let i = 0; i < validProducts.length; i += CHUNK) {
         setStatus(`Products restore ho rahe hain: ${Math.min(i + CHUNK, validProducts.length)} / ${validProducts.length}`);
-        await importProductsBatch(validProducts.slice(i, i + CHUNK));
+        const result = await importProductsBatch(validProducts.slice(i, i + CHUNK));
+        savedProducts += result?.count ?? 0;
       }
 
       setStatus(`Coupons restore ho rahe hain (${backup.coupons?.length || 0})...`);
@@ -102,7 +104,7 @@ export const BackupRestorePanel: React.FC = () => {
       }
 
       setStatus(
-        `Restore mukammal: ${validProducts.length} products, ${backup.categories?.length || 0} categories, ${
+        `Restore mukammal: ${savedProducts} / ${validProducts.length} products, ${backup.categories?.length || 0} categories, ${
           backup.coupons?.length || 0
         } coupons aur settings.`
       );
