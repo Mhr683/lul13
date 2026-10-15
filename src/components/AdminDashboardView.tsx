@@ -4488,7 +4488,7 @@ export const AdminDashboardView: React.FC<{
                   className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors flex items-center gap-1.5 ${
                     orderPaymentFilter === 'PENDING_VERIFICATION'
                       ? 'bg-amber-500 text-black font-bold'
-                      : 'bg-amber-950/50 text-amber-300 hover:bg-amber-900/60 border border-amber-600/40'
+                      : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-400'
                   }`}
                 >
                   <span>⏳ Awaiting Verification ({pendingVerificationOrders.length})</span>
@@ -4498,7 +4498,7 @@ export const AdminDashboardView: React.FC<{
                   className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
                     orderPaymentFilter === 'PAID'
                       ? 'bg-emerald-600 text-white font-bold'
-                      : 'bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50'
+                      : 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border border-emerald-400'
                   }`}
                 >
                   ✓ Verified & Paid ({orders.filter((o) => o.paymentStatus === 'PAID').length})
@@ -4507,8 +4507,8 @@ export const AdminDashboardView: React.FC<{
                   onClick={() => setOrderPaymentFilter('COD')}
                   className={`px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${
                     orderPaymentFilter === 'COD'
-                      ? 'bg-sky-600 text-[#141413] font-bold'
-                      : 'bg-sky-950/40 text-sky-300 hover:bg-sky-900/50'
+                      ? 'bg-sky-700 text-white font-bold'
+                      : 'bg-sky-50 text-sky-900 hover:bg-sky-100 border border-sky-400'
                   }`}
                 >
                   Cash on Delivery ({orders.filter((o) => o.paymentMethod === 'COD').length})
@@ -4559,7 +4559,7 @@ export const AdminDashboardView: React.FC<{
                             </div>
                           )}
                           {(ord.district || ord.tehsil) && (
-                            <div className="text-[10px] text-emerald-400 mt-0.5">
+                            <div className="text-[10px] text-emerald-800 mt-0.5">
                               {ord.district ? `District: ${ord.district}` : ''} {ord.tehsil ? `· Tehsil: ${ord.tehsil}` : ''}
                             </div>
                           )}
@@ -4569,10 +4569,12 @@ export const AdminDashboardView: React.FC<{
                             <span
                               className={`px-2 py-0.5 text-[10px] rounded font-semibold ${
                                 ord.paymentStatus === 'PAID'
-                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
+                                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-400'
                                   : ord.paymentStatus === 'PENDING_VERIFICATION'
-                                  ? 'bg-amber-950 text-amber-300 border border-amber-700/60'
-                                  : 'bg-slate-800 text-[#454441]'
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-400'
+                                  : ord.paymentStatus === 'FAILED' || ord.paymentStatus === 'REFUNDED'
+                                  ? 'bg-rose-100 text-rose-900 border border-rose-400'
+                                  : 'bg-slate-100 text-slate-900 border border-slate-400'
                               }`}
                             >
                               {ord.paymentStatus}
@@ -4580,7 +4582,7 @@ export const AdminDashboardView: React.FC<{
                             <span className="text-[#575653]">({ord.paymentMethod})</span>
                           </div>
                           {ord.paymentReference && (
-                            <div className="text-[10px] text-[#C5A059] mt-1">
+                            <div className="text-[10px] text-amber-800 font-semibold mt-1">
                               Ref: {ord.paymentReference}
                             </div>
                           )}
