@@ -4653,8 +4653,48 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+
+    // Built files under /assets have a content hash in their name, so browsers may keep them for a
+    // year, and they are sent compressed (the main bundle shrinks from ~1.3 MB to ~0.4 MB).
+    // Compressed copies are made once per file and kept in memory.
+    const assetsDir = path.join(distPath, 'assets');
+    const compressedAssets = new Map<string, { gzip: Buffer; br: Buffer }>();
+    const compressibleExt = /\.(js|css|svg|json|html|txt|map)$/i;
+    app.use('/assets', (req, res, next) => {
+      const name = path.basename(decodeURIComponent(req.path));
+      const filePath = path.join(assetsDir, name);
+      if (!name || !filePath.startsWith(assetsDir) || !fs.existsSync(filePath)) return next();
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      if (!compressibleExt.test(name)) return next();
+
+      let packed = compressedAssets.get(name);
+      if (!packed) {
+        const raw = fs.readFileSync(filePath);
+        packed = {
+          gzip: zlib.gzipSync(raw, { level: 9 }),
+          br: zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }),
+        };
+        compressedAssets.set(name, packed);
+      }
+      const accepts = String(req.headers['accept-encoding'] || '');
+      const encoding = accepts.includes('br') ? 'br' : accepts.includes('gzip') ? 'gzip' : null;
+      if (!encoding) return next();
+      res.setHeader('Content-Encoding', encoding);
+      res.setHeader('Vary', 'Accept-Encoding');
+      res.type(path.extname(name));
+      return res.end(encoding === 'br' ? packed.br : packed.gzip);
+    });
+
+    // index.html must always be fresh so a new deploy is picked up immediately
+    app.use(
+      express.static(distPath, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      })
+    );
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, Suspense, lazy } from 'react';
 import {
   Search,
   ShoppingBag,
@@ -48,7 +48,7 @@ import { ProductImage } from './ProductImage';
 import { GlobalHeaderSearch } from './GlobalHeaderSearch';
 import { HeaderNavDropdowns } from './HeaderNavDropdowns';
 import { MAIN_NAV_SECTIONS } from '../data/categoryNavigation';
-import { GoogleMapsAddressDetector, DetectedAddressPayload } from './GoogleMapsAddressDetector';
+import type { DetectedAddressPayload } from './GoogleMapsAddressDetector';
 import { CustomerHelplineDrawer } from './CustomerHelplineDrawer';
 import { PWAInstallButton } from './PWAInstallButton';
 import { PWAInstallModal } from './PWAInstallModal';
@@ -66,7 +66,13 @@ import {
   verifyPaymentInstrument,
   detectCardBrand,
 } from '../services/addressAndPaymentVerification';
-import { StorePolicyPages, PolicyPageType } from './StorePolicyPages';
+import type { PolicyPageType } from './StorePolicyPages';
+
+// Loaded only when needed (checkout map, policy/tracking pages) to keep the first download small
+const GoogleMapsAddressDetector = lazy(() =>
+  import('./GoogleMapsAddressDetector').then((m) => ({ default: m.GoogleMapsAddressDetector }))
+);
+const StorePolicyPages = lazy(() => import('./StorePolicyPages').then((m) => ({ default: m.StorePolicyPages })));
 import { AuthModal } from './AuthPanel';
 
 type StoreSubView =
@@ -676,6 +682,17 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
       });
   }, [products, activeCategory, activeSubcategory, activeCollection, activeBrand, priceCeiling, inStockOnly, searchQuery, sortBy]);
+
+  // The catalog grid shows products in steps so phones never render thousands of cards at once
+  const CATALOG_STEP = 24;
+  const [catalogVisibleCount, setCatalogVisibleCount] = useState(CATALOG_STEP);
+  useEffect(() => {
+    setCatalogVisibleCount(CATALOG_STEP);
+  }, [activeCategory, activeSubcategory, activeCollection, activeBrand, priceCeiling, inStockOnly, searchQuery, sortBy]);
+  const visibleCatalogProducts = useMemo(
+    () => filteredProducts.slice(0, catalogVisibleCount),
+    [filteredProducts, catalogVisibleCount]
+  );
 
   const brands = useMemo(() => {
     const set = new Set<string>(products.map((p) => p.brand));
@@ -1936,8 +1953,9 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     </button>
                   </div>
                 ) : (
+                  <>
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {filteredProducts.map((product) => (
+                    {visibleCatalogProducts.map((product) => (
                       <article
                         key={product.id}
                         className="group flex flex-col justify-between border border-black/[0.07] bg-white"
@@ -1988,6 +2006,21 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       </article>
                     ))}
                   </div>
+                  <div className="flex flex-col items-center gap-2 pt-8 text-xs text-[#575653]">
+                    <span>
+                      {visibleCatalogProducts.length} / {filteredProducts.length} products
+                    </span>
+                    {visibleCatalogProducts.length < filteredProducts.length && (
+                      <button
+                        type="button"
+                        onClick={() => setCatalogVisibleCount((n) => n + CATALOG_STEP)}
+                        className="px-6 py-2.5 bg-[#141413] text-white text-xs font-bold cursor-pointer hover:bg-black"
+                      >
+                        Aur products dikhayein
+                      </button>
+                    )}
+                  </div>
+                  </>
                 )}
               </div>
             </div>
@@ -2044,10 +2077,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     </span>
                     <span aria-hidden="true">·</span>
                     <span>{selectedProduct.category}</span>
-                    <span aria-hidden="true">·</span>
-                    <span className="font-mono tabular-nums">
-                      ★ {selectedProduct.rating || 4.9} ({selectedProduct.reviewCount || 12} reviews)
-                    </span>
+                    {selectedProduct.reviewCount ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-mono tabular-nums">
+                          ★ {selectedProduct.rating} ({selectedProduct.reviewCount} reviews)
+                        </span>
+                      </>
+                    ) : null}
                   </div>
 
                   <h1 className="text-3xl font-display font-medium text-[#141413]">
@@ -2845,11 +2882,13 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     </div>
 
                     {/* Interactive Google Maps Live Address Auto-Detection */}
-                    <GoogleMapsAddressDetector
-                      countryIso={countryIso}
-                      currentStreetAddress={streetAddress}
-                      onAddressDetected={handleAddressAutoDetected}
-                    />
+                    <Suspense fallback={<div className="h-12 border border-black/10 bg-black/[0.02]" />}>
+                      <GoogleMapsAddressDetector
+                        countryIso={countryIso}
+                        currentStreetAddress={streetAddress}
+                        onAddressDetected={handleAddressAutoDetected}
+                      />
+                    </Suspense>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
@@ -4388,6 +4427,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
       {/* 8. Dedicated Store Policy & Order Tracking Pages */}
       {['REFUND_POLICY', 'TERMS', 'PRIVACY_POLICY', 'SHIPPING_POLICY', 'CONTACT_US', 'ORDER_TRACKING'].includes(subView) && (
+        <Suspense fallback={<div className="min-h-[50vh]" />}>
         <StorePolicyPages
           page={subView as PolicyPageType}
           settings={settings}
@@ -4404,6 +4444,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
         />
+        </Suspense>
       )}
 
       {/* Quiet Editorial Footer */}

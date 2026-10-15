@@ -51,6 +51,24 @@ function friendlyAuthError(error: any): string {
       return error?.message || 'Login nahi ho saka. Dobara try karein.';
   }
 }
+
+// Profile confirmed on the previous visit (UI hint only, see the userProfile state below)
+const PROFILE_CACHE_KEY = 'store_profile_cache_v1';
+function readCachedProfile(): UserProfile | null {
+  try {
+    const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed.uid === 'string' && typeof parsed.role === 'string' ? (parsed as UserProfile) : null;
+  } catch {
+    return null;
+  }
+}
+function writeCachedProfile(profile: UserProfile | null) {
+  try {
+    if (profile) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
+    else localStorage.removeItem(PROFILE_CACHE_KEY);
+  } catch {}
+}
 import {
   collection,
   doc,
@@ -63,6 +81,8 @@ import {
   query,
   where,
   writeBatch,
+  orderBy,
+  limit,
 } from 'firebase/firestore';
 import {
   auth,
@@ -234,8 +254,11 @@ const SETTINGS_STORAGE_KEY = 'store_settings_config';
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [authReady, setAuthReady] = useState(false);
+  // Firebase can take many seconds to restore a saved sign-in on some networks. The profile from the
+  // last visit is shown meanwhile so the app opens at once; it only affects what the UI shows; data
+  // access and every write are still checked by Firestore rules and the server.
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => readCachedProfile());
+  const [authReady, setAuthReady] = useState(() => readCachedProfile() !== null);
   const [emailVerified, setEmailVerified] = useState(false);
 
   const [products, setProducts] = useState<Product[]>(() => {
@@ -400,8 +423,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setFirebaseUser(user);
       setEmailVerified(Boolean(user?.emailVerified));
       if (user) {
-        // Hold the UI (e.g. the admin gate) until this user's role is known
-        setAuthReady(false);
+        // Hold the UI (e.g. the admin gate) until this user's role is known, unless the cached
+        // profile from the last visit already belongs to this user
+        if (readCachedProfile()?.uid !== user.uid) setAuthReady(false);
         // The server decides the role (owner / invited admin / customer) and keeps users/{uid} in sync
         try {
           const token = await user.getIdToken();
@@ -455,6 +479,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
     return () => unsubscribe();
   }, []);
+
+  // Remember the confirmed profile for the next visit; forget it on sign-out
+  useEffect(() => {
+    if (!authReady) return;
+    if (firebaseUser && userProfile && userProfile.uid === firebaseUser.uid) writeCachedProfile(userProfile);
+    else if (!firebaseUser && !userProfile) writeCachedProfile(null);
+  }, [authReady, firebaseUser, userProfile]);
 
   // 2. Public Catalog Listeners (Products, Categories, Coupons, Approved Reviews, Settings)
   useEffect(() => {
@@ -572,7 +603,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     const ordersQ = isAdmin
-      ? collection(db, 'orders')
+      ? query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(1000))
       : query(collection(db, 'orders'), where('userId', '==', firebaseUser.uid));
 
     const unsubOrders = onSnapshot(
@@ -586,7 +617,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     const notifQ = isAdmin
-      ? collection(db, 'notifications')
+      ? query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(200))
       : query(collection(db, 'notifications'), where('userId', '==', firebaseUser.uid));
 
     const unsubNotifs = onSnapshot(
@@ -634,8 +665,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         (err) => console.warn('order_private listener error:', err.message)
       );
 
+      // Only the latest entries: the log grows with every product save and would otherwise slow the admin down
       unsubAudit = onSnapshot(
-        collection(db, 'audit_logs'),
+        query(collection(db, 'audit_logs'), orderBy('createdAt', 'desc'), limit(200)),
         (snap) => {
           const list = snap.docs.map((d) => d.data() as AuditLog);
           list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -645,7 +677,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
 
       unsubTasks = onSnapshot(
-        collection(db, 'ai_tasks'),
+        query(collection(db, 'ai_tasks'), orderBy('createdAt', 'desc'), limit(50)),
         (snap) => {
           const list = snap.docs.map((d) => d.data() as AITask);
           list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -761,6 +793,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const signOut = async () => {
+    writeCachedProfile(null);
     await firebaseSignOut(auth);
     setUserProfile(null);
     showToast('Signed out.');

@@ -3,10 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { StorefrontView } from './components/StorefrontView';
-import { AdminDashboardView } from './components/AdminDashboardView';
+
+// The admin console is large; loading it on demand keeps it out of every customer's download
+const AdminDashboardView = lazy(() =>
+  import('./components/AdminDashboardView').then((m) => ({ default: m.AdminDashboardView }))
+);
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthPanel } from './components/AuthPanel';
 
@@ -23,7 +27,18 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
     );
   }
 
-  if (isAdmin) return <>{children}</>;
+  if (isAdmin) {
+    return (
+      <>
+        {!firebaseUser && (
+          <div className="sticky top-0 z-50 bg-amber-100 border-b border-amber-300 text-amber-900 text-xs font-semibold px-4 py-1.5 text-center">
+            Account se connect ho raha hai... tab tak tabdeeliyan save nahi hongi.
+          </div>
+        )}
+        {children}
+      </>
+    );
+  }
 
   const usesPassword = firebaseUser?.providerData.some((p) => p.providerId === 'password');
 
@@ -77,12 +92,24 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
 const MainRouter: React.FC = () => {
   const [mode, setMode] = useState<'STOREFRONT' | 'ADMIN'>(() => {
     try {
+      // The address (#admin / #store) wins over the mode remembered from the last visit
+      if (typeof window !== 'undefined' && window.location.hash === '#admin') return 'ADMIN';
+      if (typeof window !== 'undefined' && window.location.hash === '#store') return 'STOREFRONT';
       const saved = localStorage.getItem('atelier_app_mode');
       if (saved === 'ADMIN' || saved === 'STOREFRONT') return saved;
-      if (typeof window !== 'undefined' && window.location.hash === '#admin') return 'ADMIN';
     } catch {}
     return 'STOREFRONT';
   });
+
+  // Follow manual address changes and the browser back/forward buttons
+  useEffect(() => {
+    const onHashChange = () => {
+      if (window.location.hash === '#admin') setMode('ADMIN');
+      else if (window.location.hash === '#store' || window.location.hash === '') setMode('STOREFRONT');
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
   const [adminInitialTab, setAdminInitialTab] = useState<string | undefined>(() => {
     try {
       return localStorage.getItem('atelier_admin_tab') || 'PRODUCTS';
@@ -119,14 +146,22 @@ const MainRouter: React.FC = () => {
         />
       ) : (
         <AdminGate onBack={() => handleSwitchMode('STOREFRONT')}>
-          <AdminDashboardView
-            initialTab={adminInitialTab as any}
-            autoOpenNewProduct={autoOpenNewProduct}
-            onReturnToStore={() => {
-              handleSwitchMode('STOREFRONT');
-              setAutoOpenNewProduct(false);
-            }}
-          />
+          <Suspense
+            fallback={
+              <div className="min-h-screen flex items-center justify-center bg-[#FBFBF9] text-sm text-[#575653]">
+                Admin panel khul raha hai...
+              </div>
+            }
+          >
+            <AdminDashboardView
+              initialTab={adminInitialTab as any}
+              autoOpenNewProduct={autoOpenNewProduct}
+              onReturnToStore={() => {
+                handleSwitchMode('STOREFRONT');
+                setAutoOpenNewProduct(false);
+              }}
+            />
+          </Suspense>
         </AdminGate>
       )}
 

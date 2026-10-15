@@ -249,6 +249,39 @@ export const AdminDashboardView: React.FC<{
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [productSearch, setProductSearch] = useState('');
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const selectedProductIdSet = useMemo(() => new Set(selectedProductIds), [selectedProductIds]);
+
+  // Products table: filtered once per change and shown one page at a time
+  const ADMIN_PRODUCTS_PER_PAGE = 50;
+  const [adminProductPage, setAdminProductPage] = useState(0);
+  const adminFilteredProducts = useMemo(() => {
+    const term = productSearch.trim().toLowerCase();
+    return products.filter(
+      (p) =>
+        (supplierFilter === 'ALL' || (p.supplierName || 'Own Stock') === supplierFilter) &&
+        (!term ||
+          p.name.toLowerCase().includes(term) ||
+          p.sku.toLowerCase().includes(term) ||
+          p.category.toLowerCase().includes(term) ||
+          p.status.toLowerCase().includes(term))
+    );
+  }, [products, supplierFilter, productSearch]);
+  const adminProductPageCount = Math.max(1, Math.ceil(adminFilteredProducts.length / ADMIN_PRODUCTS_PER_PAGE));
+  const adminVisibleProducts = useMemo(
+    () =>
+      adminFilteredProducts.slice(
+        adminProductPage * ADMIN_PRODUCTS_PER_PAGE,
+        (adminProductPage + 1) * ADMIN_PRODUCTS_PER_PAGE
+      ),
+    [adminFilteredProducts, adminProductPage]
+  );
+  useEffect(() => {
+    setAdminProductPage(0);
+  }, [supplierFilter, productSearch]);
+  useEffect(() => {
+    if (adminProductPage > adminProductPageCount - 1) setAdminProductPage(adminProductPageCount - 1);
+  }, [adminProductPage, adminProductPageCount]);
+
   const [studioShots, setStudioShots] = useState<ProductStudioShot[]>([]);
   const [generatingContent, setGeneratingContent] = useState(false);
   const [generatingShots, setGeneratingShots] = useState(false);
@@ -3020,18 +3053,9 @@ export const AdminDashboardView: React.FC<{
                   <button
                     type="button"
                     onClick={() => {
-                      const visibleIds = products
-                        .filter((p) => supplierFilter === 'ALL' || (p.supplierName || 'Own Stock') === supplierFilter)
-                        .filter(
-                          (p) =>
-                            !productSearch.trim() ||
-                            p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-                            p.sku.toLowerCase().includes(productSearch.toLowerCase()) ||
-                            p.category.toLowerCase().includes(productSearch.toLowerCase()) ||
-                            p.status.toLowerCase().includes(productSearch.toLowerCase())
-                        )
-                        .map((p) => p.id);
-                      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedProductIds.includes(id));
+                      // Selects every product matching the current search/filter, on all pages
+                      const visibleIds = adminFilteredProducts.map((p) => p.id);
+                      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedProductIdSet.has(id));
                       setSelectedProductIds(allSelected ? [] : visibleIds);
                     }}
                     className="px-3 py-2 border border-black/[0.12] bg-white text-xs text-[#141413] cursor-pointer"
@@ -3215,20 +3239,7 @@ export const AdminDashboardView: React.FC<{
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-black/15">
-                    {products
-                      .filter(
-                        (p) =>
-                          supplierFilter === 'ALL' || (p.supplierName || 'Own Stock') === supplierFilter
-                      )
-                      .filter(
-                        (p) =>
-                          !productSearch.trim() ||
-                          p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-                          p.sku.toLowerCase().includes(productSearch.toLowerCase()) ||
-                          p.category.toLowerCase().includes(productSearch.toLowerCase()) ||
-                          p.status.toLowerCase().includes(productSearch.toLowerCase())
-                      )
-                      .map((p) => (
+                    {adminVisibleProducts.map((p) => (
                         <tr
                           key={p.id}
                           onClick={() => setSelectedAdminProduct(p)}
@@ -3239,7 +3250,7 @@ export const AdminDashboardView: React.FC<{
                           <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
-                              checked={selectedProductIds.includes(p.id)}
+                              checked={selectedProductIdSet.has(p.id)}
                               onChange={(e) => {
                                 if (e.target.checked) {
                                   setSelectedProductIds((prev) => [...prev, p.id]);
@@ -3342,6 +3353,39 @@ export const AdminDashboardView: React.FC<{
                       ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Paging keeps the table fast with thousands of products */}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#141413]">
+                <span>
+                  {adminFilteredProducts.length === 0
+                    ? 'Koi product nahi mila'
+                    : `${adminProductPage * ADMIN_PRODUCTS_PER_PAGE + 1}–${Math.min(
+                        (adminProductPage + 1) * ADMIN_PRODUCTS_PER_PAGE,
+                        adminFilteredProducts.length
+                      )} / ${adminFilteredProducts.length} products`}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={adminProductPage === 0}
+                    onClick={() => setAdminProductPage((p) => Math.max(0, p - 1))}
+                    className="px-3 py-1.5 border border-black/20 bg-white font-semibold disabled:opacity-40 cursor-pointer"
+                  >
+                    ← Pichla
+                  </button>
+                  <span className="font-mono">
+                    Page {adminProductPage + 1} / {adminProductPageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={adminProductPage >= adminProductPageCount - 1}
+                    onClick={() => setAdminProductPage((p) => Math.min(adminProductPageCount - 1, p + 1))}
+                    className="px-3 py-1.5 border border-black/20 bg-white font-semibold disabled:opacity-40 cursor-pointer"
+                  >
+                    Agla →
+                  </button>
+                </div>
               </div>
 
               {/* Product Create/Edit & AI Image Studio Modal */}
