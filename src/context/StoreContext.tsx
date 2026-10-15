@@ -211,6 +211,7 @@ interface StoreContextValue {
   createOrUpdateAITask: (task: Partial<AITask> & { id: string; name: string; toolName: string }) => Promise<AITask>;
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
+  deleteNotifications: (ids?: string[]) => Promise<void>;
 
   // Active Context for AI Memory
   selectedAdminProduct: Product | null;
@@ -2046,6 +2047,25 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // Deletes the given alerts (all read alerts when no ids are passed) in batches
+  const deleteNotifications = async (ids?: string[]) => {
+    const targets = ids && ids.length > 0 ? ids : notifications.filter((n) => n.read).map((n) => n.id);
+    if (targets.length === 0) return;
+    const remove = new Set(targets);
+    setNotifications((prev) => prev.filter((n) => !remove.has(n.id)));
+    if (!firebaseUser) return;
+    try {
+      for (let i = 0; i < targets.length; i += 400) {
+        const batch = writeBatch(db);
+        for (const id of targets.slice(i, i + 400)) batch.delete(doc(db, 'notifications', id));
+        await batch.commit();
+      }
+      showToast(`${targets.length} alert${targets.length === 1 ? '' : 's'} delete ho gaye.`);
+    } catch (error: any) {
+      showToast(`Alerts delete nahi huay: ${error?.message || error}`);
+    }
+  };
+
   // Marks every unread alert as read in batches (a Firestore batch allows 500 writes)
   const markAllNotificationsRead = async () => {
     const unread = notifications.filter((n) => !n.read);
@@ -2120,6 +2140,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         createOrUpdateAITask,
         markNotificationRead,
         markAllNotificationsRead,
+        deleteNotifications,
         selectedAdminProduct,
         setSelectedAdminProduct,
         selectedAdminOrder,

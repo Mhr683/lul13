@@ -182,6 +182,7 @@ export const AdminDashboardView: React.FC<{
     createOrUpdateAITask,
     markNotificationRead,
     markAllNotificationsRead,
+    deleteNotifications,
     selectedAdminProduct,
     setSelectedAdminProduct,
     selectedAdminOrder,
@@ -6131,18 +6132,34 @@ export const AdminDashboardView: React.FC<{
                     <h2 className="text-sm font-bold text-[#141413]">
                       Store Alerts &amp; Operational Events ({notifications.length})
                     </h2>
-                    {unreadAlertsCount > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                          {unreadAlertsCount} unread system notifications
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => markAllNotificationsRead()}
-                          className="px-3 py-1.5 bg-[#141413] text-white text-xs font-semibold cursor-pointer hover:bg-black"
-                        >
-                          Mark all read
-                        </button>
+                    {notifications.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {unreadAlertsCount > 0 && (
+                          <>
+                            <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                              {unreadAlertsCount} unread system notifications
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => markAllNotificationsRead()}
+                              className="px-3 py-1.5 bg-[#141413] text-white text-xs font-semibold cursor-pointer hover:bg-black"
+                            >
+                              Mark all read
+                            </button>
+                          </>
+                        )}
+                        {notifications.length - unreadAlertsCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const count = notifications.length - unreadAlertsCount;
+                              if (window.confirm(`${count} read alerts delete kar dein?`)) deleteNotifications();
+                            }}
+                            className="px-3 py-1.5 bg-rose-50 border border-rose-400 text-rose-800 text-xs font-semibold cursor-pointer hover:bg-rose-100"
+                          >
+                            Delete all read ({notifications.length - unreadAlertsCount})
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -6169,14 +6186,24 @@ export const AdminDashboardView: React.FC<{
                             </div>
                             <p className="text-xs text-[#454441]">{n.message}</p>
                           </div>
-                          {!n.read && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {!n.read && (
+                              <button
+                                onClick={() => markNotificationRead(n.id)}
+                                className="px-2.5 py-1 bg-[#F5F4F0] text-[11px] font-semibold text-black hover:bg-black/10 transition-colors cursor-pointer rounded"
+                              >
+                                Mark Read
+                              </button>
+                            )}
                             <button
-                              onClick={() => markNotificationRead(n.id)}
-                              className="px-2.5 py-1 bg-[#F5F4F0] text-[11px] font-semibold text-black hover:bg-black/10 transition-colors cursor-pointer rounded"
+                              onClick={() => deleteNotifications([n.id])}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 cursor-pointer rounded"
+                              aria-label="Delete alert"
+                              title="Delete"
                             >
-                              Mark Read
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
-                          )}
+                          </div>
                         </div>
                       ))}
                     </div>
