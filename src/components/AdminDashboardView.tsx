@@ -183,6 +183,7 @@ export const AdminDashboardView: React.FC<{
     markNotificationRead,
     markAllNotificationsRead,
     deleteNotifications,
+    removeProductsBatch,
     selectedAdminProduct,
     setSelectedAdminProduct,
     selectedAdminOrder,
@@ -3137,12 +3138,23 @@ export const AdminDashboardView: React.FC<{
                       <button
                         onClick={async () => {
                           const count = selectedProductIds.length;
-                          if (!window.confirm(`${count} products hamesha ke liye delete kar dein?`)) return;
-                          for (const id of selectedProductIds) {
-                            await removeProduct(id);
+                          if (!window.confirm(`${count} products hamesha ke liye delete kar dein? Ye wapas nahi aayenge.`)) return;
+                          // Large deletes need the count typed back, so a stray click cannot wipe the catalog
+                          if (count > 20) {
+                            const typed = window.prompt(`Tasdeeq ke liye ${count} likhein:`);
+                            if (typed === null || typed.trim() !== String(count)) {
+                              showToast('Delete cancel kar diya gaya.');
+                              return;
+                            }
                           }
-                          setSelectedProductIds([]);
-                          showToast(`Deleted ${count} selected products.`);
+                          showToast(`${count} products delete ho rahe hain...`);
+                          try {
+                            const result = await removeProductsBatch(selectedProductIds);
+                            setSelectedProductIds([]);
+                            showToast(`${result.count} products delete ho gaye.`);
+                          } catch (err: any) {
+                            showToast(`Delete nahi hua: ${err?.message || err}`);
+                          }
                         }}
                         className="px-3 py-2 bg-rose-100 border border-rose-400 text-xs font-semibold text-rose-800 hover:bg-rose-200 cursor-pointer"
                       >

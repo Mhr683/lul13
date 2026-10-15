@@ -212,6 +212,7 @@ interface StoreContextValue {
   markNotificationRead: (notificationId: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   deleteNotifications: (ids?: string[]) => Promise<void>;
+  removeProductsBatch: (productIds: string[]) => Promise<{ count: number }>;
 
   // Active Context for AI Memory
   selectedAdminProduct: Product | null;
@@ -1546,6 +1547,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // Delete many products at once: Firestore batches of 200 products (public + private doc each)
+  const removeProductsBatch = async (productIds: string[]) => {
+    const ids = Array.from(new Set(productIds.filter(Boolean)));
+    if (ids.length === 0) return { count: 0 };
+    if (!firebaseUser || !isAdmin) throw new Error('Products delete karne ke liye admin login zaroori hai.');
+    let deleted = 0;
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const batch = writeBatch(db);
+      for (const id of chunk) {
+        batch.delete(doc(db, 'products', id));
+        batch.delete(doc(db, 'product_private', id));
+      }
+      await batch.commit();
+      deleted += chunk.length;
+      const removed = new Set(chunk);
+      setProducts((prev) => {
+        const next = prev.filter((p) => !removed.has(p.id));
+        try {
+          localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    }
+    recordAuditLog('PRODUCTS_BULK_DELETED', 'Catalog', `Deleted ${deleted} products`).catch(() => {});
+    return { count: deleted };
+  };
+
   // Save or Create Category
   const saveCategory: StoreContextValue['saveCategory'] = async (input) => {
     const slug = sanitizeSlug(input.slug || input.name);
@@ -2141,6 +2170,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         markNotificationRead,
         markAllNotificationsRead,
         deleteNotifications,
+        removeProductsBatch,
         selectedAdminProduct,
         setSelectedAdminProduct,
         selectedAdminOrder,
