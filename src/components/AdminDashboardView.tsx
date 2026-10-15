@@ -3091,6 +3091,7 @@ export const AdminDashboardView: React.FC<{
                       </button>
                       <button
                         onClick={async () => {
+                          if (!window.confirm(`${selectedProductIds.length} products ki price 10% barha dein?`)) return;
                           for (const id of selectedProductIds) {
                             const p = products.find((item) => item.id === id);
                             if (p) {
@@ -3109,6 +3110,12 @@ export const AdminDashboardView: React.FC<{
                       </button>
                       <button
                         onClick={async () => {
+                          if (
+                            !window.confirm(
+                              `${selectedProductIds.length} products ka status badlein? Active products chhup jayenge (Archive) aur archived wapas dikhne lagenge.`
+                            )
+                          )
+                            return;
                           for (const id of selectedProductIds) {
                             const p = products.find((item) => item.id === id);
                             if (p) {
@@ -3121,7 +3128,7 @@ export const AdminDashboardView: React.FC<{
                           setSelectedProductIds([]);
                           showToast(`Updated archive status for ${selectedProductIds.length} products.`);
                         }}
-                        className="px-3 py-2 bg-amber-500/20 border border-amber-500/40 text-xs text-amber-200 hover:bg-amber-500/30 cursor-pointer"
+                        className="px-3 py-2 bg-amber-100 border border-amber-400 text-xs font-semibold text-amber-900 hover:bg-amber-200 cursor-pointer"
                       >
                         Bulk Archive/Unarchive ({selectedProductIds.length})
                       </button>
@@ -3135,7 +3142,7 @@ export const AdminDashboardView: React.FC<{
                           setSelectedProductIds([]);
                           showToast(`Deleted ${count} selected products.`);
                         }}
-                        className="px-3 py-2 bg-rose-500/20 border border-rose-500/40 text-xs text-rose-200 hover:bg-rose-500/30 cursor-pointer"
+                        className="px-3 py-2 bg-rose-100 border border-rose-400 text-xs font-semibold text-rose-800 hover:bg-rose-200 cursor-pointer"
                       >
                         Bulk Delete ({selectedProductIds.length})
                       </button>
@@ -3937,10 +3944,10 @@ export const AdminDashboardView: React.FC<{
               <div className="p-3.5 bg-[#FBFBF9] border border-black/[0.08] text-xs text-[#454441] flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-[#141413]">Supported Columns:</span>
-                  <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono text-[11px]">
+                  <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-800 font-mono text-[11px]">
                     Name / Title *
                   </span>
-                  <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono text-[11px]">
+                  <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-800 font-mono text-[11px]">
                     Price * (PKR)
                   </span>
                   <span className="px-2 py-0.5 bg-black/[0.04] border border-black/[0.12] text-[#454441] font-mono text-[11px]">
@@ -4717,7 +4724,7 @@ export const AdminDashboardView: React.FC<{
                                 updateOrderState(ord.id, 'REFUNDED');
                               }
                             }}
-                            className="px-2.5 py-1 border border-rose-500/40 text-rose-300 text-[11px] cursor-pointer"
+                            className="px-2.5 py-1 border border-rose-400 text-rose-700 text-[11px] cursor-pointer"
                           >
                             Refund
                           </button>
@@ -5515,7 +5522,7 @@ export const AdminDashboardView: React.FC<{
                       </div>
                       <button
                         onClick={() => deleteCouponById(c.id)}
-                        className="text-rose-400 hover:text-rose-300 cursor-pointer"
+                        className="text-rose-600 hover:text-rose-800 cursor-pointer"
                       >
                         Delete
                       </button>
@@ -5549,13 +5556,13 @@ export const AdminDashboardView: React.FC<{
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => moderateReview(r.id, 'APPROVED')}
-                        className="px-3 py-1.5 bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 cursor-pointer"
+                        className="px-3 py-1.5 bg-emerald-50 border border-emerald-400 text-emerald-800 cursor-pointer"
                       >
                         Approve
                       </button>
                       <button
                         onClick={() => moderateReview(r.id, 'REJECTED')}
-                        className="px-3 py-1.5 bg-rose-600/20 border border-rose-500/40 text-rose-300 cursor-pointer"
+                        className="px-3 py-1.5 bg-rose-50 border border-rose-400 text-rose-800 cursor-pointer"
                       >
                         Reject
                       </button>
@@ -5595,7 +5602,7 @@ export const AdminDashboardView: React.FC<{
                           {(task.status === 'QUEUED' || task.status === 'RUNNING') && (
                             <button
                               onClick={() => cancelAITask(task.id)}
-                              className="px-2.5 py-1 bg-rose-500/20 border border-rose-500/40 text-rose-300 font-mono text-[11px] cursor-pointer"
+                              className="px-2.5 py-1 bg-rose-50 border border-rose-400 text-rose-800 font-mono text-[11px] cursor-pointer"
                             >
                               Cancel Task
                             </button>
