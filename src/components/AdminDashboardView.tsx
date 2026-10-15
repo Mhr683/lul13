@@ -43,6 +43,7 @@ import {
   Bot,
   CheckCircle2,
   MessageCircle,
+  Menu,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
@@ -292,6 +293,7 @@ export const AdminDashboardView: React.FC<{
   const [csvCurrency, setCsvCurrency] = useState<'PKR' | 'USD' | 'DIRECT'>('PKR');
   const [csvUploadedFileName, setCsvUploadedFileName] = useState<string | null>(null);
   const [csvImporting, setCsvImporting] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Copy supplier images into the store's Firebase Storage so they survive the supplier deleting them
   const [archiveCsvImages, setArchiveCsvImages] = useState(true);
   const [csvParsing, setCsvParsing] = useState(false);
@@ -2521,8 +2523,19 @@ export const AdminDashboardView: React.FC<{
 
   return (
     <div className="min-h-screen flex bg-[#FBFBF9] text-[#141413]">
-      {/* Fixed 256px SaaS Workspace Sidebar */}
-      <aside className="w-64 shrink-0 border-r border-black/[0.08] bg-white flex flex-col justify-between">
+      {/* Phones/tablets: the sidebar slides in over the page; desktops (lg+) keep it fixed */}
+      {mobileNavOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-64 shrink-0 border-r border-black/[0.08] bg-white flex flex-col justify-between overflow-y-auto transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
+          mobileNavOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        }`}
+      >
         <div className="p-5 space-y-6">
           <div className="flex items-center justify-between">
             <span className="text-lg font-display font-semibold tracking-tight text-[#141413]">
@@ -2564,6 +2577,7 @@ export const AdminDashboardView: React.FC<{
                   key={item.id}
                   onClick={() => {
                     setActiveTab(item.id);
+                    setMobileNavOpen(false);
                     try {
                       localStorage.setItem('atelier_admin_tab', item.id);
                     } catch {}
@@ -2601,7 +2615,7 @@ export const AdminDashboardView: React.FC<{
               <div>
                 <div className="font-medium text-[#141413] truncate">{userProfile?.name}</div>
                 <div className="text-[11px] text-[#575653] truncate">{firebaseUser.email}</div>
-                <div className="text-[11px] font-mono text-[#C5A059] mt-0.5">Role: {userProfile?.role}</div>
+                <div className="text-[11px] font-mono text-[#86672A] mt-0.5">Role: {userProfile?.role}</div>
               </div>
               <button
                 onClick={async () => {
@@ -2620,26 +2634,34 @@ export const AdminDashboardView: React.FC<{
       {/* Main Workspace Viewport */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar Contract: Breadcrumb Left | Actions Right */}
-        <header className="h-16 border-b border-black/[0.08] px-8 flex items-center justify-between bg-white/90 backdrop-blur-xs">
-          <div className="flex items-center gap-2 text-xs text-[#575653]">
-            <span>Admin Console</span>
-            <span>/</span>
+        <header className="min-h-16 border-b border-black/[0.08] px-4 lg:px-8 py-2 flex flex-wrap items-center justify-between gap-2 bg-white/90 backdrop-blur-xs sticky top-0 z-30">
+          <div className="flex items-center gap-2 text-xs text-[#575653] min-w-0">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="lg:hidden p-2 -ml-2 border border-black/15 text-[#141413] cursor-pointer"
+              aria-label="Menu kholein"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+            <span className="hidden sm:inline">Admin Console</span>
+            <span className="hidden sm:inline">/</span>
             <span className="text-[#141413] font-medium">{activeTab.replace(/_/g, ' ')}</span>
             {selectedAdminProduct && (
               <>
-                <span>/</span>
-                <span className="text-[#C5A059] font-mono">
+                <span className="hidden md:inline">/</span>
+                <span className="hidden md:inline text-[#86672A] font-mono truncate max-w-[260px]">
                   Context: {selectedAdminProduct.sku} ({selectedAdminProduct.name})
                 </span>
               </>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 lg:gap-3">
             {activeTab !== 'AI_COMMAND_CENTER' && (
               <button
                 onClick={() => setCopilotDrawerOpen((o) => !o)}
-                className="px-3.5 py-2 bg-[#C5A059] text-[#0B0F17] text-xs font-semibold flex items-center gap-2 cursor-pointer"
+                className="px-3 py-2 bg-[#C5A059] text-[#0B0F17] text-xs font-semibold flex items-center gap-2 cursor-pointer"
               >
                 <Terminal className="w-3.5 h-3.5" />
                 <span>AI Copilot</span>
@@ -2647,16 +2669,19 @@ export const AdminDashboardView: React.FC<{
             )}
             <button
               onClick={handleExportProductsCsv}
-              className="px-3.5 py-2 border border-black/[0.12] text-xs text-[#2A2A28] hover:border-black/40 flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 border border-black/[0.12] text-xs text-[#2A2A28] hover:border-black/40 flex items-center gap-1.5 cursor-pointer"
+              aria-label="Export Catalog CSV"
+              title="Export Catalog CSV"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Export Catalog CSV</span>
+              <span className="hidden md:inline">Export Catalog CSV</span>
             </button>
             <button
               onClick={onReturnToStore}
-              className="px-3.5 py-2 border border-black/[0.12] text-xs text-[#2A2A28] hover:border-black/40 cursor-pointer"
+              className="px-3 py-2 border border-black/[0.12] text-xs text-[#2A2A28] hover:border-black/40 cursor-pointer"
             >
-              View Live Storefront
+              <span className="md:hidden">Store</span>
+              <span className="hidden md:inline">View Live Storefront</span>
             </button>
           </div>
         </header>
@@ -2670,7 +2695,7 @@ export const AdminDashboardView: React.FC<{
                 className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               >
                 <div className="flex items-center gap-3 text-xs text-amber-200">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
                   <span className="whitespace-pre-wrap">
                     <strong>AI Safety Confirmation Required:</strong> {conf.description}
                   </span>
@@ -2709,7 +2734,7 @@ export const AdminDashboardView: React.FC<{
         )}
 
         {/* Workspace Content */}
-        <div className="flex-1 p-8 overflow-y-auto space-y-8">
+        <div className="flex-1 p-4 lg:p-8 overflow-y-auto space-y-8">
           {/* ======================== TAB 1: AI COMMAND CENTER ======================== */}
           {activeTab === 'AI_COMMAND_CENTER' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -2724,7 +2749,7 @@ export const AdminDashboardView: React.FC<{
                       Executes real database mutations, SEO generation, pricing updates, and order workflows.
                     </p>
                   </div>
-                  <span className="text-xs font-mono text-[#C5A059]">
+                  <span className="text-xs font-mono text-[#86672A]">
                     Tone: {settings.aiTone || 'Professional'}
                   </span>
                 </div>
@@ -2750,7 +2775,7 @@ export const AdminDashboardView: React.FC<{
 
                       {msg.toolExecutions && msg.toolExecutions.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-black/[0.08] space-y-2">
-                          <div className="text-[11px] font-mono uppercase text-[#C5A059]">
+                          <div className="text-[11px] font-mono uppercase text-[#86672A]">
                             Executed Store Tools ({msg.toolExecutions.length}):
                           </div>
                           {msg.toolExecutions.map((t, i) => (
@@ -2759,7 +2784,7 @@ export const AdminDashboardView: React.FC<{
                               className="p-2.5 bg-white border border-black/[0.08] text-xs font-mono space-y-1"
                             >
                               <div className="flex items-center justify-between">
-                                <span className="text-emerald-400 font-semibold">{t.name}()</span>
+                                <span className="text-emerald-700 font-semibold">{t.name}()</span>
                                 <span className="text-[11px] text-[#575653]">{t.status}</span>
                               </div>
                               <div className="text-[#454441] text-[11px]">{t.resultSummary}</div>
@@ -2805,7 +2830,7 @@ export const AdminDashboardView: React.FC<{
               {/* Right 4 Cols: Built-in Demo Commands & Store Context */}
               <div className="lg:col-span-4 space-y-6">
                 <div className="p-5 bg-white border border-black/[0.08] space-y-4">
-                  <h2 className="text-xs font-semibold uppercase tracking-wider text-[#C5A059]">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-[#86672A]">
                     One-Click Demo AI Commands
                   </h2>
                   <p className="text-xs text-[#575653]">
@@ -2878,7 +2903,7 @@ export const AdminDashboardView: React.FC<{
                   <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
                     {formatPKR(totalRevenue)}
                   </div>
-                  <div className="text-[11px] text-emerald-400 font-mono">
+                  <div className="text-[11px] text-emerald-700 font-mono">
                     {orders.length} settled / active orders
                   </div>
                 </div>
@@ -2898,7 +2923,7 @@ export const AdminDashboardView: React.FC<{
                   <div className="text-2xl font-mono tabular-nums font-semibold text-[#141413]">
                     {products.length} SKUs
                   </div>
-                  <div className="text-[11px] text-amber-400 font-mono">
+                  <div className="text-[11px] text-amber-700 font-mono">
                     {lowStockProducts.length} low-stock alerts (&le;5 units)
                   </div>
                 </div>
@@ -2969,7 +2994,7 @@ export const AdminDashboardView: React.FC<{
                             <span className="text-[#2A2A28] font-medium">
                               {item.name} ({item.count} SKUs)
                             </span>
-                            <span className="font-mono tabular-nums text-[#C5A059]">
+                            <span className="font-mono tabular-nums text-[#86672A]">
                               {formatPKR(item.stockValue)}
                             </span>
                           </div>
@@ -2992,7 +3017,7 @@ export const AdminDashboardView: React.FC<{
                     </h2>
                     <button
                       onClick={() => setActiveTab('INVENTORY')}
-                      className="text-xs text-[#C5A059] hover:underline cursor-pointer"
+                      className="text-xs text-[#86672A] hover:underline cursor-pointer"
                     >
                       Manage Inventory →
                     </button>
@@ -3007,7 +3032,7 @@ export const AdminDashboardView: React.FC<{
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="font-mono tabular-nums text-amber-400 font-semibold">
+                          <span className="font-mono tabular-nums text-amber-700 font-semibold">
                             {p.stock} left
                           </span>
                           <button
@@ -3414,7 +3439,7 @@ export const AdminDashboardView: React.FC<{
                             )
                           }
                           disabled={generatingShots}
-                          className="px-3 py-1.5 border border-[#C5A059] text-[#C5A059] text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                          className="px-3 py-1.5 border border-[#C5A059] text-[#86672A] text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                         >
                           <Camera className="w-3.5 h-3.5" />
                           <span>{generatingShots ? 'Rendering...' : 'Generate 5 Studio Shots'}</span>
@@ -3453,7 +3478,7 @@ export const AdminDashboardView: React.FC<{
                       </div>
                       <div>
                         <label className="block text-[#575653] mb-1">
-                          Selling Price (PKR) — <span className="text-[#C5A059] font-mono">{formatPKR(editingProduct.price || 0)}</span>
+                          Selling Price (PKR) — <span className="text-[#86672A] font-mono">{formatPKR(editingProduct.price || 0)}</span>
                         </label>
                         <input
                           type="number"
@@ -3686,7 +3711,7 @@ export const AdminDashboardView: React.FC<{
                     {/* 5 Generated Studio Shots Preview */}
                     {studioShots.length > 0 && (
                       <div className="space-y-2 pt-2 border-t border-black/[0.08]">
-                        <div className="text-xs font-semibold text-[#C5A059]">
+                        <div className="text-xs font-semibold text-[#86672A]">
                           AI Product Photography Studio — 5 Variations
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
@@ -3800,11 +3825,11 @@ export const AdminDashboardView: React.FC<{
                           </td>
                           <td className="py-3 px-4 font-mono text-[11px]">
                             {p.stock === 0 ? (
-                              <span className="text-rose-400">OUT OF STOCK</span>
+                              <span className="text-rose-700">OUT OF STOCK</span>
                             ) : isLow ? (
-                              <span className="text-amber-400">LOW STOCK ALERT</span>
+                              <span className="text-amber-700">LOW STOCK ALERT</span>
                             ) : (
-                              <span className="text-emerald-400">NOMINAL</span>
+                              <span className="text-emerald-700">NOMINAL</span>
                             )}
                           </td>
                           <td className="py-3 px-4 text-right space-x-1.5">
@@ -3918,7 +3943,7 @@ export const AdminDashboardView: React.FC<{
               <div className="p-3.5 bg-[#FBFBF9] border border-black/[0.08] flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs font-semibold uppercase tracking-wider text-[#141413] flex items-center gap-1.5">
-                    <Tag className="w-3.5 h-3.5 text-[#C5A059]" />
+                    <Tag className="w-3.5 h-3.5 text-[#86672A]" />
                     Currency in CSV File:
                   </span>
                   <div className="flex items-center gap-1.5 font-mono text-xs">
@@ -3971,15 +3996,15 @@ export const AdminDashboardView: React.FC<{
                 </div>
                 <div className="text-xs text-[#454441] font-mono">
                   {csvCurrency === 'PKR' ? (
-                    <span className="text-emerald-400">
+                    <span className="text-emerald-700">
                       ✓ Active: Pakistani Rupees (e.g., Rs. 2,500 in CSV → PKR 2,500 in catalog)
                     </span>
                   ) : csvCurrency === 'DIRECT' ? (
-                    <span className="text-sky-400">
+                    <span className="text-sky-700">
                       ✓ Active: Direct Values (e.g., 250 in CSV → 250 in catalog without conversion)
                     </span>
                   ) : (
-                    <span className="text-amber-400">
+                    <span className="text-amber-700">
                       ✓ Active: US Dollars (e.g., $45 in CSV → converted to PKR at the store USD rate)
                     </span>
                   )}
@@ -3990,7 +4015,7 @@ export const AdminDashboardView: React.FC<{
               {csvCurrency !== 'PKR' && parsedCsvRows.some((r) => r.price > 400) && (
                 <div className="p-3 bg-amber-950/60 border border-amber-500/40 text-xs text-amber-200 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
                     <span>
                       <strong>Notice:</strong> High price values detected in CSV (e.g. {Math.round(parsedCsvRows.reduce((m, r) => Math.max(m, r.price || 0), 0)).toLocaleString()}). If these prices are in <strong>Pakistani Rupees (Rs.)</strong>, switch to PKR mode for proper conversion.
                     </span>
@@ -4050,7 +4075,7 @@ export const AdminDashboardView: React.FC<{
                   ))}
                 </div>
                 {csvUploadedFileName && (
-                  <div className="flex items-center gap-2 text-xs font-mono text-[#C5A059]">
+                  <div className="flex items-center gap-2 text-xs font-mono text-[#86672A]">
                     <span>File: {csvUploadedFileName}</span>
                     <button
                       onClick={() => {
@@ -4120,7 +4145,7 @@ export const AdminDashboardView: React.FC<{
                           }}
                           className={`px-2 py-0.5 border cursor-pointer ${
                             selectedDelimiter === item.id
-                              ? 'border-[#C5A059] text-[#C5A059] bg-[#C5A059]/10'
+                              ? 'border-[#C5A059] text-[#86672A] bg-[#C5A059]/10'
                               : 'border-black/[0.08] text-[#575653] hover:text-[#2A2A28]'
                           }`}
                         >
@@ -4275,7 +4300,7 @@ export const AdminDashboardView: React.FC<{
 
                   {csvParsing ? (
                     <div className="py-16 text-center space-y-3">
-                      <RefreshCw className="w-6 h-6 text-[#C5A059] animate-spin mx-auto" />
+                      <RefreshCw className="w-6 h-6 text-[#86672A] animate-spin mx-auto" />
                       <p className="text-xs font-medium text-[#141413]">Parsing & validating catalog rows...</p>
                       <p className="text-[11px] text-[#575653]">Processing column mappings, prices, and SKUs smoothly without freezing.</p>
                     </div>
@@ -4432,7 +4457,7 @@ export const AdminDashboardView: React.FC<{
               {pendingVerificationOrders.length > 0 && (
                 <div className="p-4 bg-amber-950/70 border border-amber-500/70 rounded flex flex-wrap items-center justify-between gap-3 text-xs">
                   <div className="flex items-center gap-2.5">
-                    <span className="text-amber-400 font-bold text-base">⚠️</span>
+                    <span className="text-amber-700 font-bold text-base">⚠️</span>
                     <div>
                       <strong className="text-amber-200 block text-sm">
                         {pendingVerificationOrders.length} Order(s) Awaiting Payment Verification (ادائیگی کی تصدیق درکار ہے)
@@ -4665,7 +4690,7 @@ export const AdminDashboardView: React.FC<{
                                 href={buildWhatsAppLink(ord.customerPhone, buildConfirmMessage(ord))}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="block px-2 py-1 bg-[#25D366] text-white text-[10px] font-semibold text-center rounded"
+                                className="block px-2 py-1 bg-[#128C4A] text-white text-[10px] font-semibold text-center rounded"
                               >
                                 WhatsApp: ask to confirm
                               </a>
@@ -4865,7 +4890,7 @@ export const AdminDashboardView: React.FC<{
                               href={buildWhatsAppLink(fOrder.customerPhone, buildConfirmMessage(fOrder))}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="px-3 py-1.5 bg-[#25D366] text-white font-semibold rounded"
+                              className="px-3 py-1.5 bg-[#128C4A] text-white font-semibold rounded"
                             >
                               WhatsApp par confirm karwayein
                             </a>
@@ -5211,7 +5236,7 @@ export const AdminDashboardView: React.FC<{
                             href={buildWhatsAppLink(fOrder.customerPhone, buildTrackingMessage(fOrder))}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-block px-3 py-1.5 bg-[#25D366] text-white font-semibold rounded"
+                            className="inline-block px-3 py-1.5 bg-[#128C4A] text-white font-semibold rounded"
                           >
                             WhatsApp par customer ko tracking bhejein
                           </a>
@@ -5443,17 +5468,17 @@ export const AdminDashboardView: React.FC<{
                         </div>
                         <div className="flex justify-between border-b border-black/[0.08] pb-1.5">
                           <span className="text-[#73726E]">Payment Protocol:</span>
-                          <span className="text-[#C5A059]">{viewingReceiptOrder.paymentMethod}</span>
+                          <span className="text-[#86672A]">{viewingReceiptOrder.paymentMethod}</span>
                         </div>
                         {viewingReceiptOrder.paymentReference && (
                           <div className="flex justify-between border-b border-black/[0.08] pb-1.5">
                             <span className="text-[#73726E]">Transaction ID (TID):</span>
-                            <span className="text-[#C5A059] font-bold">{viewingReceiptOrder.paymentReference}</span>
+                            <span className="text-[#86672A] font-bold">{viewingReceiptOrder.paymentReference}</span>
                           </div>
                         )}
                         <div className="flex justify-between border-b border-black/[0.08] pb-1.5">
                           <span className="text-[#73726E]">Total Amount:</span>
-                          <span className="text-emerald-400 font-bold">
+                          <span className="text-emerald-700 font-bold">
                             {formatPKR(viewingReceiptOrder.total)}
                           </span>
                         </div>
@@ -5585,7 +5610,7 @@ export const AdminDashboardView: React.FC<{
                   {coupons.map((c) => (
                     <div key={c.id} className="py-3 flex items-center justify-between text-xs">
                       <div>
-                        <span className="font-mono font-semibold text-[#C5A059] text-sm">
+                        <span className="font-mono font-semibold text-[#86672A] text-sm">
                           {c.code}
                         </span>
                         <span className="text-[#575653] ml-3">
@@ -5623,7 +5648,7 @@ export const AdminDashboardView: React.FC<{
                     className="p-5 bg-white border border-black/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs"
                   >
                     <div className="space-y-1">
-                      <div className="font-mono text-[#C5A059]">
+                      <div className="font-mono text-[#86672A]">
                         ★ {r.rating}.0 / 5.0 · {r.productName || r.productId} · Status: {r.status}
                       </div>
                       <div className="font-semibold text-[#141413]">{r.title}</div>
@@ -5675,7 +5700,7 @@ export const AdminDashboardView: React.FC<{
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="font-mono text-[#C5A059]">{task.status}</span>
+                          <span className="font-mono text-[#86672A]">{task.status}</span>
                           {(task.status === 'QUEUED' || task.status === 'RUNNING') && (
                             <button
                               onClick={() => cancelAITask(task.id)}
@@ -5722,7 +5747,7 @@ export const AdminDashboardView: React.FC<{
                           {log.createdAt.slice(0, 19).replace('T', ' ')}
                         </td>
                         <td className="py-2.5 px-4 text-[#141413]">{log.actorName || log.actorUid}</td>
-                        <td className="py-2.5 px-4 text-[#C5A059]">{log.action}</td>
+                        <td className="py-2.5 px-4 text-[#86672A]">{log.action}</td>
                         <td className="py-2.5 px-4 text-[#454441]">{log.resource}</td>
                         <td className="py-2.5 px-4 text-[#575653]">{log.details}</td>
                       </tr>
@@ -5774,7 +5799,7 @@ export const AdminDashboardView: React.FC<{
               </div>
 
               {/* Sub-Tabs: Customer Messages vs Store Alerts */}
-              <div className="flex items-center gap-2 border-b border-black/10">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-black/10">
                 <button
                   onClick={() => setInboxTab('MESSAGES')}
                   className={`pb-3 px-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
@@ -5783,7 +5808,7 @@ export const AdminDashboardView: React.FC<{
                       : 'border-transparent text-[#575653] hover:text-black'
                   }`}
                 >
-                  <Inbox className="w-4 h-4 text-[#C5A059]" />
+                  <Inbox className="w-4 h-4 text-[#86672A]" />
                   <span>Customer Inquiries &amp; Messages</span>
                   <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-black/10 text-[#141413]">
                     {inboxTickets.length}
@@ -5828,7 +5853,7 @@ export const AdminDashboardView: React.FC<{
                     <div className="p-3.5 bg-white border border-black/10 rounded-sm">
                       <div className="text-[11px] text-[#575653] uppercase tracking-wider font-semibold">Instant AI Auto-Replied</div>
                       <div className="text-xl font-display font-bold text-emerald-700 mt-1 flex items-center gap-1.5">
-                        <Sparkles className="w-4 h-4 text-[#C5A059]" />
+                        <Sparkles className="w-4 h-4 text-[#86672A]" />
                         <span>{inboxTickets.filter((t) => t.aiAutoReply).length}</span>
                         <span className="text-xs font-normal text-emerald-600 font-mono">(100%)</span>
                       </div>
@@ -5883,12 +5908,12 @@ export const AdminDashboardView: React.FC<{
                   {/* Customer Tickets List */}
                   {inboxLoading && inboxTickets.length === 0 ? (
                     <div className="p-8 text-center text-xs text-[#575653] bg-white border border-black/10">
-                      <RefreshCw className="w-5 h-5 animate-spin mx-auto text-[#C5A059] mb-2" />
+                      <RefreshCw className="w-5 h-5 animate-spin mx-auto text-[#86672A] mb-2" />
                       Loading communications inbox...
                     </div>
                   ) : inboxTickets.length === 0 ? (
                     <div className="p-10 text-center bg-white border border-black/10 space-y-3">
-                      <Inbox className="w-8 h-8 text-[#C5A059] mx-auto opacity-60" />
+                      <Inbox className="w-8 h-8 text-[#86672A] mx-auto opacity-60" />
                       <div className="text-sm font-semibold text-[#141413]">No customer messages received yet</div>
                       <p className="text-xs text-[#575653] max-w-md mx-auto">
                         Customer inquiries submitted via the Storefront Helpline, Live AI Chat, or contact form will appear here with instant AI auto-replies.
@@ -5987,7 +6012,7 @@ export const AdminDashboardView: React.FC<{
                               {/* Customer Contact Info Bar */}
                               <div className="px-4 py-2.5 bg-white border-b border-black/5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-[#575653]">
                                 <div className="flex items-center gap-1.5 text-[#141413] font-semibold">
-                                  <User className="w-3.5 h-3.5 text-[#C5A059]" />
+                                  <User className="w-3.5 h-3.5 text-[#86672A]" />
                                   <span>{ticket.name}</span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
@@ -6014,7 +6039,7 @@ export const AdminDashboardView: React.FC<{
                                 )}
                                 {ticket.orderNumber && (
                                   <div className="flex items-center gap-1.5 font-mono text-[11px] bg-[#EFEFEA] px-2 py-0.5 rounded text-black font-bold">
-                                    <Package className="w-3 h-3 text-[#C5A059]" />
+                                    <Package className="w-3 h-3 text-[#86672A]" />
                                     <span>Order: {ticket.orderNumber}</span>
                                   </div>
                                 )}
@@ -6078,7 +6103,7 @@ export const AdminDashboardView: React.FC<{
                                   <div className="p-3.5 bg-[#FAF8F5] border border-[#C5A059]/40 rounded-sm space-y-2">
                                     <div className="flex items-center justify-between text-xs">
                                       <div className="flex items-center gap-1.5 font-bold text-[#8F7029]">
-                                        <Sparkles className="w-3.5 h-3.5 text-[#C5A059]" />
+                                        <Sparkles className="w-3.5 h-3.5 text-[#86672A]" />
                                         <span>Instant AI Autonomous Auto-Reply (Dispatched)</span>
                                       </div>
                                       <span className="text-[10px] font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-bold border border-emerald-300 flex items-center gap-1">
@@ -6256,7 +6281,7 @@ export const AdminDashboardView: React.FC<{
                         >
                           <div className="space-y-0.5">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono text-[11px] text-[#C5A059] font-bold">[{n.type}]</span>
+                              <span className="font-mono text-[11px] text-[#86672A] font-bold">[{n.type}]</span>
                               <strong className="text-[#141413]">{n.title}</strong>
                             </div>
                             <p className="text-xs text-[#454441]">{n.message}</p>
@@ -6292,7 +6317,7 @@ export const AdminDashboardView: React.FC<{
                   <div className="bg-white border border-black/20 w-full max-w-lg rounded-md shadow-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
                     <div className="flex items-center justify-between border-b border-black/10 pb-3">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-[#C5A059]" />
+                        <Sparkles className="w-5 h-5 text-[#86672A]" />
                         <h2 className="text-base font-display font-bold text-[#141413]">
                           Test Live Customer Message &amp; AI Auto-Reply
                         </h2>
@@ -6915,10 +6940,10 @@ export const AdminDashboardView: React.FC<{
               {/* 4. International Zones & Manual Quote Rules */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-black/[0.08] pb-2">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-[#C5A059]">
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-[#86672A]">
                     04. International Shipping Zones &amp; Freight Rates ({settings.internationalZones?.length || 0} Zones)
                   </h2>
-                  <span className="text-[11px] font-mono text-emerald-400">
+                  <span className="text-[11px] font-mono text-emerald-700">
                     Customs Mode: DAP (Delivered at Place)
                   </span>
                 </div>
@@ -7167,7 +7192,7 @@ export const AdminDashboardView: React.FC<{
       {copilotDrawerOpen && activeTab !== 'AI_COMMAND_CENTER' && (
         <div className="w-96 border-l border-black/[0.08] bg-white flex flex-col h-screen sticky top-0">
           <div className="p-4 border-b border-black/[0.08] flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-[#C5A059]">
+            <span className="text-xs font-semibold uppercase tracking-wider text-[#86672A]">
               AI Store Copilot
             </span>
             <button

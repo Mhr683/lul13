@@ -19,7 +19,8 @@
   h1, h2, h3, h4, .font-display {
     font-family: var(--font-serif);
     text-wrap: balance;
-    color: #000000;
+    /* Take the surrounding text colour so headings stay readable on dark sections too */
+    color: inherit;
   }
 
   .font-mono, .tabular-nums {

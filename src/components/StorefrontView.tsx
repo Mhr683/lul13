@@ -1483,8 +1483,8 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       >
                         <ProductImage src={heroSrc} alt={heroProduct?.name || settings.storeName} className="w-full h-full object-cover" />
                         {!settings.heroImageUrl && heroProduct && (
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent flex items-end p-6">
-                            <div className="text-[#FBFBF9] text-sm font-medium tracking-wide text-left">
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent flex items-end p-6">
+                            <div className="text-white text-sm font-semibold tracking-wide text-left [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">
                               {heroProduct.name} · {formatPKR(heroProduct.price)}
                             </div>
                           </div>
@@ -2768,7 +2768,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             ? 'text-[#F85606]'
                             : checkoutStep > 2
                             ? 'text-emerald-700'
-                            : 'text-black/40'
+                            : 'text-[#575653]'
                         } ${addressVerification.isFullyVerified ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                       >
                         <div
@@ -2791,7 +2791,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       <div className={`flex-1 h-0.5 mx-2.5 sm:mx-4 ${checkoutStep === 3 ? 'bg-emerald-600' : 'bg-black/15'}`} />
 
                       {/* Step 3 Indicator */}
-                      <div className={`flex items-center gap-2 text-xs font-semibold ${checkoutStep === 3 ? 'text-emerald-700' : 'text-black/40'}`}>
+                      <div className={`flex items-center gap-2 text-xs font-semibold ${checkoutStep === 3 ? 'text-emerald-700' : 'text-[#575653]'}`}>
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[11px] ${
                           checkoutStep === 3 ? 'bg-emerald-600 text-white ring-2 ring-emerald-600/20' : 'bg-black/10 text-[#787774]'
                         }`}>
@@ -3443,7 +3443,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                               : 'border-black/15 bg-white hover:border-black/30'
                           }`}
                         >
-                          <div className="w-9 h-9 rounded-full bg-[#F37021] flex items-center justify-center text-white font-bold text-xs shadow-xs">
+                          <div className="w-9 h-9 rounded-full bg-[#C2410C] flex items-center justify-center text-white font-bold text-xs shadow-xs">
                             NP
                           </div>
                           <div className="leading-tight">
@@ -3637,7 +3637,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             </div>
                             <div>
                               <span className="text-[#787774] block">NayaPay Number / ID:</span>
-                              <strong className="font-mono text-[#F37021] text-xs font-bold select-all">
+                              <strong className="font-mono text-[#B4470B] text-xs font-bold select-all">
                                 {settings.nayapayNumber || '0300-XXXXXXX (Configured in Settings)'}
                               </strong>
                             </div>
@@ -3689,7 +3689,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
                         <div className="p-3 bg-orange-50 border border-orange-200 rounded text-[11px] text-orange-950 flex items-center justify-between">
                           <span>Amount to Transfer:</span>
-                          <strong className="font-mono text-sm text-[#F37021] font-bold">
+                          <strong className="font-mono text-sm text-[#B4470B] font-bold">
                             {formatPKR(grandTotal)}
                           </strong>
                         </div>
@@ -4477,7 +4477,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         <div className="max-w-[1360px] mx-auto px-6 py-16 grid grid-cols-1 md:grid-cols-4 gap-10 text-xs">
           {/* Col 1: Store Brand & Direct WhatsApp */}
           <div className="space-y-4">
-            <div className="text-xl font-display font-medium">{settings.storeName}</div>
+            <div className="text-xl font-display font-medium text-[#FBFBF9]">{settings.storeName}</div>
             <p className="text-white/60 leading-relaxed">
               Quality curated products, nationwide expedited delivery, and dedicated customer support. Operated with precision and care.
             </p>

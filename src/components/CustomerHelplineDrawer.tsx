@@ -486,7 +486,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                       {m.content}
                     </div>
 
-                    <div className="flex items-center gap-2 mt-1 px-1 text-[10px] text-black/40">
+                    <div className="flex items-center gap-2 mt-1 px-1 text-[10px] text-black/60">
                       <span>{m.fromTeam ? `${storeName} team` : isAssistant ? `${storeName} assistant (AI)` : 'You'}</span>
                       <span>·</span>
                       <span>{m.timestamp}</span>
@@ -534,7 +534,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
 
             {/* Quick Prompt Bar */}
             <div className="px-4 py-2 border-t border-black/5 bg-[#F6F5F0] flex items-center gap-2 overflow-x-auto scrollbar-none shrink-0 text-[11px]">
-              <span className="text-black/40 text-[10px] font-mono shrink-0">Suggestions:</span>
+              <span className="text-black/60 text-[10px] font-mono shrink-0">Suggestions:</span>
               <button
                 type="button"
                 onClick={() => handleSendAiMessage('Mera order kab dispatch hoga? Track status.')}

@@ -713,7 +713,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                               className={`w-7 h-7 mx-auto rounded-full flex items-center justify-center font-bold text-xs ${
                                 trackedOrder.status === 'SHIPPED' || trackedOrder.status === 'DELIVERED'
                                   ? 'bg-blue-600 text-white'
-                                  : 'bg-black/15 text-black/40'
+                                  : 'bg-black/15 text-black/60'
                               }`}
                             >
                               <Truck className="w-3.5 h-3.5" />
@@ -727,7 +727,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                               className={`w-7 h-7 mx-auto rounded-full flex items-center justify-center font-bold text-xs ${
                                 trackedOrder.status === 'DELIVERED'
                                   ? 'bg-emerald-600 text-white'
-                                  : 'bg-black/15 text-black/40'
+                                  : 'bg-black/15 text-black/60'
                               }`}
                             >
                               ✓
