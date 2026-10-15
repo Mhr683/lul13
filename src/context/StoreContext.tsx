@@ -1412,17 +1412,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return next;
     });
 
-    // 2. Persist to server disk storage immediately so refresh never loses them
+    // 2. Persist through the server in chunks: a Firestore batch holds at most 500 writes and
+    // each product needs up to 3 (public doc, cleanup, private doc)
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-      await fetch('/api/catalog/products/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ products: items }),
-      });
+      const CHUNK = 100;
+      for (let i = 0; i < items.length; i += CHUNK) {
+        await fetch('/api/catalog/products/batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ products: items.slice(i, i + CHUNK) }),
+        });
+      }
     } catch (err) {
       console.warn('Server catalog batch error:', err);
     }

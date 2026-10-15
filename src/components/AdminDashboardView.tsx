@@ -48,6 +48,7 @@ import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AdminTeamPanel } from './AdminTeamPanel';
 import { StoreTextsPanel } from './StoreTextsPanel';
+import { BackupRestorePanel } from './BackupRestorePanel';
 import {
   Product,
   Order,
@@ -2331,7 +2332,7 @@ export const AdminDashboardView: React.FC<{
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `atelier-aurelia-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `store-orders-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     recordAuditLog('CSV_EXPORTED', 'Orders', `Exported ${orders.length} orders to CSV`);
@@ -2340,30 +2341,46 @@ export const AdminDashboardView: React.FC<{
 
   // Export Products to CSV file download
   const handleExportProductsCsv = () => {
-    const headers = ['sku', 'name', 'price', 'compareAtPrice', 'costPrice', 'stock', 'category', 'brand', 'shortDescription', 'status', 'seoTitle'];
+    // Same columns the CSV importer understands, so an export can be re-imported anywhere
+    const headers = [
+      'sku', 'name', 'price', 'compare_at_price', 'stock', 'category', 'brand', 'shortDescription',
+      'image', 'supplier', 'supplier_cost', 'supplier_link', 'supplier_sku', 'weight', 'status', 'seoTitle',
+    ];
+    const cell = (value: unknown) => {
+      const text = value === undefined || value === null ? '' : String(value);
+      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
     const csvLines = [
       headers.join(','),
       ...products.map((p) =>
         [
           p.sku,
-          `"${(p.name || '').replace(/"/g, '""')}"`,
+          p.name,
           p.price,
           p.compareAtPrice || '',
-          p.costPrice || '',
           p.stock,
-          `"${(p.category || '').replace(/"/g, '""')}"`,
-          `"${(p.brand || '').replace(/"/g, '""')}"`,
-          `"${(p.shortDescription || '').replace(/"/g, '""')}"`,
+          p.category,
+          p.brand,
+          p.shortDescription,
+          p.primaryImage,
+          p.supplierName,
+          p.supplierCostPrice ?? '',
+          p.supplierProductUrl,
+          p.supplierSku,
+          p.weightKg ?? '',
           p.status,
-          `"${(p.seoTitle || '').replace(/"/g, '""')}"`,
-        ].join(',')
+          p.seoTitle,
+        ]
+          .map(cell)
+          .join(',')
       ),
     ];
-    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    // BOM so Excel opens Urdu / special characters correctly
+    const blob = new Blob(['﻿' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `atelier-aurelia-catalog-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `store-catalog-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     recordAuditLog('CSV_EXPORTED', 'Products', `Exported ${products.length} products to CSV`);
@@ -2376,7 +2393,7 @@ export const AdminDashboardView: React.FC<{
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `atelier-sample-catalog.csv`;
+    a.download = `sample-catalog.csv`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('Downloaded sample CSV template.');
@@ -6340,6 +6357,9 @@ export const AdminDashboardView: React.FC<{
 
               {/* 0b. Customer-facing home page texts */}
               <StoreTextsPanel />
+
+              {/* 0c. Move the store between AI Studio / Firebase projects */}
+              <BackupRestorePanel />
 
               {/* 1. Merchant Identity & Dual-Currency */}
               <div className="space-y-4">
