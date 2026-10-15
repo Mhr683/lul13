@@ -1004,17 +1004,30 @@ app.post('/api/media/upload', async (req, res) => {
 });
 
 // 0. API Endpoint: Batch download and archive multiple images to Firebase Storage
-app.post('/api/media/batch-download', async (req, res) => {
+// Admin-only: otherwise anyone could make the server fetch arbitrary URLs
+app.post('/api/media/batch-download', requireAdmin, async (req, res) => {
   const { urls } = req.body;
   if (!Array.isArray(urls)) {
     return res.status(400).json({ error: 'urls array is required' });
   }
-  const validUrls = Array.from(new Set(urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)));
+  const validUrls = Array.from(new Set(urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0))).slice(0, 2000);
   const results: Record<string, string> = {};
 
-  // Process in concurrent batches of 4
-  for (let i = 0; i < validUrls.length; i += 4) {
-    const batch = validUrls.slice(i, i + 4);
+  // Without a Storage bucket (Firebase Storage needs the Blaze plan) every upload fails, so check once
+  // up front instead of downloading every image for nothing
+  try {
+    const [bucketExists] = await adminBucket.exists();
+    if (!bucketExists) {
+      return res.json({ success: false, storageUnavailable: true, count: 0, results });
+    }
+  } catch (err: any) {
+    console.warn('[Image Archiver] Storage bucket check failed:', err?.message);
+    return res.json({ success: false, storageUnavailable: true, count: 0, results });
+  }
+
+  // Process in concurrent batches of 8
+  for (let i = 0; i < validUrls.length; i += 8) {
+    const batch = validUrls.slice(i, i + 8);
     await Promise.all(
       batch.map(async (u) => {
         const itemRes = await downloadAndStoreImage(u);

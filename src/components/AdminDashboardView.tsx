@@ -259,6 +259,8 @@ export const AdminDashboardView: React.FC<{
   const [csvCurrency, setCsvCurrency] = useState<'PKR' | 'USD' | 'DIRECT'>('PKR');
   const [csvUploadedFileName, setCsvUploadedFileName] = useState<string | null>(null);
   const [csvImporting, setCsvImporting] = useState(false);
+  // Copy supplier images into the store's Firebase Storage so they survive the supplier deleting them
+  const [archiveCsvImages, setArchiveCsvImages] = useState(true);
   const [csvParsing, setCsvParsing] = useState(false);
   const [csvPreviewPage, setCsvPreviewPage] = useState(1);
   const [parsedCsvRows, setParsedCsvRows] = useState<ParsedCsvRow[]>([]);
@@ -1733,7 +1735,8 @@ export const AdminDashboardView: React.FC<{
     ]);
 
     const inStockIdx = findColIndex(['instock', 'instock?']);
-    const stockIdx = findColIndex([
+    // "In stock?" (WooCommerce 1/0 flag) also contains the word "stock"; it must not be read as a quantity
+    const rawStockIdx = findColIndex([
       'stock',
       'quantity',
       'qty',
@@ -1745,6 +1748,7 @@ export const AdminDashboardView: React.FC<{
       'count',
       'onhand',
     ]);
+    const stockIdx = rawStockIdx === inStockIdx ? -1 : rawStockIdx;
 
     // Prioritize categories
     const categoryIdx = findColIndex([
@@ -1920,7 +1924,8 @@ export const AdminDashboardView: React.FC<{
       } else if (inStockIdx !== -1 && cells[inStockIdx]?.trim()) {
         const val = cells[inStockIdx].trim();
         if (val === '1' || val.toLowerCase() === 'yes' || val.toLowerCase() === 'instock') {
-          parsedStock = 25;
+          // Only a yes/no flag: dropship items are available from the supplier, so use a working quantity
+          parsedStock = 100;
         } else if (val === '0' || val.toLowerCase() === 'no' || val.toLowerCase() === 'outofstock') {
           parsedStock = 0;
         }
@@ -2189,7 +2194,7 @@ export const AdminDashboardView: React.FC<{
       );
 
       let localImageMap: Record<string, string> = {};
-      if (externalImageUrls.length > 0) {
+      if (archiveCsvImages && externalImageUrls.length > 0) {
         showToast(`Downloading & archiving ${externalImageUrls.length} images to local store storage...`);
         try {
           const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
@@ -2203,8 +2208,14 @@ export const AdminDashboardView: React.FC<{
           });
           if (batchRes.ok) {
             const batchData = await batchRes.json();
-            localImageMap = batchData.results || {};
-            showToast(`Permanently saved ${Object.keys(localImageMap).length} images to store storage!`);
+            if (batchData.storageUnavailable) {
+              showToast('Firebase Storage band hai (Blaze plan chahiye). Tasveerein abhi supplier ke link se lagi hain.');
+            } else {
+              const results: Record<string, string> = batchData.results || {};
+              // Keep only images that really moved to our storage
+              localImageMap = Object.fromEntries(Object.entries(results).filter(([src, dst]) => dst && dst !== src));
+              showToast(`${Object.keys(localImageMap).length} / ${externalImageUrls.length} tasveerein store storage mein save ho gayin.`);
+            }
           }
         } catch (err) {
           console.warn('Batch image archiver fallback:', err);
@@ -4195,14 +4206,20 @@ export const AdminDashboardView: React.FC<{
                   )}
 
                   {parsedCsvRows.length > 0 && (
-                    <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5">
-                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>
-                          <strong>Permanent Local Asset Archiving Active:</strong> External image URLs in this CSV will be automatically downloaded and stored permanently on your store server (<code className="font-mono text-[11px] bg-emerald-100 px-1 py-0.5">/uploads/</code>). Even if original image links are deleted elsewhere, your store images will never break!
-                        </span>
-                      </div>
-                    </div>
+                    <label className="p-3 bg-stone-50 border border-black/15 text-[#141413] text-xs flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={archiveCsvImages}
+                        onChange={(e) => setArchiveCsvImages(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <strong>Tasveerein apne store ki Firebase Storage mein copy karein</strong> taake supplier apna link
+                        delete kar de tab bhi tasveer na jaye. Har tasveer download ho kar copy hoti hai, is liye bari file
+                        mein kuch minute lag sakte hain. Firebase Storage ke liye Blaze plan zaroori hai; us ke baghair
+                        tasveerein supplier ke link se lagti hain aur import foran ho jata hai.
+                      </span>
+                    </label>
                   )}
 
                   {csvImportSummary && (
