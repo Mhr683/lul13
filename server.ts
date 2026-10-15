@@ -5,7 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { initializeApp as initAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
+import { initializeApp as initAdminApp, getApps as getAdminApps, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage as getAdminStorage } from 'firebase-admin/storage';
@@ -73,10 +73,31 @@ const firebaseConfig = fs.existsSync(firebaseConfigPath)
   ? JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf-8'))
   : {};
 
+// Optional: a service account JSON in the FIREBASE_SERVICE_ACCOUNT secret lets the server reach the
+// store's Firebase project from any host (e.g. AI Studio under a different Google account).
+// Never commit the key itself; set it as an environment secret.
+function loadServiceAccount() {
+  const raw = (process.env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+  if (!raw) return null;
+  try {
+    const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf-8');
+    const parsed = JSON.parse(json);
+    if (parsed.project_id && parsed.project_id !== firebaseConfig.projectId) {
+      console.warn(`[Firebase] FIREBASE_SERVICE_ACCOUNT is for project ${parsed.project_id}, config uses ${firebaseConfig.projectId}.`);
+    }
+    return parsed;
+  } catch (err) {
+    console.error('[Firebase] FIREBASE_SERVICE_ACCOUNT could not be parsed; using default credentials.', err);
+    return null;
+  }
+}
+const serviceAccount = loadServiceAccount();
+
 const adminApp = getAdminApps().length > 0
   ? getAdminApps()[0]
   : initAdminApp({
       projectId: firebaseConfig.projectId || process.env.FIREBASE_PROJECT_ID,
+      ...(serviceAccount ? { credential: cert(serviceAccount) } : {}),
     });
 
 const adminAuth = getAdminAuth(adminApp);
