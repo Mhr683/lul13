@@ -765,8 +765,24 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Brings a missing checkout field into view and focuses it, so the customer sees what is missing
+  const focusCheckoutField = (id: string) => {
+    setTimeout(() => {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.focus({ preventScroll: true });
+      }
+    }, 120);
+  };
+
   const handleConfirmAddress = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if ((customerName || userProfile?.name || '').trim().length < 2) {
+      setCheckoutErrorBanner('Apna poora naam likhein (Full Name), jis naam par parcel aayega.');
+      focusCheckoutField('checkout-customer-name');
+      return;
+    }
     if (!addressVerification.isFullyVerified) {
       setCheckoutErrorBanner(
         'Address Verification Incomplete: Please fill all required address fields (Receiver Phone, Complete Street Address, Tehsil, Postal Code) before proceeding to payment.'
@@ -797,8 +813,9 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
     }
 
     if ((customerName || userProfile?.name || '').trim().length < 2) {
-      setCheckoutErrorBanner('Please enter the receiver\'s full name.');
+      setCheckoutErrorBanner('Apna poora naam likhein (Full Name), jis naam par parcel aayega.');
       setCheckoutStep(1);
+      focusCheckoutField('checkout-customer-name');
       return;
     }
 
@@ -2892,14 +2909,22 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs text-[#575653] mb-1">Full Legal Name</label>
+                        <label htmlFor="checkout-customer-name" className="block text-xs text-[#575653] mb-1">
+                          Full Name (poora naam) <span className="text-red-600">*</span>
+                        </label>
                         <input
+                          id="checkout-customer-name"
                           type="text"
                           required
+                          autoComplete="name"
                           value={customerName}
                           onChange={(e) => setCustomerName(e.target.value)}
-                          placeholder="Clara Vance"
-                          className="w-full px-3.5 py-2.5 border border-black/15 text-xs"
+                          placeholder="Apna poora naam likhein"
+                          className={`w-full px-3.5 py-2.5 border text-xs ${
+                            checkoutErrorBanner && customerName.trim().length < 2
+                              ? 'border-red-500 ring-1 ring-red-500'
+                              : 'border-black/15'
+                          }`}
                         />
                       </div>
 
