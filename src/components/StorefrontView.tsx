@@ -46,6 +46,8 @@ import { auth } from '../lib/firebase';
 import { Product, PaymentMethod, Order } from '../types/store';
 import { ProductImage } from './ProductImage';
 import { OrderTimeline } from './OrderTimeline';
+import { CustomerNotificationsBell } from './CustomerNotificationsBell';
+import { rememberOrder, tokenForOrder } from '../services/myOrders';
 import { GlobalHeaderSearch } from './GlobalHeaderSearch';
 import { HeaderNavDropdowns } from './HeaderNavDropdowns';
 import { MAIN_NAV_SECTIONS } from '../data/categoryNavigation';
@@ -283,6 +285,15 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState<string | null>(null);
   const [trackingOrderInput, setTrackingOrderInput] = useState('');
+
+  // Opens the tracking page for one of the customer's orders (from the notification bell / order lists)
+  const openOrderTracking = (orderNumber: string) => {
+    setTrackingOrderInput(orderNumber);
+    setTrackingTokenInput(tokenForOrder(orderNumber) || '');
+    setSubView('ORDER_TRACKING');
+    window.history.pushState(null, '', '#track');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   const [trackingTokenInput, setTrackingTokenInput] = useState('');
   const [resendStatus, setResendStatus] = useState<string | null>(null);
   const [isResendingReceipt, setIsResendingReceipt] = useState(false);
@@ -872,6 +883,8 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
       setConfirmedOrderNumber(order.orderNumber);
       if (order.orderAccessToken) {
         setConfirmedOrderAccessToken(order.orderAccessToken);
+        // Lets this device show the order's updates and list it under "your orders"
+        rememberOrder(order.orderNumber, order.orderAccessToken);
       }
       setCheckoutStep(3);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1034,6 +1047,8 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                 <span className="ml-0.5 text-xs font-mono tabular-nums text-[#141413]">{wishlist.length}</span>
               )}
             </button>
+
+            <CustomerNotificationsBell onOpenOrder={openOrderTracking} />
 
             <button
               onClick={() => setCartDrawerOpen(true)}
@@ -4461,6 +4476,8 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
           settings={settings}
           initialOrderNumber={trackingOrderInput || confirmedOrderNumber || ''}
           initialPhone={customerPhone || ''}
+          initialToken={trackingTokenInput || (trackingOrderInput ? '' : confirmedOrderAccessToken || '')}
+          onOpenOrder={openOrderTracking}
           onNavigate={(dest) => {
             if (dest === 'HOME' || dest === 'CATALOG') {
               setSubView(dest);

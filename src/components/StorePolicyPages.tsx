@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { StoreSettings, Order } from '../types/store';
 import { OrderTimeline } from './OrderTimeline';
+import { getSavedOrders, tokenForOrder } from '../services/myOrders';
 
 export type PolicyPageType =
   | 'REFUND_POLICY'
@@ -37,6 +38,10 @@ interface StorePolicyPagesProps {
   onNavigate: (page: PolicyPageType | 'HOME' | 'CATALOG') => void;
   initialOrderNumber?: string;
   initialPhone?: string;
+  /** Private access token of the order (saved on this device when it was placed) */
+  initialToken?: string;
+  /** Opens another of the customer's orders on the tracking page */
+  onOpenOrder?: (orderNumber: string) => void;
 }
 
 export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
@@ -45,6 +50,8 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
   onNavigate,
   initialOrderNumber = '',
   initialPhone = '',
+  initialToken = '',
+  onOpenOrder,
 }) => {
   // WhatsApp number normalization
   const rawWa = settings.whatsappNumber || settings.helplineWhatsApp || '923001234567';
@@ -59,7 +66,17 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState<string | null>(null);
   const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
+  const [relatedOrders, setRelatedOrders] = useState<
+    Array<{ orderNumber: string; status: string; total: number; createdAt: string }>
+  >([]);
+  const [deviceOrders, setDeviceOrders] = useState(() => getSavedOrders());
   const [copiedTracking, setCopiedTracking] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setDeviceOrders(getSavedOrders());
+    window.addEventListener('my-orders-changed', onChange);
+    return () => window.removeEventListener('my-orders-changed', onChange);
+  }, []);
 
   // Contact Form states
   const [contactName, setContactName] = useState('');
@@ -73,28 +90,35 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
   // Auto-search if initial parameters provided
   useEffect(() => {
     if (page === 'ORDER_TRACKING' && initialOrderNumber.trim()) {
-      executeTrackOrder(initialOrderNumber.trim(), initialPhone.trim());
+      setTrackOrderNumber(initialOrderNumber.trim());
+      executeTrackOrder(initialOrderNumber.trim(), initialPhone.trim(), false, initialToken);
     }
-  }, [page, initialOrderNumber, initialPhone]);
+  }, [page, initialOrderNumber, initialPhone, initialToken]);
 
   // Keep the tracked order live: re-check every 30 s while the page is open and visible
-  const lastTrackRef = React.useRef<{ order: string; phone: string } | null>(null);
+  const lastTrackRef = React.useRef<{ order: string; phone: string; token: string } | null>(null);
   useEffect(() => {
     if (page !== 'ORDER_TRACKING' || !trackedOrder) return;
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible' && lastTrackRef.current) {
-        executeTrackOrder(lastTrackRef.current.order, lastTrackRef.current.phone, true);
+        const last = lastTrackRef.current;
+        executeTrackOrder(last.order, last.phone, true, last.token);
       }
     }, 30_000);
     return () => clearInterval(timer);
   }, [page, trackedOrder?.orderNumber]);
 
-  const executeTrackOrder = async (orderRef: string, phoneRef: string, silent = false) => {
+  const executeTrackOrder = async (orderRef: string, phoneRef: string, silent = false, tokenRef = '') => {
     if (!orderRef.trim()) {
       setTrackingError('Please enter your Order Reference (e.g. ORD-104928).');
       return;
     }
-    lastTrackRef.current = { order: orderRef, phone: phoneRef };
+    // An order placed from this device can be opened with its saved token instead of the phone
+    const token =
+      tokenRef ||
+      tokenForOrder(orderRef.trim().toUpperCase()) ||
+      (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : '');
+    lastTrackRef.current = { order: orderRef, phone: phoneRef, token };
     if (!silent) setTrackingLoading(true);
     setTrackingError(null);
     try {
@@ -103,12 +127,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
       if (phoneRef.trim()) {
         params.set('phone', phoneRef.trim());
       }
-      // Also pass any query token if present in URL
-      if (typeof window !== 'undefined') {
-        const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get('token');
-        if (token) params.set('token', token);
-      }
+      if (token) params.set('token', token);
 
       const res = await fetch(`/api/orders/track?${params.toString()}`);
       const data = await res.json();
@@ -116,6 +135,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
         throw new Error(data.error || 'Failed to locate order. Please check your order reference and phone number.');
       }
       setTrackedOrder(data.order);
+      setRelatedOrders(Array.isArray(data.relatedOrders) ? data.relatedOrders : []);
     } catch (err: any) {
       // A failed background refresh keeps showing the last known status
       if (silent) return;
@@ -582,6 +602,35 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                   </p>
                 </div>
 
+                {/* Orders placed from this device: one click, no order number or phone needed */}
+                {deviceOrders.length > 0 && (
+                  <div className="p-4 bg-white border border-black/15 rounded space-y-2">
+                    <strong className="block text-xs text-[#141413]">Aap ke orders (is device se)</strong>
+                    <div className="flex flex-wrap gap-2">
+                      {deviceOrders.map((o) => (
+                        <button
+                          key={o.orderNumber}
+                          type="button"
+                          onClick={() => {
+                            setTrackOrderNumber(o.orderNumber);
+                            executeTrackOrder(o.orderNumber, '', false, o.token);
+                          }}
+                          className={`px-3 py-1.5 border text-xs font-mono font-semibold cursor-pointer ${
+                            trackedOrder?.orderNumber === o.orderNumber
+                              ? 'bg-[#141413] text-white border-[#141413]'
+                              : 'bg-[#FAF9F5] text-[#141413] border-black/20 hover:border-black'
+                          }`}
+                        >
+                          {o.orderNumber}
+                          <span className="ml-1.5 font-sans font-normal opacity-80">
+                            {new Date(o.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Form Card */}
                 <form
                   onSubmit={(e) => {
@@ -645,6 +694,36 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                         Please confirm your phone number matches the number entered at checkout, or contact customer support on WhatsApp for manual verification.
                       </p>
                     </div>
+                  </div>
+                )}
+
+                {/* Other orders placed with the same phone number */}
+                {trackedOrder && relatedOrders.length > 0 && (
+                  <div className="p-4 bg-white border border-black/15 rounded space-y-2">
+                    <strong className="block text-xs text-[#141413]">Is phone number ke aur orders</strong>
+                    <ul className="divide-y divide-black/[0.06]">
+                      {relatedOrders.map((o) => (
+                        <li key={o.orderNumber}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const phone = lastTrackRef.current?.phone || trackPhone;
+                              setTrackOrderNumber(o.orderNumber);
+                              executeTrackOrder(o.orderNumber, phone, false, tokenForOrder(o.orderNumber) || '');
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            className="w-full flex items-center justify-between gap-3 py-2 text-xs text-left cursor-pointer hover:bg-black/[0.03]"
+                          >
+                            <span className="font-mono font-bold text-[#141413]">{o.orderNumber}</span>
+                            <span className="text-[#575653]">
+                              {new Date(o.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}
+                            </span>
+                            <span className="font-semibold text-[#141413]">{o.status.replace(/_/g, ' ')}</span>
+                            <span className="font-mono text-[#141413]">PKR {Math.round(o.total).toLocaleString('en-PK')}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 

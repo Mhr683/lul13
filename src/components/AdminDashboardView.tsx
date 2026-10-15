@@ -4736,6 +4736,21 @@ export const AdminDashboardView: React.FC<{
                               </button>
                             </div>
                           )}
+                          <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const message = window.prompt(
+                                  `Order ${ord.orderNumber}: customer ko kya message bhejna hai? (customer ki notification bell aur tracking mein dikhega)`
+                                );
+                                if (message === null || !message.trim()) return;
+                                await addOrderTrackingEvent(ord.id, '', message.trim());
+                              }}
+                              className="px-2 py-1 border border-violet-500 bg-violet-50 text-violet-900 text-[10px] font-semibold cursor-pointer hover:bg-violet-100"
+                            >
+                              💬 Customer ko message
+                            </button>
+                          </div>
                           {ord.status === 'PENDING_CONFIRMATION' && (
                             <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
                               <a

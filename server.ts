@@ -2903,7 +2903,28 @@ app.get('/api/orders/track', async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized: Please provide the phone number or token associated with this order.' });
     }
 
+    // Other orders placed with the same phone number (shown once this order has been verified)
+    let relatedOrders: Array<{ orderNumber: string; status: string; total: number; createdAt: string }> = [];
+    if (orderData.customerPhone) {
+      try {
+        const sameNumber = await adminDb
+          .collection('orders')
+          .where('customerPhone', '==', orderData.customerPhone)
+          .limit(30)
+          .get();
+        relatedOrders = sameNumber.docs
+          .map((d) => d.data() as Order)
+          .filter((o) => o.orderNumber !== orderData!.orderNumber)
+          .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+          .slice(0, 20)
+          .map((o) => ({ orderNumber: o.orderNumber, status: o.status, total: o.total, createdAt: o.createdAt }));
+      } catch (relErr) {
+        console.warn('[track] related orders lookup failed:', relErr);
+      }
+    }
+
     res.json({
+      relatedOrders,
       success: true,
       order: {
         id: orderData.id,
@@ -2934,6 +2955,37 @@ app.get('/api/orders/track', async (req, res) => {
     console.error('Order tracking lookup error:', err);
     res.status(500).json({ error: 'Failed to retrieve order tracking info.' });
   }
+});
+
+// Latest status and tracking lines for the orders saved on a customer's device (notification bell).
+// Each order needs its own access token (given to the customer when the order was placed).
+app.post('/api/orders/updates', async (req, res) => {
+  const list = Array.isArray(req.body?.orders) ? req.body.orders.slice(0, 20) : [];
+  const results: any[] = [];
+  for (const item of list) {
+    const orderNumber = String(item?.orderNumber || '').trim().toUpperCase();
+    const token = String(item?.token || '');
+    if (!orderNumber || token.length < 8) continue;
+    try {
+      const q = await adminDb.collection('orders').where('orderNumber', '==', orderNumber).limit(1).get();
+      if (q.empty) continue;
+      const o = q.docs[0].data() as any;
+      if (!o.orderAccessToken || o.orderAccessToken !== token) continue;
+      results.push({
+        orderNumber: o.orderNumber,
+        status: o.status,
+        total: o.total,
+        currency: o.currency,
+        paymentMethod: o.paymentMethod,
+        createdAt: o.createdAt,
+        trackingEvents: Array.isArray(o.trackingEvents) ? o.trackingEvents.slice(-15) : [],
+      });
+    } catch (err) {
+      console.warn('[orders/updates] lookup failed for', orderNumber, err);
+    }
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ success: true, orders: results });
 });
 
 // Admin adds a parcel location / progress line (e.g. "Reached Lahore hub") to the customer's tracking
