@@ -325,7 +325,7 @@ service cloud.firestore {
           isAdmin() ||
           (
             existing().userId == request.auth.uid &&
-            existing().status == 'PENDING' &&
+            existing().status in ['PENDING', 'PENDING_CONFIRMATION'] &&
             incoming().status == 'CANCELLED' &&
             incoming().total == existing().total &&
             incoming().paymentStatus == existing().paymentStatus &&

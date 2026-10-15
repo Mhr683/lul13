@@ -3979,6 +3979,10 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                               <span className="text-amber-800 font-semibold">
                                 PENDING (Awaiting Payment · پروسیسنگ تصدیق کے بعد ہو گی)
                               </span>
+                            ) : order.status === 'PENDING_CONFIRMATION' ? (
+                              <span className="text-amber-800 font-semibold">
+                                Order mil gaya · confirmation call ka intezar
+                              </span>
                             ) : order.status === 'CONFIRMED' ? (
                               <span className="text-emerald-800 font-semibold">
                                 CONFIRMED (Processing &amp; Fulfillment)
@@ -4820,7 +4824,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     )}
 
                     {/* Customer Cancellation Option for PENDING orders */}
-                    {trackedOrder.status === 'PENDING' && (
+                    {(trackedOrder.status === 'PENDING' || trackedOrder.status === 'PENDING_CONFIRMATION') && (
                       <div className="border-t border-black/[0.06] pt-3 flex items-center justify-between">
                         <span className="text-[11px] text-[#787774]">
                           Order is currently pending fulfillment. You may cancel it to restore items.

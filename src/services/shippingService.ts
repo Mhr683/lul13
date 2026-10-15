@@ -192,7 +192,12 @@ export class ShippingCalculationService {
 
     // 2. Domestic Pakistan Calculation
     if (isDomestic) {
-      const carrier = selectedCourier || settings.domesticSupportedCouriers[0] || 'TCS';
+      // A fresh store has no courier list saved in settings yet
+      const domesticCouriers =
+        Array.isArray(settings.domesticSupportedCouriers) && settings.domesticSupportedCouriers.length > 0
+          ? settings.domesticSupportedCouriers
+          : ['TCS', 'Leopards', 'M&P', 'PostEx', 'Trax'];
+      const carrier = selectedCourier || domesticCouriers[0];
       const domesticResult = this.calculateDomesticRate(billableWeightKg, subtotalPkr, {
         baseFee: settings.domesticBaseFee ?? 250,
         includedWeightKg: settings.domesticIncludedWeightKg ?? 1.0,
@@ -207,7 +212,7 @@ export class ShippingCalculationService {
         destinationCountryIso: 'PK',
         zoneName: 'Pakistan Domestic',
         carrier,
-        availableCouriers: settings.domesticSupportedCouriers,
+        availableCouriers: domesticCouriers,
         actualWeightKg: Number(totalActualWeightKg.toFixed(2)),
         volumetricWeightKg: Number(totalVolumetricWeightKg.toFixed(2)),
         billableWeightKg,

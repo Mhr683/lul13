@@ -2866,9 +2866,10 @@ app.post('/api/orders/cancel', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to cancel this order.' });
     }
 
-    if (!callerIsAdmin && !['PENDING', 'QUOTE_REQUESTED'].includes(orderData.status)) {
+    // New orders start as PENDING_CONFIRMATION; customers may cancel until the store confirms them
+    if (!callerIsAdmin && !['PENDING_CONFIRMATION', 'PENDING', 'QUOTE_REQUESTED'].includes(orderData.status)) {
       return res.status(400).json({
-        error: `Cannot cancel order with status "${orderData.status}". Only PENDING orders can be cancelled.`,
+        error: `Cannot cancel order with status "${orderData.status}". Only orders that are not yet confirmed can be cancelled.`,
       });
     }
 
