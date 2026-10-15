@@ -460,23 +460,45 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (!authReady) return;
 
-    const prodQuery = isAdmin
-      ? collection(db, 'products')
-      : query(collection(db, 'products'), where('status', '==', 'ACTIVE'));
+    const applyProducts = (list: Product[]) => {
+      setProducts(list);
+      try {
+        localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(list));
+      } catch {}
+    };
+    const listenToFirestoreProducts = () =>
+      onSnapshot(
+        isAdmin ? collection(db, 'products') : query(collection(db, 'products'), where('status', '==', 'ACTIVE')),
+        (snap) => applyProducts(snap.docs.map((d) => d.data() as Product)),
+        (err) => console.warn('Products listener error:', err.message)
+      );
 
-    const unsubProducts = onSnapshot(
-      prodQuery,
-      (snap) => {
-        const firestoreList = snap.docs.map((d) => d.data() as Product);
-        setProducts(firestoreList);
+    // Admins edit the catalog, so they get the live Firestore listener. Customers read the server's
+    // cached catalog (no Firestore reads per visit) and refresh it every 2 minutes; a direct
+    // Firestore listener is only the fallback when the server cannot serve it.
+    let unsubProducts: () => void = () => {};
+    let refreshTimer: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+    if (isAdmin) {
+      unsubProducts = listenToFirestoreProducts();
+    } else {
+      const refresh = async () => {
         try {
-          localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(firestoreList));
-        } catch {}
-      },
-      (err) => {
-        console.warn('Products listener error:', err.message);
-      }
-    );
+          const res = await fetch('/api/catalog/products');
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (!cancelled && Array.isArray(data.products)) applyProducts(data.products as Product[]);
+        } catch (err) {
+          if (cancelled || refreshTimer === null) return;
+          console.warn('Server catalog unavailable, using Firestore listener:', err);
+          clearInterval(refreshTimer);
+          refreshTimer = null;
+          unsubProducts = listenToFirestoreProducts();
+        }
+      };
+      refreshTimer = setInterval(refresh, 120_000);
+      refresh();
+    }
 
     const unsubCategories = onSnapshot(
        query(collection(db, 'categories'), where('slug', '>=', '')),
@@ -529,6 +551,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     return () => {
+      cancelled = true;
+      if (refreshTimer) clearInterval(refreshTimer);
       unsubProducts();
       unsubCategories();
       unsubCoupons();

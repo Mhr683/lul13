@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import zlib from 'zlib';
 import dotenv from 'dotenv';
 import { initializeApp as initAdminApp, getApps as getAdminApps, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
@@ -1043,8 +1044,96 @@ app.post('/api/media/batch-download', requireAdmin, async (req, res) => {
 // STATELESS FIRESTORE CATALOG ENDPOINTS (Firestore is the ONLY source of truth)
 // ============================================================================
 
+// Live in-memory mirror of the public (ACTIVE) catalog. One Firestore listener reads every product
+// once and then only the changed ones, so customer visits cost no Firestore reads at all (the free
+// plan allows 50,000 reads a day; a full catalog read per visitor would exhaust that quickly).
+const publicCatalog = {
+  byId: new Map<string, any>(),
+  ready: false,
+  json: null as string | null,
+  gzip: null as Buffer | null,
+};
+
+function startPublicCatalogMirror() {
+  try {
+    adminDb
+      .collection('products')
+      .where('status', '==', 'ACTIVE')
+      .onSnapshot(
+        (snap) => {
+          for (const change of snap.docChanges()) {
+            if (change.type === 'removed') {
+              publicCatalog.byId.delete(change.doc.id);
+            } else {
+              publicCatalog.byId.set(
+                change.doc.id,
+                splitProductPrivate({ id: change.doc.id, ...(change.doc.data() as any) }).publicData
+              );
+            }
+          }
+          publicCatalog.json = null;
+          publicCatalog.gzip = null;
+          if (!publicCatalog.ready) console.log(`[Catalog Mirror] Loaded ${publicCatalog.byId.size} active products.`);
+          publicCatalog.ready = true;
+        },
+        (err) => {
+          console.warn('[Catalog Mirror] Listener stopped, retrying in 60s:', err?.message);
+          publicCatalog.ready = false;
+          publicCatalog.byId.clear();
+          setTimeout(startPublicCatalogMirror, 60_000);
+        }
+      );
+  } catch (err: any) {
+    console.warn('[Catalog Mirror] Could not start:', err?.message);
+  }
+}
+startPublicCatalogMirror();
+
+// Optional filtering / paging for large catalogs: ?q=&category=&offset=&limit=
+function filterCatalog(all: any[], query: any) {
+  const q = String(query.q || '').trim().toLowerCase();
+  const category = String(query.category || '').trim().toLowerCase();
+  let list = all;
+  if (category) list = list.filter((p) => String(p.category || '').toLowerCase() === category);
+  if (q) {
+    list = list.filter((p) =>
+      [p.name, p.sku, p.category, p.brand, p.shortDescription].some((v) => String(v || '').toLowerCase().includes(q))
+    );
+  }
+  const total = list.length;
+  const hasPaging = query.offset !== undefined || query.limit !== undefined;
+  if (hasPaging) {
+    const offset = Math.max(0, Number(query.offset) || 0);
+    const limit = Math.min(200, Math.max(1, Number(query.limit) || 48));
+    list = list.slice(offset, offset + limit);
+  }
+  return { list, total, filtered: Boolean(q || category || hasPaging) };
+}
+
 app.get('/api/catalog/products', async (req, res) => {
   try {
+    const hasAuth = typeof (req.headers.authorization || req.headers.Authorization) === 'string';
+
+    // Public visitors are served from the in-memory mirror
+    if (!hasAuth && publicCatalog.ready) {
+      const all = Array.from(publicCatalog.byId.values());
+      const { list, total, filtered } = filterCatalog(all, req.query);
+      res.setHeader('Cache-Control', 'public, max-age=30');
+      if (filtered) return res.json({ success: true, total, products: list });
+
+      if (!publicCatalog.json) {
+        publicCatalog.json = JSON.stringify({ success: true, total, products: all });
+        publicCatalog.gzip = zlib.gzipSync(publicCatalog.json);
+      }
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Vary', 'Accept-Encoding');
+      if (String(req.headers['accept-encoding'] || '').includes('gzip') && publicCatalog.gzip) {
+        res.setHeader('Content-Encoding', 'gzip');
+        return res.end(publicCatalog.gzip);
+      }
+      return res.end(publicCatalog.json);
+    }
+
     let isAdminUser = false;
     const authHeader = req.headers.authorization || req.headers.Authorization;
     if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
@@ -1108,7 +1197,8 @@ app.get('/api/catalog/products', async (req, res) => {
       products = products.map((p) => splitProductPrivate(p).publicData);
     }
 
-    return res.json({ success: true, products });
+    const { list, total } = filterCatalog(products, req.query);
+    return res.json({ success: true, total, products: list });
   } catch (err: any) {
     console.error('Firestore failed in /api/catalog/products:', err);
     return res.status(503).json({
