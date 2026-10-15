@@ -11,6 +11,8 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        // Registered from src/main.tsx so the app can reload itself when a new version is installed
+        injectRegister: false,
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
@@ -51,6 +53,12 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          // A new version takes over right away and old cached files are removed
+          skipWaiting: true,
+          clientsClaim: true,
+          cleanupOutdatedCaches: true,
+          // Never answer API calls from the offline cache
+          navigateFallbackDenylist: [/^\/api\//],
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff,woff2}'],
           runtimeCaching: [
