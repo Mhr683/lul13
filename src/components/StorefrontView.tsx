@@ -45,6 +45,7 @@ import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { Product, PaymentMethod, Order } from '../types/store';
 import { ProductImage } from './ProductImage';
+import { OrderTimeline } from './OrderTimeline';
 import { GlobalHeaderSearch } from './GlobalHeaderSearch';
 import { HeaderNavDropdowns } from './HeaderNavDropdowns';
 import { MAIN_NAV_SECTIONS } from '../data/categoryNavigation';
@@ -4027,6 +4028,8 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       key={order.id}
                       className="p-6 bg-white border border-black/[0.07] space-y-4"
                     >
+                      {/* Live progress (the customer's orders update in real time) */}
+                      <OrderTimeline order={order} />
                       <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-black/[0.05]">
                         <div className="flex items-center gap-3 text-xs">
                           <span className="font-mono font-semibold text-sm text-[#141413]">

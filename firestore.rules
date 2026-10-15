@@ -127,7 +127,7 @@ service cloud.firestore {
           'subtotal', 'discount', 'tax', 'shippingFee', 'total', 'currency', 'exchangeRateSnapshot',
           'couponCode', 'shippingAddressSummary', 'shippingCalculationSnapshot',
           'trackingNumber', 'courierName', 'shipments', 'confirmedByCustomer', 'confirmedAt', 'confirmedBy',
-          'cancellationReason', 'cancelledAt', 'stockReleased',
+          'cancellationReason', 'cancelledAt', 'stockReleased', 'trackingEvents',
           'quoteAmount', 'quoteCourier', 'quoteEstimatedDays',
           'quoteCustomsMode', 'quoteAdminNotes', 'quoteExpiresAt', 'district', 'tehsil', 'city', 'notes', 'createdAt', 'updatedAt'
         ]) &&
@@ -176,6 +176,7 @@ service cloud.firestore {
         (!('cancellationReason' in data) || (data.cancellationReason is string && data.cancellationReason.size() <= 500)) &&
         (!('cancelledAt' in data) || (data.cancelledAt is string && data.cancelledAt.size() <= 64)) &&
         (!('stockReleased' in data) || data.stockReleased is bool) &&
+        (!('trackingEvents' in data) || (data.trackingEvents is list && data.trackingEvents.size() <= 60)) &&
         (!('quoteAmount' in data) || (data.quoteAmount is number && data.quoteAmount >= 0)) &&
         (!('quoteCourier' in data) || (data.quoteCourier is string && data.quoteCourier.size() <= 100)) &&
         (!('quoteEstimatedDays' in data) || (data.quoteEstimatedDays is string && data.quoteEstimatedDays.size() <= 100)) &&
@@ -318,20 +319,22 @@ service cloud.firestore {
       allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       // Customers cannot create orders directly. Only admins (and server-side firebase-admin) create orders.
       allow create: if isSignedIn() && isValidId(orderId) && isValidOrder(incoming()) && isAdmin();
-      // Customers cannot change total, items, paymentStatus, or status, except cancelling their own PENDING order.
+      // Only admins edit orders from the browser, and never the stock-related parts: moving an order
+      // into or out of a cancelled/returned state, the stockReleased flag and the tracking history are
+      // changed only by the server (which adjusts stock in the same transaction). Customers cancel
+      // through the server as well.
       allow update: if isSignedIn() && isValidId(orderId) && isValidOrder(incoming()) &&
         incoming().id == existing().id &&
         incoming().userId == existing().userId &&
-        incoming().createdAt == existing().createdAt && (
-          isAdmin() ||
+        incoming().createdAt == existing().createdAt &&
+        isAdmin() &&
+        incoming().get('stockReleased', null) == existing().get('stockReleased', null) &&
+        incoming().get('trackingEvents', null) == existing().get('trackingEvents', null) &&
+        (
+          incoming().status == existing().status ||
           (
-            existing().userId == request.auth.uid &&
-            existing().status in ['PENDING', 'PENDING_CONFIRMATION'] &&
-            incoming().status == 'CANCELLED' &&
-            incoming().total == existing().total &&
-            incoming().paymentStatus == existing().paymentStatus &&
-            (!('items' in incoming()) || !('items' in existing()) || incoming().items == existing().items) &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+            !(incoming().status in ['CANCELLED', 'RETURNED', 'REFUNDED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED']) &&
+            !(existing().status in ['CANCELLED', 'RETURNED', 'REFUNDED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'])
           )
         );
       allow delete: if isSignedIn() && isValidId(orderId) && isSuperAdmin();

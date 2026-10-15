@@ -2329,15 +2329,15 @@ app.post('/api/admin/verify-payment', requireAdmin, async (req, res) => {
       newOrderStatus: nextOrderStatus,
     };
 
-    // Update the order in Firestore with firebase-admin
-    await orderTargetRef.update({
+    // Status, payment and stock together (a rejected payment cancels the order and returns its items)
+    await applyOrderStatusWithStock(orderTargetRef, {
       paymentStatus: nextPaymentStatus,
       status: nextOrderStatus,
       paymentVerifiedBy: adminEmail,
       paymentVerifiedAt: now,
       paymentVerificationNote: verificationRecord.note,
       updatedAt: now,
-    });
+    } as any);
 
     // Send real transactional email via Resend (never breaks order or verification)
     (async () => {
@@ -2751,8 +2751,18 @@ app.post('/api/orders/create', async (req, res) => {
         };
 
         const orderRef = adminDb.collection('orders').doc(orderId);
-        // Stock was just taken for this order's items
-        transaction.set(orderRef, { ...orderData, stockReleased: false });
+        // Stock was just taken for this order's items; the tracking history starts here
+        transaction.set(orderRef, {
+          ...orderData,
+          stockReleased: false,
+          trackingEvents: [
+            {
+              at: now,
+              status: orderData.status,
+              note: STATUS_EVENT_NOTES[orderData.status] || 'Order received.',
+            },
+          ],
+        });
         transaction.set(adminDb.collection('order_private').doc(orderId), {
           orderId,
           items: privateItems,
@@ -2914,6 +2924,7 @@ app.get('/api/orders/track', async (req, res) => {
         trackingNumber: orderData.trackingNumber,
         courierName: orderData.courierName,
         shipments: orderData.shipments || [],
+        trackingEvents: Array.isArray((orderData as any).trackingEvents) ? (orderData as any).trackingEvents : [],
         shippingAddressSummary: orderData.shippingAddressSummary,
         createdAt: orderData.createdAt,
         updatedAt: orderData.updatedAt,
@@ -2922,6 +2933,37 @@ app.get('/api/orders/track', async (req, res) => {
   } catch (err: any) {
     console.error('Order tracking lookup error:', err);
     res.status(500).json({ error: 'Failed to retrieve order tracking info.' });
+  }
+});
+
+// Admin adds a parcel location / progress line (e.g. "Reached Lahore hub") to the customer's tracking
+app.post('/api/orders/tracking-event', requireAdmin, async (req, res) => {
+  const { orderId, orderNumber } = req.body || {};
+  const location = String(req.body?.location || '').trim().slice(0, 120);
+  const note = String(req.body?.note || '').trim().slice(0, 300);
+  if (!orderId && !orderNumber) return res.status(400).json({ error: 'orderId or orderNumber is required.' });
+  if (!location && !note) return res.status(400).json({ error: 'Location ya note likhein.' });
+  try {
+    let ref = orderId ? adminDb.collection('orders').doc(String(orderId)) : null;
+    if (!ref || !(await ref.get()).exists) {
+      const q = await adminDb.collection('orders').where('orderNumber', '==', String(orderNumber || '').trim().toUpperCase()).limit(1).get();
+      if (q.empty) return res.status(404).json({ error: 'Order not found.' });
+      ref = q.docs[0].ref;
+    }
+    const now = new Date().toISOString();
+    await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(ref!);
+      const events = appendTrackingEvent(snap.data()?.trackingEvents, {
+        at: now,
+        ...(location ? { location } : {}),
+        note: note || `Parcel reached ${location}.`,
+      });
+      tx.update(ref!, { trackingEvents: events, updatedAt: now });
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[tracking-event] failed:', err);
+    return res.status(503).json({ error: 'Tracking update save nahi hui. Dobara try karein.' });
   }
 });
 
@@ -3052,9 +3094,39 @@ const STOCK_RETURN_STATUSES = ['CANCELLED', 'RETURNED', 'QUOTE_REJECTED', 'QUOTE
 
 class InsufficientStockError extends Error {}
 
+// Customer-facing line added to the order's tracking history on each status change
+const STATUS_EVENT_NOTES: Record<string, string> = {
+  PENDING_CONFIRMATION: 'Order received. We will call you shortly to confirm it.',
+  PENDING: 'Order received and waiting for processing.',
+  CONFIRMED: 'Order confirmed. It is being prepared.',
+  PROCESSING: 'Your order is being prepared.',
+  PACKED: 'Your order has been packed.',
+  SHIPPED: 'Handed over to the courier.',
+  OUT_FOR_DELIVERY: 'Out for delivery. The rider will call you before arriving.',
+  DELIVERED: 'Delivered. Thank you for shopping with us!',
+  CANCELLED: 'Order cancelled.',
+  RETURNED: 'Order returned.',
+  REFUNDED: 'Payment refunded.',
+  QUOTE_REQUESTED: 'Shipping quote requested.',
+  QUOTE_READY: 'Your shipping quote is ready.',
+  QUOTE_ACCEPTED: 'Shipping quote accepted.',
+  QUOTE_REJECTED: 'Shipping quote declined.',
+  QUOTE_EXPIRED: 'Shipping quote expired.',
+};
+const MAX_TRACKING_EVENTS = 60;
+
+function appendTrackingEvent(existing: any, event: { at: string; status?: string; location?: string; note: string }) {
+  const list = Array.isArray(existing) ? existing : [];
+  return [...list, event].slice(-MAX_TRACKING_EVENTS);
+}
+
 function isStockReleased(order: any): boolean {
-  // Orders created before the flag existed: cancelled/returned ones already had their stock put back
-  return typeof order?.stockReleased === 'boolean' ? order.stockReleased : STOCK_RETURN_STATUSES.includes(order?.status);
+  // The status decides; the stored flag only matters for REFUNDED, which can follow either an
+  // active order (items not back) or a returned/cancelled one (items back). Deciding by status
+  // keeps a stale flag (e.g. written by an old browser tab) from moving stock twice.
+  if (STOCK_RETURN_STATUSES.includes(order?.status)) return true;
+  if (order?.status === 'REFUNDED') return order?.stockReleased === true;
+  return false;
 }
 
 // Applies a status change and the matching stock change atomically. Taking stock again for a
@@ -3105,7 +3177,20 @@ async function applyOrderStatusWithStock(
     for (const p of products) {
       tx.update(p.ref, { stock: FieldValue.increment(restore ? p.qty : -p.qty), updatedAt: now });
     }
-    tx.update(orderRef, { ...updates, stockReleased: restore ? true : retake ? false : released } as any);
+    const statusChanged = updates.status !== order.status;
+    tx.update(orderRef, {
+      ...updates,
+      stockReleased: restore ? true : retake ? false : released,
+      ...(statusChanged
+        ? {
+            trackingEvents: appendTrackingEvent((order as any).trackingEvents, {
+              at: now,
+              status: updates.status,
+              note: STATUS_EVENT_NOTES[updates.status] || `Status: ${updates.status}`,
+            }),
+          }
+        : {}),
+    } as any);
     return { restored: restore, retaken: retake };
   });
 }

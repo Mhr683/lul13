@@ -21,6 +21,7 @@ import {
   Send,
 } from 'lucide-react';
 import { StoreSettings, Order } from '../types/store';
+import { OrderTimeline } from './OrderTimeline';
 
 export type PolicyPageType =
   | 'REFUND_POLICY'
@@ -76,12 +77,25 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
     }
   }, [page, initialOrderNumber, initialPhone]);
 
-  const executeTrackOrder = async (orderRef: string, phoneRef: string) => {
+  // Keep the tracked order live: re-check every 30 s while the page is open and visible
+  const lastTrackRef = React.useRef<{ order: string; phone: string } | null>(null);
+  useEffect(() => {
+    if (page !== 'ORDER_TRACKING' || !trackedOrder) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible' && lastTrackRef.current) {
+        executeTrackOrder(lastTrackRef.current.order, lastTrackRef.current.phone, true);
+      }
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [page, trackedOrder?.orderNumber]);
+
+  const executeTrackOrder = async (orderRef: string, phoneRef: string, silent = false) => {
     if (!orderRef.trim()) {
       setTrackingError('Please enter your Order Reference (e.g. ORD-104928).');
       return;
     }
-    setTrackingLoading(true);
+    lastTrackRef.current = { order: orderRef, phone: phoneRef };
+    if (!silent) setTrackingLoading(true);
     setTrackingError(null);
     try {
       const params = new URLSearchParams();
@@ -103,6 +117,8 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
       }
       setTrackedOrder(data.order);
     } catch (err: any) {
+      // A failed background refresh keeps showing the last known status
+      if (silent) return;
       setTrackingError(err.message || 'Unable to find order matching these details.');
       setTrackedOrder(null);
     } finally {
@@ -674,68 +690,8 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                         </div>
                       </div>
 
-                      {/* Visual 4-Step Fulfillment Timeline */}
-                      <div className="py-2">
-                        <div className="text-[11px] font-bold uppercase tracking-wider text-[#575653] mb-3">
-                          Fulfillment Progress
-                        </div>
-                        <div className="grid grid-cols-4 gap-2 text-center text-xs">
-                          {/* Step 1: Placed */}
-                          <div className="space-y-1">
-                            <div className="w-7 h-7 mx-auto rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs">
-                              ✓
-                            </div>
-                            <div className="font-semibold text-[#141413] text-[11px]">Placed</div>
-                          </div>
-
-                          {/* Step 2: Payment / Verified */}
-                          <div className="space-y-1">
-                            <div
-                              className={`w-7 h-7 mx-auto rounded-full flex items-center justify-center font-bold text-xs ${
-                                trackedOrder.paymentStatus === 'PAID' ||
-                                trackedOrder.status === 'CONFIRMED' ||
-                                trackedOrder.status === 'SHIPPED' ||
-                                trackedOrder.status === 'DELIVERED'
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-amber-500 text-white'
-                              }`}
-                            >
-                              {trackedOrder.paymentStatus === 'PAID' ? '✓' : '2'}
-                            </div>
-                            <div className="font-semibold text-[#141413] text-[11px]">
-                              {trackedOrder.paymentStatus === 'PAID' ? 'Verified' : 'Processing'}
-                            </div>
-                          </div>
-
-                          {/* Step 3: Shipped / In Transit */}
-                          <div className="space-y-1">
-                            <div
-                              className={`w-7 h-7 mx-auto rounded-full flex items-center justify-center font-bold text-xs ${
-                                trackedOrder.status === 'SHIPPED' || trackedOrder.status === 'DELIVERED'
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-black/15 text-black/60'
-                              }`}
-                            >
-                              <Truck className="w-3.5 h-3.5" />
-                            </div>
-                            <div className="font-semibold text-[#141413] text-[11px]">Dispatched</div>
-                          </div>
-
-                          {/* Step 4: Delivered */}
-                          <div className="space-y-1">
-                            <div
-                              className={`w-7 h-7 mx-auto rounded-full flex items-center justify-center font-bold text-xs ${
-                                trackedOrder.status === 'DELIVERED'
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'bg-black/15 text-black/60'
-                              }`}
-                            >
-                              ✓
-                            </div>
-                            <div className="font-semibold text-[#141413] text-[11px]">Delivered</div>
-                          </div>
-                        </div>
-                      </div>
+                      {/* Live order progress, delivery reminder and tracking history */}
+                      <OrderTimeline order={trackedOrder} />
 
                       {/* Courier Name & Tracking Number Dossier (High Priority User Request) */}
                       <div className="p-4 bg-blue-50/80 border border-blue-200 rounded space-y-3">
@@ -746,7 +702,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                             </span>
                             <div className="text-base font-bold text-blue-950 flex items-center gap-2">
                               <Truck className="w-4 h-4 text-blue-700" />
-                              <span>{trackedOrder.courierName || 'TCS Express'}</span>
+                              <span>{trackedOrder.courierName || 'Courier assign hona baqi hai'}</span>
                             </div>
                           </div>
 

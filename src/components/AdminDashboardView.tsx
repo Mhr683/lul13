@@ -184,6 +184,7 @@ export const AdminDashboardView: React.FC<{
     markNotificationRead,
     markAllNotificationsRead,
     deleteNotifications,
+    addOrderTrackingEvent,
     removeProductsBatch,
     selectedAdminProduct,
     setSelectedAdminProduct,
@@ -4709,6 +4710,32 @@ export const AdminDashboardView: React.FC<{
                               </div>
                             );
                           })()}
+                          {!['CANCELLED', 'RETURNED', 'REFUNDED', 'DELIVERED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'].includes(ord.status) && (
+                            <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+                              {Array.isArray(ord.trackingEvents) && ord.trackingEvents.length > 0 && (
+                                <div className="text-[10px] text-[#454441] mb-1 max-w-[220px] truncate" title="Customer ko dikhne wali aakhri update">
+                                  Aakhri update: {(() => {
+                                    const last = ord.trackingEvents[ord.trackingEvents.length - 1];
+                                    return `${last.location ? last.location + ' · ' : ''}${last.note}`;
+                                  })()}
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const location = window.prompt(
+                                    `Order ${ord.orderNumber}: parcel abhi kahan hai? (misal: "Lahore hub", "Bahawalpur pohanch gaya")`
+                                  );
+                                  if (location === null || !location.trim()) return;
+                                  const note = window.prompt('Customer ke liye chhota sa note (khali chhor sakte hain):') || '';
+                                  await addOrderTrackingEvent(ord.id, location.trim(), note.trim() || undefined);
+                                }}
+                                className="px-2 py-1 border border-sky-500 bg-sky-50 text-sky-900 text-[10px] font-semibold cursor-pointer hover:bg-sky-100"
+                              >
+                                📍 Parcel ki location update
+                              </button>
+                            </div>
+                          )}
                           {ord.status === 'PENDING_CONFIRMATION' && (
                             <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
                               <a
@@ -4749,12 +4776,16 @@ export const AdminDashboardView: React.FC<{
                               const formData = new FormData(e.currentTarget);
                               const carrier = String(formData.get('carrier') || 'TCS');
                               const trackNum = String(formData.get('tracking') || '').trim();
-                              const formattedTracking = trackNum
-                                ? trackNum
-                                : `${carrier}-${Math.floor(10000000 + Math.random() * 90000000)}`;
-                              const nextStatus = ord.status === 'PENDING' || ord.status === 'CONFIRMED' ? 'SHIPPED' : ord.status;
-                              updateOrderState(ord.id, nextStatus, formattedTracking, carrier);
-                              showToast(`Updated courier (${carrier}) & tracking (${formattedTracking}) for ${ord.orderNumber}`);
+                              // Only the real consignment number from the supplier/courier; never an invented one
+                              if (trackNum.length < 4) {
+                                showToast('Supplier/courier se mila asal tracking number likhein.');
+                                return;
+                              }
+                              // Saving tracking for an order that has not shipped yet marks it as shipped
+                              const nextStatus = ['PENDING_CONFIRMATION', 'PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED'].includes(ord.status)
+                                ? 'SHIPPED'
+                                : ord.status;
+                              updateOrderState(ord.id, nextStatus, trackNum, carrier);
                             }}
                             className="space-y-1"
                           >
@@ -4769,13 +4800,18 @@ export const AdminDashboardView: React.FC<{
                                 <option value="PostEx">PostEx</option>
                                 <option value="Trax">Trax</option>
                                 <option value="M&P">M&amp;P</option>
+                                <option value="Call Courier">Call Courier</option>
+                                <option value="BlueEx">BlueEx</option>
+                                <option value="Swyft">Swyft</option>
+                                <option value="Daewoo">Daewoo</option>
+                                <option value="Pakistan Post">Pakistan Post</option>
                                 <option value="Other">Other</option>
                               </select>
                               <input
                                 type="text"
                                 name="tracking"
                                 defaultValue={ord.trackingNumber || ''}
-                                placeholder="Tracking # (or auto)"
+                                placeholder="Supplier ka tracking #"
                                 className="w-32 px-2 py-1 bg-[#FBFBF9] border border-black/[0.12] text-[11px] font-mono text-[#141413]"
                               />
                               <button

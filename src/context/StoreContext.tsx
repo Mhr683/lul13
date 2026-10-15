@@ -219,6 +219,7 @@ interface StoreContextValue {
   updateOrderState: (orderId: string, status: OrderStatus, trackingNumber?: string, courierName?: string) => Promise<void>;
   confirmOrder: (orderId: string) => Promise<void>;
   cancelFakeOrder: (orderId: string, reason?: string) => Promise<void>;
+  addOrderTrackingEvent: (orderId: string, location: string, note?: string) => Promise<boolean>;
   addOrUpdateOrderShipment: (
     orderId: string,
     shipment: Partial<OrderShipment> & { courierName: string; trackingNumber: string }
@@ -1125,7 +1126,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (firebaseUser && isAdmin) {
       try {
-        await setDoc(doc(db, 'orders', target.id), toPublicOrder(updatedOrder));
+        // The server already saved status, payment and stock; only the receipt details are added here
+        if (action === 'APPROVE') {
+          await updateDoc(doc(db, 'orders', target.id), {
+            paymentReceiptEmailSent: true,
+            paymentReceiptEmailSentAt: now,
+            paymentReceiptEmailSubject: approvedSubject,
+            paymentReceiptEmailRecipient: target.customerEmail,
+            paymentReceiptEmailHtml: approvedReceiptHtml || target.paymentReceiptEmailHtml || '',
+            updatedAt: now,
+          });
+        }
         await recordAuditLog(
           action === 'APPROVE' ? 'PAYMENT_VERIFIED' : 'PAYMENT_REJECTED',
           `Order:${target.orderNumber}`,
@@ -1733,6 +1744,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       showToast(data?.error || 'Status nahi badla. Dobara try karein.');
       return;
     }
+    showToast(
+      trackingNumber && trackingNumber !== target.trackingNumber
+        ? `${target.orderNumber}: ${courierName || ''} tracking ${trackingNumber} save, status ${status}.`
+        : `${target.orderNumber}: status ${status} save ho gaya.`
+    );
 
     // Admins see the saved order through the live listener; a local copy here could overwrite it
     if (!(firebaseUser && isAdmin)) setOrders((prev) => prev.map((o) => (o.id === target.id ? updatedOrder : o)));
@@ -1794,6 +1810,33 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       recordAuditLog('ORDER_CONFIRMED', `Order:${target.orderNumber}`, 'Order confirmed - ready to forward to supplier').catch(() => {});
     }
     showToast(`Order #${target.orderNumber} confirmed! Ready for supplier.`);
+  };
+
+  // Adds a parcel location / progress line to the customer's tracking history
+  const addOrderTrackingEvent = async (orderId: string, location: string, note?: string) => {
+    const target = orders.find((o) => o.id === orderId || o.orderNumber === orderId);
+    if (!target) return false;
+    try {
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const res = await fetch('/api/orders/tracking-event', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ orderId: target.id, orderNumber: target.orderNumber, location, note }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showToast(data?.error || 'Tracking update save nahi hui.');
+        return false;
+      }
+      showToast(`Order #${target.orderNumber}: customer ko update dikh rahi hai.`);
+      return true;
+    } catch {
+      showToast('Server se rabta nahi ho saka. Tracking update save nahi hui.');
+      return false;
+    }
   };
 
   // Cancel Fake / Not Responding Order
@@ -2187,6 +2230,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updateOrderState,
         confirmOrder,
         cancelFakeOrder,
+        addOrderTrackingEvent,
         addOrUpdateOrderShipment,
         saveCoupon,
         deleteCouponById,

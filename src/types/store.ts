@@ -212,6 +212,16 @@ export type ShipmentStatus =
   | 'DELIVERED'
   | 'RETURNED';
 
+/** One line in the order's tracking history shown to the customer */
+export interface OrderTrackingEvent {
+  at: string;
+  /** Set when the event is a status change */
+  status?: string;
+  /** e.g. "Lahore hub" (admin location updates) */
+  location?: string;
+  note: string;
+}
+
 export interface OrderShipment {
   id: string;
   supplierName?: SupplierName | string;
@@ -246,6 +256,8 @@ export interface Order {
   cancelledAt?: string;
   /** Set by the server: true while this order's items are back in stock (cancelled/returned) */
   stockReleased?: boolean;
+  /** Tracking history (oldest first), written by the server */
+  trackingEvents?: OrderTrackingEvent[];
   confirmedByCustomer?: boolean;
   confirmedAt?: string;
   confirmedBy?: string;
