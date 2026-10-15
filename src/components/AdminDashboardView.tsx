@@ -181,6 +181,7 @@ export const AdminDashboardView: React.FC<{
     recordAuditLog,
     createOrUpdateAITask,
     markNotificationRead,
+    markAllNotificationsRead,
     selectedAdminProduct,
     setSelectedAdminProduct,
     selectedAdminOrder,
@@ -6131,9 +6132,18 @@ export const AdminDashboardView: React.FC<{
                       Store Alerts &amp; Operational Events ({notifications.length})
                     </h2>
                     {unreadAlertsCount > 0 && (
-                      <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                        {unreadAlertsCount} unread system notifications
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                          {unreadAlertsCount} unread system notifications
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => markAllNotificationsRead()}
+                          className="px-3 py-1.5 bg-[#141413] text-white text-xs font-semibold cursor-pointer hover:bg-black"
+                        >
+                          Mark all read
+                        </button>
+                      </div>
                     )}
                   </div>
 

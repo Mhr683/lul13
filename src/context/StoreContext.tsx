@@ -210,6 +210,7 @@ interface StoreContextValue {
   recordAuditLog: (action: string, resource: string, details?: string) => Promise<void>;
   createOrUpdateAITask: (task: Partial<AITask> & { id: string; name: string; toolName: string }) => Promise<AITask>;
   markNotificationRead: (notificationId: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
 
   // Active Context for AI Memory
   selectedAdminProduct: Product | null;
@@ -1373,7 +1374,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           `Product:${cleanProduct.sku}`,
           `${cleanProduct.name} (PKR ${cleanProduct.price}, Stock: ${cleanProduct.stock})`
         );
-        if (cleanProduct.stock <= (cleanProduct.lowStockThreshold || 5)) {
+        // Alert only when stock newly drops to the threshold, not on every save of an already-low product
+        const lowAt = cleanProduct.lowStockThreshold || 5;
+        const wasAlreadyLow = existingProd ? existingProd.stock <= lowAt : false;
+        if (cleanProduct.status === 'ACTIVE' && cleanProduct.stock <= lowAt && !wasAlreadyLow) {
           await pushNotification(
             'LOW_STOCK',
             `Low Stock Alert: ${cleanProduct.name}`,
@@ -2042,6 +2046,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  // Marks every unread alert as read in batches (a Firestore batch allows 500 writes)
+  const markAllNotificationsRead = async () => {
+    const unread = notifications.filter((n) => !n.read);
+    if (unread.length === 0) return;
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    if (!firebaseUser) return;
+    try {
+      for (let i = 0; i < unread.length; i += 400) {
+        const batch = writeBatch(db);
+        for (const n of unread.slice(i, i + 400)) batch.update(doc(db, 'notifications', n.id), { read: true });
+        await batch.commit();
+      }
+      showToast(`${unread.length} alerts read mark ho gaye.`);
+    } catch (error: any) {
+      showToast(`Alerts update nahi huay: ${error?.message || error}`);
+    }
+  };
+
   return (
     <StoreContext.Provider
       value={{
@@ -2097,6 +2119,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         recordAuditLog,
         createOrUpdateAITask,
         markNotificationRead,
+        markAllNotificationsRead,
         selectedAdminProduct,
         setSelectedAdminProduct,
         selectedAdminOrder,
