@@ -3034,12 +3034,19 @@ export const AdminDashboardView: React.FC<{
                           );
                           const qty = input === null ? NaN : Math.round(Number(input));
                           if (isNaN(qty) || qty < 0) return;
-                          for (const id of selectedProductIds) {
-                            const p = products.find((item) => item.id === id);
-                            if (p) await saveProduct({ ...p, stock: qty }, 'BULK_SET_STOCK');
+                          // Saved in batches (not one product at a time) so hundreds of products update quickly
+                          const selected = new Set(selectedProductIds);
+                          const updated = products
+                            .filter((p) => selected.has(p.id))
+                            .map((p) => ({ ...p, stock: qty, updatedAt: new Date().toISOString() }));
+                          showToast(`${updated.length} products ka stock save ho raha hai...`);
+                          try {
+                            const result = await importProductsBatch(updated);
+                            showToast(`Stock ${qty} set: ${result?.count ?? updated.length} / ${updated.length} products.`);
+                            setSelectedProductIds([]);
+                          } catch (err: any) {
+                            showToast(`Stock save nahi hua: ${err?.message || err}`);
                           }
-                          showToast(`Stock set to ${qty} for ${selectedProductIds.length} products.`);
-                          setSelectedProductIds([]);
                         }}
                         className="px-3 py-2 bg-[#F5F4F0] text-xs text-[#141413] hover:bg-[#EBEAE5] cursor-pointer"
                       >
