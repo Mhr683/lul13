@@ -264,7 +264,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'storeName', 'contactEmail', 'currency', 'taxRate']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
         data.storeName is string && data.storeName.size() >= 1 && data.storeName.size() <= 120 &&
-        data.contactEmail is string && data.contactEmail.size() >= 3 && data.contactEmail.size() <= 255 &&
+        data.contactEmail is string && data.contactEmail.size() <= 255 &&
         data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
         data.taxRate is number && data.taxRate >= 0 && data.taxRate <= 100 &&
         (!('guestCheckoutEnabled' in data) || data.guestCheckoutEnabled is bool) &&

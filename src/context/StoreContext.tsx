@@ -1950,15 +1950,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // ignore quota errors
     }
-    if (firebaseUser && isAdmin) {
-      try {
-        await setDoc(doc(db, 'settings', 'store_config'), nextSettings);
-        await recordAuditLog('SETTINGS_UPDATED', 'StoreSettings', JSON.stringify(updated));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, 'settings/store_config');
-      }
+    if (!firebaseUser || !isAdmin) {
+      showToast('Settings sirf is browser mein badli hain. Save karne ke liye admin login karein.');
+      return;
     }
-    showToast('Store settings saved.');
+    try {
+      // Firestore rejects undefined values; required text fields must be strings
+      const toSave = JSON.parse(JSON.stringify(nextSettings));
+      toSave.storeName = String(toSave.storeName || 'My Store');
+      toSave.contactEmail = String(toSave.contactEmail || '');
+      toSave.currency = String(toSave.currency || 'PKR');
+      toSave.taxRate = Number(toSave.taxRate) || 0;
+      await setDoc(doc(db, 'settings', 'store_config'), toSave);
+      showToast('Store settings saved.');
+      recordAuditLog('SETTINGS_UPDATED', 'StoreSettings', JSON.stringify(updated).slice(0, 1900)).catch(() => {});
+    } catch (error: any) {
+      console.error('Settings save failed:', error);
+      showToast(`Settings save nahi huin: ${error?.message || error}`);
+    }
   };
 
   // Create or Update Long-Running AI Task

@@ -1699,15 +1699,26 @@ app.post('/api/maps/reverse-geocode', async (req, res) => {
       return res.status(400).json({ error: 'Valid numerical lat and lng are required.' });
     }
 
-    const apiKey =
+    // The store's own key (env secret, or the one saved in admin settings). Without a key the
+    // free OpenStreetMap lookup below is used instead.
+    let apiKey =
       process.env.VITE_GOOGLE_MAPS_API_KEY ||
       process.env.VITE_GOOGLE_MAPS_API_KI ||
       process.env.GOOGLE_MAPS_API_KEY ||
-      'AIzaSyDjFK0ON-s_iX948enjzhDuBoWc6fPGDjE';
+      '';
+    if (!apiKey) {
+      try {
+        const snap = await adminDb.collection('settings').doc('store_config').get();
+        apiKey = String(snap.data()?.googleMapsApiKey || '').trim();
+      } catch {}
+    }
 
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`;
-    const response = await fetch(url);
-    const data = (await response.json()) as any;
+    let data: any = {};
+    if (apiKey) {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${encodeURIComponent(apiKey)}`;
+      const response = await fetch(url);
+      data = (await response.json()) as any;
+    }
 
     let responseData: any = null;
 
