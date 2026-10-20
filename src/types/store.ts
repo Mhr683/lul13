@@ -31,6 +31,8 @@ export interface SellerShop {
   statusReason?: string;
   /** Overrides the store's default commission for this seller */
   commissionPercent?: number;
+  /** Shop / profile picture: a small JPEG data URL or an https link */
+  logoUrl?: string;
   createdAt: string;
   updatedAt?: string;
 }

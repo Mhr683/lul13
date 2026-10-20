@@ -12,11 +12,16 @@ import {
   Truck,
   MapPin,
   MessageSquare,
+  Upload,
+  Download,
+  Camera,
 } from 'lucide-react';
+import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AuthPanel } from './AuthPanel';
 import { PWAInstallButton } from './PWAInstallButton';
+import { SellerAvatar } from './SellerAvatar';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 
@@ -220,11 +225,16 @@ export const SellerCenterView: React.FC = () => {
   return shell(
     <div className="max-w-6xl mx-auto px-4 py-5 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => setTab('PROFILE')} title="Profile tasveer" className="cursor-pointer">
+            <SellerAvatar src={seller.logoUrl || firebaseUser.photoURL} name={seller.shopName} size={52} className="border border-black/10" />
+          </button>
+          <div>
           <h1 className="text-2xl font-display">{seller.shopName}</h1>
           <p className="text-xs text-[#575653]">
             Commission: {commissionPercent ?? 0}% har sale par · {seller.city}
           </p>
+          </div>
         </div>
       </div>
       <nav className="flex gap-1 overflow-x-auto border-b border-black/10">
@@ -662,6 +672,7 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
   const { showToast } = useStore();
   const [products, setProducts] = useState<Product[] | null>(null);
   const [editing, setEditing] = useState<typeof emptyProduct | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -703,6 +714,19 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
 
   const set = (k: keyof typeof emptyProduct) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setEditing((p) => (p ? { ...p, [k]: e.target.value } : p));
+
+  if (bulkOpen) {
+    return (
+      <BulkUpload
+        categoryNames={categoryNames}
+        onClose={() => setBulkOpen(false)}
+        onDone={async () => {
+          setBulkOpen(false);
+          await load();
+        }}
+      />
+    );
+  }
 
   if (editing) {
     return (
@@ -774,13 +798,22 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs text-[#575653]">{products ? `${products.length} products` : 'Load ho rahe hain...'}</span>
-        <button
-          type="button"
-          onClick={() => setEditing({ ...emptyProduct })}
-          className="px-4 py-2 bg-[#141413] text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" /> Naya product
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setBulkOpen(true)}
+            className="px-4 py-2 bg-white border border-black/30 text-[#141413] text-xs font-bold flex items-center gap-1 cursor-pointer hover:bg-black/[0.04]"
+          >
+            <Upload className="w-4 h-4" /> CSV / Bulk listing
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing({ ...emptyProduct })}
+            className="px-4 py-2 bg-[#141413] text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Naya product
+          </button>
+        </div>
       </div>
       {products && products.length === 0 && (
         <p className="p-6 bg-white border border-black/10 text-xs text-center text-[#575653]">Abhi koi product nahi. "Naya product" se shuru karein.</p>
@@ -851,6 +884,223 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
   );
 };
 
+// ------------------------------------------------------------------ bulk listing (CSV)
+
+const BULK_CHUNK = 200;
+
+const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDone: () => void }> = ({
+  categoryNames,
+  onClose,
+  onDone,
+}) => {
+  const { showToast, settings } = useStore();
+  const [fileName, setFileName] = useState('');
+  const [rows, setRows] = useState<SellerCsvRow[]>([]);
+  const [defaultCategory, setDefaultCategory] = useState('');
+  const [asDraft, setAsDraft] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [result, setResult] = useState<{ created: number; updated: number; errors: { row: number; error: string }[] } | null>(null);
+
+  // Rows without their own category take the one chosen here
+  const prepared = useMemo(
+    () =>
+      rows.map((r) => {
+        const category = r.category || defaultCategory.trim();
+        const problem = r.problem === 'Category nahi hai' && category.length >= 2 ? '' : r.problem;
+        return { ...r, category, problem, status: asDraft ? ('DRAFT' as const) : r.status };
+      }),
+    [rows, defaultCategory, asDraft]
+  );
+  const ready = prepared.filter((r) => !r.problem);
+  const skipped = prepared.length - ready.length;
+
+  const readFile = async (file: File) => {
+    setResult(null);
+    if (file.size > 15 * 1024 * 1024) {
+      showToast('File 15 MB se bari hai. Isay chhote hisson mein baant kar upload karein.');
+      return;
+    }
+    const text = await file.text();
+    const parsed = parseSellerCsv(text, settings.usdToPkrRate);
+    if (parsed.error) {
+      showToast(parsed.error);
+      setRows([]);
+      return;
+    }
+    setFileName(file.name);
+    setRows(parsed.rows);
+  };
+
+  const downloadTemplate = () => {
+    const url = URL.createObjectURL(new Blob(['﻿' + SELLER_CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'seller-products-template.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const upload = async () => {
+    if (!ready.length) return;
+    const total = ready.length;
+    const sum = { created: 0, updated: 0, errors: [] as { row: number; error: string }[] };
+    setProgress({ done: 0, total });
+    try {
+      for (let i = 0; i < total; i += BULK_CHUNK) {
+        const chunk = ready.slice(i, i + BULK_CHUNK).map(({ problem, ...r }) => r);
+        const d = await api('/api/seller/products/bulk', { method: 'POST', body: JSON.stringify({ products: chunk }) });
+        sum.created += d.created || 0;
+        sum.updated += d.updated || 0;
+        sum.errors.push(...(d.errors || []));
+        setProgress({ done: Math.min(total, i + BULK_CHUNK), total });
+      }
+      setResult(sum);
+      showToast(`${sum.created} naye products, ${sum.updated} update hue.`);
+    } catch (err: any) {
+      setResult(sum);
+      showToast(err.message);
+    } finally {
+      setProgress(null);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-black/10 p-5 space-y-4 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-display">CSV se bulk listing</h2>
+        <button type="button" onClick={onClose} className="px-4 py-2 border border-black/20 cursor-pointer">
+          Wapas
+        </button>
+      </div>
+
+      <div className="p-3 bg-[#F4F3EF] border border-black/10 space-y-1.5 text-[#141413]">
+        <p>
+          Excel ya Google Sheets mein products ki list banayein aur <strong>CSV</strong> save karein. Daraz, Shopify ya
+          WooCommerce ki export file bhi chal jati hai.
+        </p>
+        <p>
+          Zaroori columns: <strong>name, price, category</strong>. Baqi: sku, old_price, stock, image_url, short_description,
+          description, weight_kg.
+        </p>
+        <p>
+          Same <strong>sku</strong> wali file dobara upload karne se naye products nahi bante, purane products ki qeemat aur
+          stock update ho jata hai.
+        </p>
+        <button type="button" onClick={downloadTemplate} className="mt-1 px-3 py-1.5 bg-white border border-black/30 font-semibold flex items-center gap-1 cursor-pointer">
+          <Download className="w-3.5 h-3.5" /> Namoona (template) file download karein
+        </button>
+      </div>
+
+      <label className="block p-6 border-2 border-dashed border-black/25 text-center cursor-pointer hover:bg-black/[0.02]">
+        <Upload className="w-6 h-6 mx-auto mb-2 text-[#454441]" />
+        <span className="font-bold text-[#141413]">{fileName ? `${fileName}: dobara chunne ke liye click karein` : 'CSV file chunein'}</span>
+        <input
+          type="file"
+          accept=".csv,.tsv,.txt,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) readFile(f);
+            e.target.value = '';
+          }}
+        />
+      </label>
+
+      {rows.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Jin products ki category khali hai, unki category</label>
+              <input
+                className={inputCls}
+                value={defaultCategory}
+                onChange={(e) => setDefaultCategory(e.target.value)}
+                list="seller-bulk-categories"
+                placeholder="Chunein ya likhein"
+              />
+              <datalist id="seller-bulk-categories">
+                {categoryNames.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </div>
+            <label className="flex items-center gap-2 font-semibold text-[#141413] sm:pt-5">
+              <input type="checkbox" checked={asDraft} onChange={(e) => setAsDraft(e.target.checked)} />
+              Sab ko Draft mein rakhein (pehle check kar ke baad mein live karunga)
+            </label>
+          </div>
+
+          <p className="text-[#141413]">
+            <strong>{ready.length}</strong> products tayyar hain
+            {skipped > 0 && (
+              <>
+                {' '}· <strong className="text-rose-800">{skipped}</strong> chhod diye jayenge (neeche wajah dekhein)
+              </>
+            )}
+          </p>
+
+          <div className="max-h-80 overflow-auto border border-black/10">
+            <table className="w-full text-left">
+              <thead className="bg-[#F4F3EF] sticky top-0">
+                <tr>
+                  <th className="p-2">Line</th>
+                  <th className="p-2">Tasveer</th>
+                  <th className="p-2">Naam</th>
+                  <th className="p-2">Qeemat</th>
+                  <th className="p-2">Stock</th>
+                  <th className="p-2">Category</th>
+                  <th className="p-2">Halat</th>
+                </tr>
+              </thead>
+              <tbody>
+                {prepared.slice(0, 300).map((r) => (
+                  <tr key={r.row} className={`border-t border-black/[0.06] ${r.problem ? 'bg-rose-50' : ''}`}>
+                    <td className="p-2 font-mono">{r.row}</td>
+                    <td className="p-2">
+                      {r.primaryImage ? <img src={r.primaryImage} alt="" className="w-9 h-9 object-cover" loading="lazy" /> : '—'}
+                    </td>
+                    <td className="p-2 max-w-[220px] truncate">{r.name || '—'}</td>
+                    <td className="p-2 font-mono">{r.price ? formatPKR(r.price) : '—'}</td>
+                    <td className="p-2 font-mono">{r.stock}</td>
+                    <td className="p-2">{r.category || '—'}</td>
+                    <td className={`p-2 font-semibold ${r.problem ? 'text-rose-800' : 'text-emerald-800'}`}>{r.problem || 'Theek'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {prepared.length > 300 && <p className="p-2 text-[#575653]">…aur {prepared.length - 300} products (sab upload honge)</p>}
+          </div>
+
+          <button
+            type="button"
+            disabled={!ready.length || !!progress}
+            onClick={upload}
+            className="w-full py-2.5 bg-[#141413] text-white text-sm font-bold disabled:opacity-50 cursor-pointer"
+          >
+            {progress ? `Upload ho rahe hain... ${progress.done} / ${progress.total}` : `${ready.length} products upload karein`}
+          </button>
+        </>
+      )}
+
+      {result && (
+        <div className="p-3 border border-emerald-400 bg-emerald-50 text-emerald-950 space-y-1">
+          <p>
+            ✓ {result.created} naye products bane, {result.updated} purane update hue.
+          </p>
+          {result.errors.length > 0 && (
+            <p className="text-rose-800">
+              {result.errors.length} line save nahi hui: {result.errors.slice(0, 5).map((e) => `line ${e.row} (${e.error})`).join(', ')}
+            </p>
+          )}
+          <button type="button" onClick={onDone} className="mt-1 px-4 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer">
+            Products dekhein
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ------------------------------------------------------------------ earnings
 
 const EarningsTab: React.FC = () => {
@@ -907,12 +1157,52 @@ const EarningsTab: React.FC = () => {
 
 // ------------------------------------------------------------------ profile
 
+// Square-crops and shrinks a chosen photo to a small JPEG (about 15-40 KB) so it can be kept on the
+// shop record without Firebase Storage
+async function shrinkToSquareJpeg(file: File, size = 256): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Ye tasveer khul nahi saki. JPG ya PNG chunein.'));
+      el.src = url;
+    });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+    return canvas.toDataURL('image/jpeg', 0.85);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | null; onSaved: () => void }> = ({
   seller,
   privateData,
   onSaved,
 }) => {
-  const { showToast } = useStore();
+  const { showToast, firebaseUser } = useStore();
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photo = seller.logoUrl || firebaseUser?.photoURL || '';
+
+  const savePhoto = async (logoUrl: string) => {
+    setPhotoBusy(true);
+    try {
+      await api('/api/seller/profile', { method: 'PUT', body: JSON.stringify({ logoUrl }) });
+      showToast(logoUrl ? 'Tasveer save ho gayi.' : 'Tasveer hata di gayi.');
+      onSaved();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
   const [form, setForm] = useState({
     phone: seller.phone || '',
     city: seller.city || '',
@@ -941,9 +1231,48 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
         }
       }}
     >
-      <div className="sm:col-span-2 text-xs text-[#575653]">
-        Dukaan: <strong className="text-[#141413]">{seller.shopName}</strong> · {seller.ownerEmail}
-        <span className="block">Dukaan ka naam badalne ke liye store se rabta karein.</span>
+      <div className="sm:col-span-2 flex flex-wrap items-center gap-4">
+        <SellerAvatar src={photo} name={seller.shopName} size={88} className="border border-black/10" />
+        <div className="space-y-2 text-xs text-[#575653]">
+          <div>
+            Dukaan: <strong className="text-[#141413]">{seller.shopName}</strong> · {seller.ownerEmail}
+            <span className="block">Dukaan ka naam badalne ke liye store se rabta karein.</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label
+              className={`px-3 py-1.5 bg-[#141413] text-white font-semibold flex items-center gap-1 cursor-pointer ${
+                photoBusy ? 'opacity-50 pointer-events-none' : ''
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" /> {photoBusy ? 'Save ho rahi...' : seller.logoUrl ? 'Tasveer badlein' : 'Tasveer lagayein'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!f) return;
+                  try {
+                    await savePhoto(await shrinkToSquareJpeg(f));
+                  } catch (err: any) {
+                    showToast(err.message);
+                  }
+                }}
+              />
+            </label>
+            {seller.logoUrl && (
+              <button
+                type="button"
+                disabled={photoBusy}
+                onClick={() => savePhoto('')}
+                className="px-3 py-1.5 border border-black/30 text-[#141413] font-semibold cursor-pointer disabled:opacity-50"
+              >
+                Hatayein
+              </button>
+            )}
+          </div>
+        </div>
       </div>
       <div>
         <label className={labelCls}>Mobile</label>

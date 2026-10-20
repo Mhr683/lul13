@@ -4,6 +4,7 @@ import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
 import type { SellerShop, SellerPrivate, SellerPayout } from '../types/store';
+import { SellerAvatar } from './SellerAvatar';
 
 // Admin: marketplace sellers (applications, approval, suspension, commission) and payouts.
 
@@ -185,6 +186,7 @@ export const AdminSellersPanel: React.FC = () => {
             <div key={s.id} className="p-4 bg-white border border-black/10 text-xs space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
+                  <SellerAvatar src={s.logoUrl} name={s.shopName} size={32} />
                   <strong className="text-sm">{s.shopName}</strong>
                   <span className={`px-2 py-0.5 border text-[10px] font-bold ${tone[s.status]}`}>{s.status}</span>
                 </div>

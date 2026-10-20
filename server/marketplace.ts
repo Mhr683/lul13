@@ -222,6 +222,16 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       updates.phone = phone;
     }
     if (b.city !== undefined) updates.city = str(b.city, 60);
+    if (b.logoUrl !== undefined) {
+      const logo = String(b.logoUrl || '').trim();
+      // Sent from the browser already cropped and shrunk to 256px; Firebase Storage is not available
+      // on the free plan, so the small image is kept on the shop record itself
+      if (logo && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(logo) && !/^https:\/\/\S+$/i.test(logo)) {
+        return res.status(400).json({ error: 'Tasveer sahi format mein nahi hai. JPG ya PNG chunein.' });
+      }
+      if (logo.length > 200_000) return res.status(400).json({ error: 'Tasveer bohat bari hai. Choti tasveer chunein.' });
+      updates.logoUrl = logo;
+    }
     if (b.address !== undefined) priv.address = str(b.address, 300);
     if (b.bankName !== undefined) priv.bankName = str(b.bankName, 60);
     if (b.accountTitle !== undefined) priv.accountTitle = str(b.accountTitle, 80);
@@ -252,24 +262,134 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
+  // Checks one product sent by a seller (form or CSV row); returns an error message or the clean fields
+  const readSellerProduct = (b: any) => {
+    const name = str(b.name, 190);
+    const price = money(b.price);
+    const category = str(b.category, 75);
+    const primaryImage = str(b.primaryImage, 980);
+    if (name.length < 3) return { error: 'Product ka naam likhein (kam az kam 3 huroof).' };
+    if (!(price > 0)) return { error: 'Qeemat (PKR) likhein.' };
+    if (category.length < 2) return { error: 'Category chunein.' };
+    if (primaryImage && !/^https:\/\//i.test(primaryImage)) return { error: 'Tasveer ka link https:// se shuru hona chahiye.' };
+    return {
+      fields: {
+        name,
+        price,
+        compareAtPrice: money(b.compareAtPrice),
+        stock: Math.max(0, Math.floor(Number(b.stock) || 0)),
+        category,
+        status: b.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
+        primaryImage,
+        sellerSku: str(b.sku, 60).replace(/[^a-zA-Z0-9_.-]/g, '-'),
+      },
+    };
+  };
+
+  const skuPrefix = (uid: string) => `S${uid.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`;
+  const sellerSkuFor = (uid: string, sellerSku: string) => `${skuPrefix(uid)}-${sellerSku}`.slice(0, 95);
+
+  const buildSellerProduct = (uid: string, seller: any, id: string, b: any, f: any, existing: any) => {
+    const now = new Date().toISOString();
+    const { name, price, compareAtPrice, stock, category, status, primaryImage } = f;
+    // SKUs are unique across the store, so a seller's own code is kept behind their prefix
+    const sku =
+      existing?.sku ||
+      (f.sellerSku
+        ? sellerSkuFor(uid, f.sellerSku)
+        : `${skuPrefix(uid)}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`);
+    const shortDescription = str(b.shortDescription, 480) || name.slice(0, 120);
+    const description = str(b.description, 4800) || shortDescription;
+    return {
+      id,
+      sku,
+      name,
+      slug: slugify(name),
+      shortDescription,
+      description,
+      price,
+      compareAtPrice: compareAtPrice > price ? compareAtPrice : 0,
+      stock,
+      reservedStock: existing?.reservedStock ?? 0,
+      lowStockThreshold: 5,
+      category,
+      subcategory: str(b.subcategory, 75) || 'Marketplace',
+      brand: str(b.brand, 75) || seller.shopName,
+      status,
+      featured: existing?.featured ?? false,
+      bestSeller: existing?.bestSeller ?? false,
+      newArrival: existing?.newArrival ?? true,
+      seoTitle: `${name} | ${seller.shopName}`.slice(0, 150),
+      seoDescription: shortDescription.slice(0, 310),
+      seoKeywords: `${category.toLowerCase()}, ${seller.shopName.toLowerCase()}`.slice(0, 390),
+      // A CSV row without a picture keeps the one the product already has
+      primaryImage: primaryImage || (b.fromCsv ? existing?.primaryImage || '' : ''),
+      rating: existing?.rating ?? 0,
+      reviewCount: existing?.reviewCount ?? 0,
+      weightKg: Math.max(0.05, Number(b.weightKg) || existing?.weightKg || 0.5),
+      dimensions: existing?.dimensions || '20cm x 15cm x 10cm',
+      sellerId: uid,
+      sellerName: seller.shopName,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+  };
+
+  // Bulk listing from a CSV the seller uploads (parsed in the browser). A row whose SKU matches one of
+  // the seller's existing products updates it, so re-uploading a sheet refreshes price and stock.
+  app.post('/api/seller/products/bulk', requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const seller = (req as any).seller;
+    const rows = Array.isArray(req.body?.products) ? req.body.products.slice(0, 500) : [];
+    if (!rows.length) return res.status(400).json({ error: 'CSV mein koi product nahi mila.' });
+    try {
+      const existingSnap = await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get();
+      const bySku = new Map<string, { id: string; data: any }>();
+      for (const doc of existingSnap.docs) {
+        const data = doc.data() as any;
+        if (data.sku) bySku.set(String(data.sku).toLowerCase(), { id: doc.id, data });
+      }
+      const errors: { row: number; error: string }[] = [];
+      let created = 0;
+      let updated = 0;
+      let batch = adminDb.batch();
+      let inBatch = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const checked = readSellerProduct(rows[i] || {});
+        if ('error' in checked) {
+          errors.push({ row: Number(rows[i]?.row) || i + 2, error: checked.error as string });
+          continue;
+        }
+        const skuKey = checked.fields.sellerSku ? sellerSkuFor(uid, checked.fields.sellerSku).toLowerCase() : '';
+        const match = skuKey ? bySku.get(skuKey) : undefined;
+        const id = match?.id || `prod-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}`;
+        const product = buildSellerProduct(uid, seller, id, { ...rows[i], fromCsv: true }, checked.fields, match?.data || null);
+        batch.set(adminDb.collection('products').doc(id), product);
+        if (match) updated++;
+        else created++;
+        if (skuKey) bySku.set(skuKey, { id, data: product });
+        if (++inBatch === 400) {
+          await batch.commit();
+          batch = adminDb.batch();
+          inBatch = 0;
+        }
+      }
+      if (inBatch) await batch.commit();
+      res.json({ success: true, created, updated, errors });
+    } catch (err) {
+      console.error('[seller/products bulk] failed:', err);
+      res.status(503).json({ error: 'Products save nahi hue. Dobara try karein.' });
+    }
+  });
+
   app.post('/api/seller/products', requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     const seller = (req as any).seller;
     const b = req.body || {};
-    const name = str(b.name, 190);
-    const price = money(b.price);
-    const compareAtPrice = money(b.compareAtPrice);
-    const stock = Math.max(0, Math.floor(Number(b.stock) || 0));
-    const category = str(b.category, 75);
-    const status = b.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE';
-    const primaryImage = str(b.primaryImage, 980);
-    if (name.length < 3) return res.status(400).json({ error: 'Product ka naam likhein (kam az kam 3 huroof).' });
-    if (!(price > 0)) return res.status(400).json({ error: 'Qeemat (PKR) likhein.' });
-    if (category.length < 2) return res.status(400).json({ error: 'Category chunein.' });
-    if (primaryImage && !/^https:\/\//i.test(primaryImage)) return res.status(400).json({ error: 'Tasveer ka link https:// se shuru hona chahiye.' });
+    const checked = readSellerProduct(b);
+    if ('error' in checked) return res.status(400).json({ error: checked.error });
 
     try {
-      const now = new Date().toISOString();
       let id = str(b.id, 128);
       let existing: any = null;
       if (id) {
@@ -279,43 +399,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       } else {
         id = `prod-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
       }
-      const sku =
-        existing?.sku ||
-        `S${uid.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-      const shortDescription = str(b.shortDescription, 480) || name.slice(0, 120);
-      const description = str(b.description, 4800) || shortDescription;
-      const product: Record<string, any> = {
-        id,
-        sku,
-        name,
-        slug: slugify(name),
-        shortDescription,
-        description,
-        price,
-        compareAtPrice: compareAtPrice > price ? compareAtPrice : 0,
-        stock,
-        reservedStock: existing?.reservedStock ?? 0,
-        lowStockThreshold: 5,
-        category,
-        subcategory: str(b.subcategory, 75) || 'Marketplace',
-        brand: str(b.brand, 75) || seller.shopName,
-        status,
-        featured: existing?.featured ?? false,
-        bestSeller: existing?.bestSeller ?? false,
-        newArrival: existing?.newArrival ?? true,
-        seoTitle: `${name} | ${seller.shopName}`.slice(0, 150),
-        seoDescription: shortDescription.slice(0, 310),
-        seoKeywords: `${category.toLowerCase()}, ${seller.shopName.toLowerCase()}`.slice(0, 390),
-        primaryImage,
-        rating: existing?.rating ?? 0,
-        reviewCount: existing?.reviewCount ?? 0,
-        weightKg: Math.max(0.05, Number(b.weightKg) || existing?.weightKg || 0.5),
-        dimensions: existing?.dimensions || '20cm x 15cm x 10cm',
-        sellerId: uid,
-        sellerName: seller.shopName,
-        createdAt: existing?.createdAt || now,
-        updatedAt: now,
-      };
+      const product = buildSellerProduct(uid, seller, id, b, checked.fields, existing);
       await adminDb.collection('products').doc(id).set(product);
       res.json({ success: true, product });
     } catch (err) {
