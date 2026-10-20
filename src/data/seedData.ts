@@ -7,7 +7,7 @@ export const IMG_FRAGRANCE = '';
 
 export const INITIAL_SETTINGS: StoreSettings = {
   id: 'store_config',
-  storeName: 'My Store',
+  storeName: 'Anokha Shopping Hub',
   tagline: 'Quality Products & Reliable Delivery',
   logoUrl: '',
   contactEmail: '',

@@ -51,6 +51,7 @@ import { auth } from '../lib/firebase';
 import { AdminTeamPanel } from './AdminTeamPanel';
 import { PWAInstallButton } from './PWAInstallButton';
 import { AdminCatalogPanel } from './AdminCatalogPanel';
+import { BrandLogo } from './BrandLogo';
 import { AdminOrdersOverview } from './AdminOrdersOverview';
 import { StoreTextsPanel } from './StoreTextsPanel';
 import { BackupRestorePanel } from './BackupRestorePanel';
@@ -2522,9 +2523,7 @@ export const AdminDashboardView: React.FC<{
       >
         <div className="p-5 space-y-6">
           <div className="flex items-center justify-between">
-            <span className="text-lg font-display font-semibold tracking-tight text-[#141413]">
-              {settings.storeName}
-            </span>
+            <BrandLogo name={settings.storeName} size="sm" className="max-w-[170px]" />
             <button
               onClick={onReturnToStore}
               className="text-xs text-[#575653] hover:text-[#141413] flex items-center gap-1 cursor-pointer"

@@ -16,9 +16,9 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'Online Store',
-          short_name: 'Store',
-          description: 'Online store and management dashboard.',
+          name: 'Anokha Shopping Hub',
+          short_name: 'Anokha',
+          description: 'Unique products from trusted sellers, delivered across Pakistan.',
           theme_color: '#141413',
           background_color: '#FBFBF9',
           display: 'standalone',

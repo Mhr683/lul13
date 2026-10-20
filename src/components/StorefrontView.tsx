@@ -54,6 +54,7 @@ import { MAIN_NAV_SECTIONS } from '../data/categoryNavigation';
 import type { DetectedAddressPayload } from './GoogleMapsAddressDetector';
 import { CustomerHelplineDrawer } from './CustomerHelplineDrawer';
 import { PWAInstallButton } from './PWAInstallButton';
+import { BrandLogo } from './BrandLogo';
 import { PWAInstallModal } from './PWAInstallModal';
 import { HERO_IMAGE_PATH } from '../data/seedData';
 import { SHIPPING_METHODS, calculateShippingFee, formatDualPrice, formatPKR } from '../services/abstractions';
@@ -1007,9 +1008,10 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               setActiveCollection('ALL');
               setSubView('HOME');
             }}
-            className="text-xl sm:text-2xl font-display font-semibold tracking-tight text-[#141413] whitespace-nowrap shrink-0 cursor-pointer max-w-[45vw] truncate"
+            className="shrink-0 cursor-pointer max-w-[52vw] min-w-0"
+            aria-label={`${settings.storeName} home`}
           >
-            {settings.storeName}
+            <BrandLogo name={settings.storeName} />
           </button>
 
           {/* Global search */}
@@ -1190,7 +1192,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
           />
           <div className="relative w-full max-w-xs bg-white h-full shadow-2xl flex flex-col z-10 overflow-y-auto">
             <div className="p-4 border-b border-neutral-100 flex items-center justify-between">
-              <span className="font-display font-semibold text-lg">{settings.storeName}</span>
+              <BrandLogo name={settings.storeName} size="sm" />
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
@@ -4534,7 +4536,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         <div className="max-w-[1360px] mx-auto px-6 py-16 grid grid-cols-1 md:grid-cols-4 gap-10 text-xs">
           {/* Col 1: Store Brand & Direct WhatsApp */}
           <div className="space-y-4">
-            <div className="text-xl font-display font-medium text-[#FBFBF9]">{settings.storeName}</div>
+            <BrandLogo name={settings.storeName} tone="dark" size="lg" />
             <p className="text-white/60 leading-relaxed">
               Quality curated products, nationwide expedited delivery, and dedicated customer support. Operated with precision and care.
             </p>

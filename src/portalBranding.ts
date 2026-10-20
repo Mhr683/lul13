@@ -16,7 +16,7 @@ export const PORTAL_BRANDING: Record<Portal, PortalBranding> = {
   STOREFRONT: {
     manifest: '/manifest.webmanifest',
     appleIcon: '/apple-touch-icon.png',
-    appleTitle: 'Store',
+    appleTitle: 'Anokha',
     themeColor: '#141413',
     title: '',
   },

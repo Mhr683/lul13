@@ -1,7 +1,7 @@
 {
   "id": "/admin",
-  "name": "Store Admin",
-  "short_name": "Admin",
+  "name": "Anokha Admin",
+  "short_name": "Anokha Admin",
   "description": "Store owner's admin panel: orders, products, sellers and payouts.",
   "theme_color": "#1E3A8A",
   "background_color": "#FBFBF9",

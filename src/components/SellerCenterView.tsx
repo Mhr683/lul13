@@ -23,6 +23,7 @@ import { auth } from '../lib/firebase';
 import { AuthPanel } from './AuthPanel';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SellerAvatar } from './SellerAvatar';
+import { BrandLogo } from './BrandLogo';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 
@@ -199,9 +200,10 @@ export const SellerCenterView: React.FC = () => {
       <header className="sticky top-0 z-30 bg-[#141413] text-white">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <Store className="w-5 h-5 text-[#E5C98A] shrink-0" />
-            <span className="font-display text-lg truncate">{storeName}</span>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#E5C98A] shrink-0">Seller Center</span>
+            <BrandLogo name={storeName} tone="dark" size="sm" />
+            <span className="ml-1 pl-2 border-l border-white/20 text-[11px] font-bold uppercase tracking-wider text-[#E5C98A] shrink-0">
+              Seller Center
+            </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <a href="/" className="text-xs text-white/80 hover:text-white underline hidden sm:inline">

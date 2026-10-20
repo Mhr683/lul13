@@ -23,6 +23,11 @@
     color: inherit;
   }
 
+  /* Anokha wordmark (BrandLogo) */
+  .font-brand {
+    font-family: 'Playfair Display', var(--font-serif);
+  }
+
   .font-mono, .tabular-nums {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
