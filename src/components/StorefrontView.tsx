@@ -279,6 +279,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
 
   const [orderNotes, setOrderNotes] = useState('');
   const [confirmedOrderNumber, setConfirmedOrderNumber] = useState<string | null>(null);
+  const [confirmedSplitOrders, setConfirmedSplitOrders] = useState<Order[]>([]);
   const [confirmedOrderAccessToken, setConfirmedOrderAccessToken] = useState<string | null>(null);
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
   const [trackedOrder, setTrackedOrder] = useState<any | null>(null);
@@ -881,10 +882,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
         directAutoDebit: false,
       });
       setConfirmedOrderNumber(order.orderNumber);
+      setConfirmedSplitOrders(order.splitOrders || []);
       if (order.orderAccessToken) {
         setConfirmedOrderAccessToken(order.orderAccessToken);
-        // Lets this device show the order's updates and list it under "your orders"
-        rememberOrder(order.orderNumber, order.orderAccessToken);
+        // Lets this device show the orders' updates and list them under "your orders"
+        // (one order per seller; they share the checkout's access token)
+        for (const o of order.splitOrders?.length ? order.splitOrders : [order]) {
+          rememberOrder(o.orderNumber, order.orderAccessToken);
+        }
       }
       setCheckoutStep(3);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1340,6 +1345,12 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                 <span className="text-[10px] uppercase tracking-wider font-bold text-neutral-400 px-3 block">
                   Customer Care &amp; Policies
                 </span>
+                <a
+                  href="/seller"
+                  className="block w-full text-left py-1.5 px-3 text-xs font-semibold text-[#86672A] hover:text-black rounded"
+                >
+                  Sell on {settings.storeName || 'My Store'} → Seller Center
+                </a>
                 <button
                   type="button"
                   onClick={() => {
@@ -2123,6 +2134,10 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                   <h1 className="text-3xl font-display font-medium text-[#141413]">
                     {selectedProduct.name}
                   </h1>
+                  <div className="text-xs text-[#575653]">
+                    Sold &amp; shipped by{' '}
+                    <strong className="text-[#141413]">{selectedProduct.sellerName || settings.storeName || 'My Store'}</strong>
+                  </div>
 
                   <div className="space-y-1 font-mono tabular-nums">
                     <div className="flex items-baseline gap-3">
@@ -2493,6 +2508,27 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           آپ کا آرڈر اور پیمنٹ ریفرنس (<strong className="font-mono text-amber-950 font-bold">{activeTid}</strong>) اسٹور پر <strong>PENDING</strong> حالت میں درج ہو گیا ہے۔ جب اسٹور ایڈمن کو آپ کی طرف سے رقم کی منتقلی موصول ہو گی اور وہ اپنے اکاؤنٹ میں چیک کر کے کنفرم کریں گے، تب ہی آرڈر کا اسٹیٹس <strong>&apos;PAID&apos;</strong> اور <strong>&apos;CONFIRMED&apos;</strong> ہو گا اور آرڈر کی پروسیسنگ شروع ہو گی۔
                         </p>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Items from several sellers: one order (and parcel) per seller */}
+                  {confirmedSplitOrders.length > 1 && (
+                    <div className="p-4 bg-sky-50 border border-sky-300 text-xs space-y-2">
+                      <strong className="block text-sky-950">
+                        Aap ka order {confirmedSplitOrders.length} alag parcels mein aayega (har seller apna parcel bhejega):
+                      </strong>
+                      <ul className="space-y-1">
+                        {confirmedSplitOrders.map((o) => (
+                          <li key={o.orderNumber} className="flex flex-wrap justify-between gap-2 font-mono">
+                            <span className="font-bold text-[#141413]">{o.orderNumber}</span>
+                            <span className="font-sans text-[#141413]">{o.sellerName || activeStoreName}</span>
+                            <span className="text-[#141413]">{formatPKR(o.total)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <span className="block text-sky-900">
+                        Kul raqam: <strong>{formatPKR(confirmedSplitOrders.reduce((s, o) => s + (Number(o.total) || 0), 0))}</strong> · har order ki tracking alag hogi.
+                      </span>
                     </div>
                   )}
 
@@ -4521,6 +4557,11 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               Customer Care &amp; Policies
             </div>
             <ul className="space-y-2 text-white/70">
+              <li>
+                <a href="/seller" className="font-semibold text-[#E5C98A] hover:text-white transition-colors">
+                  Sell on {settings.storeName || 'My Store'} → Seller Center
+                </a>
+              </li>
               <li>
                 <button
                   type="button"

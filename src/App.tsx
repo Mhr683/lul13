@@ -11,6 +11,9 @@ import { StorefrontView } from './components/StorefrontView';
 const AdminDashboardView = lazy(() =>
   import('./components/AdminDashboardView').then((m) => ({ default: m.AdminDashboardView }))
 );
+const SellerCenterView = lazy(() =>
+  import('./components/SellerCenterView').then((m) => ({ default: m.SellerCenterView }))
+);
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthPanel } from './components/AuthPanel';
 
@@ -89,26 +92,33 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
   );
 };
 
+// Three separate parts of the site, each with its own link:
+//   /         the store customers shop in
+//   /seller   Seller Center for marketplace sellers
+//   /admin    the store owner's admin console (old #admin links still open it)
+type Portal = 'STOREFRONT' | 'ADMIN' | 'SELLER';
+
+const portalFromLocation = (): Portal => {
+  if (typeof window === 'undefined') return 'STOREFRONT';
+  const path = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+  if (path === '/seller' || path.startsWith('/seller/')) return 'SELLER';
+  if (path === '/admin' || path.startsWith('/admin/')) return 'ADMIN';
+  if (window.location.hash === '#admin') return 'ADMIN';
+  return 'STOREFRONT';
+};
+
 const MainRouter: React.FC = () => {
-  const [mode, setMode] = useState<'STOREFRONT' | 'ADMIN'>(() => {
-    try {
-      // The address (#admin / #store) wins over the mode remembered from the last visit
-      if (typeof window !== 'undefined' && window.location.hash === '#admin') return 'ADMIN';
-      if (typeof window !== 'undefined' && window.location.hash === '#store') return 'STOREFRONT';
-      const saved = localStorage.getItem('atelier_app_mode');
-      if (saved === 'ADMIN' || saved === 'STOREFRONT') return saved;
-    } catch {}
-    return 'STOREFRONT';
-  });
+  const [mode, setMode] = useState<Portal>(portalFromLocation);
 
   // Follow manual address changes and the browser back/forward buttons
   useEffect(() => {
-    const onHashChange = () => {
-      if (window.location.hash === '#admin') setMode('ADMIN');
-      else if (window.location.hash === '#store' || window.location.hash === '') setMode('STOREFRONT');
+    const sync = () => setMode(portalFromLocation());
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
   const [adminInitialTab, setAdminInitialTab] = useState<string | undefined>(() => {
     try {
@@ -120,19 +130,27 @@ const MainRouter: React.FC = () => {
   const [autoOpenNewProduct, setAutoOpenNewProduct] = useState(false);
   const { toastMessage } = useStore();
 
-  const handleSwitchMode = (newMode: 'STOREFRONT' | 'ADMIN') => {
+  const handleSwitchMode = (newMode: Portal) => {
     setMode(newMode);
     try {
-      localStorage.setItem('atelier_app_mode', newMode);
-      if (typeof window !== 'undefined') {
-        window.location.hash = newMode === 'ADMIN' ? '#admin' : '#store';
-      }
+      window.history.pushState(null, '', newMode === 'ADMIN' ? '/admin' : newMode === 'SELLER' ? '/seller' : '/');
+      window.scrollTo({ top: 0 });
     } catch {}
   };
 
   return (
     <div className="relative min-h-screen">
-      {mode === 'STOREFRONT' ? (
+      {mode === 'SELLER' ? (
+        <Suspense
+          fallback={
+            <div className="min-h-screen flex items-center justify-center bg-[#FBFBF9] text-sm text-[#575653]">
+              Seller Center khul raha hai...
+            </div>
+          }
+        >
+          <SellerCenterView />
+        </Suspense>
+      ) : mode === 'STOREFRONT' ? (
         <StorefrontView
           onOpenAdmin={(tab?: string, openNewProduct?: boolean) => {
             const chosenTab = tab || 'PRODUCTS';

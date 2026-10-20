@@ -29,6 +29,7 @@ import { validateAIToolArgs } from './src/validation/validators';
 import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus, OrderShipment } from './src/types/store';
 import { ShippingCalculationService, generateCourierTrackingUrl } from './src/services/shippingService';
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
+import { registerMarketplaceRoutes } from './server/marketplace';
 import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
@@ -230,6 +231,8 @@ async function requireAuth(
     (req as any).user = {
       uid: decodedToken.uid,
       email: decodedToken.email,
+      emailVerified: Boolean(decodedToken.email_verified),
+      name: decodedToken.name,
     };
     next();
   } catch (err: any) {
@@ -2558,7 +2561,14 @@ app.post('/api/orders/create', async (req, res) => {
     }
 
     // 6. Execute atomic Firestore Transaction with firebase-admin (with local persistence fallback if ADC is unconfigured in container)
-    let result: { orderId: string; orderNumber: string; orderAccessToken: string; order: Order; ownerOrder?: Order };
+    let result: {
+      orderId: string;
+      orderNumber: string;
+      orderAccessToken: string;
+      order: Order;
+      ownerOrder?: Order;
+      created: Array<{ order: Order; ownerOrder: Order }>;
+    };
     try {
       result = await adminDb.runTransaction(async (transaction) => {
         // Step A: Read each product (and its admin-only supplier data) and verify stock & active status.
@@ -2609,13 +2619,33 @@ app.post('/api/orders/create', async (req, res) => {
           }
         }
 
+        // Step C2: Read each seller in the cart (shop name, status, commission). Products without a
+        // seller belong to the store itself (the house seller).
+        const sellerIds = Array.from(new Set(productDocs.map((p) => String(p.data.sellerId || HOUSE_SELLER_ID))));
+        const sellerInfo = new Map<string, { shopName: string; commissionPercent: number }>();
+        const defaultCommission = Number((storeSettings as any)?.marketplaceCommissionPercent ?? DEFAULT_COMMISSION_PERCENT);
+        for (const sid of sellerIds) {
+          if (sid === HOUSE_SELLER_ID) {
+            sellerInfo.set(sid, { shopName: String((storeSettings as any)?.storeName || 'My Store'), commissionPercent: 0 });
+            continue;
+          }
+          const sDoc = await transaction.get(adminDb.collection('sellers').doc(sid));
+          const s = sDoc.data();
+          if (!sDoc.exists || s?.status !== 'APPROVED') {
+            throw new Error(`A seller in your cart is not available right now. Please remove their items and try again.`);
+          }
+          const pct = typeof s?.commissionPercent === 'number' ? s.commissionPercent : defaultCommission;
+          sellerInfo.set(sid, { shopName: String(s?.shopName || 'Seller'), commissionPercent: Math.min(100, Math.max(0, pct)) });
+        }
+
         // Step D: Recalculate price & subtotal
         let merchandiseSubtotal = 0;
         const orderItems: OrderItem[] = [];
+        const itemSeller = new Map<OrderItem, string>();
         for (const p of productDocs) {
           const price = Number(p.data.price) || 0;
           merchandiseSubtotal += price * p.reqQty;
-          orderItems.push({
+          const item: OrderItem = {
             productId: p.data.id || p.ref.id,
             name: p.data.name,
             sku: p.data.sku,
@@ -2626,7 +2656,9 @@ app.post('/api/orders/create', async (req, res) => {
             supplierSku: p.privateData.supplierSku || p.data.sku || '',
             supplierProductUrl: p.privateData.supplierProductUrl || '',
             supplierCostPrice: Number(p.privateData.supplierCostPrice ?? p.privateData.costPrice ?? 0),
-          });
+          };
+          orderItems.push(item);
+          itemSeller.set(item, String(p.data.sellerId || HOUSE_SELLER_ID));
         }
         merchandiseSubtotal = Number(merchandiseSubtotal.toFixed(2));
 
@@ -2650,23 +2682,47 @@ app.post('/api/orders/create', async (req, res) => {
         }
         discount = Number(discount.toFixed(2));
 
-        // Step F: Recalculate shipping using existing ShippingCalculationService
+        // Step F: Split the cart into one order per seller (each seller ships their own parcel), with
+        // its own shipping fee, its share of the coupon discount, tax, commission and seller earning.
         const isQuoteRequest = paymentMethod === 'MANUAL_QUOTE';
-        const shippingCalc = ShippingCalculationService.calculate({
-          destinationCountryIso: isDomestic ? 'PK' : (destCountryIso || 'PK'),
-          items: orderItems as any,
-          catalogProducts: productDocs.map((p) => p.data),
-          settings: (storeSettings as any) || DEFAULT_SETTINGS,
-          hasFreeShippingCoupon,
-          merchandiseSubtotalPkr: merchandiseSubtotal,
-          discountPkr: discount,
-        });
-
-        const shippingFee = isQuoteRequest ? 0 : Number(shippingCalc.finalShippingFee.toFixed(2));
-        const taxable = Math.max(0, merchandiseSubtotal - discount);
         const taxRate = isDomestic ? (Number(storeSettings?.taxRate) || 0) : 0;
-        const tax = Number(((taxable * taxRate) / 100).toFixed(2));
-        const total = Number((taxable + tax + shippingFee).toFixed(2));
+        const groups = sellerIds.map((sid) => {
+          const groupItems = orderItems.filter((it) => itemSeller.get(it) === sid);
+          const groupSubtotal = Number(groupItems.reduce((s, it) => s + it.price * it.quantity, 0).toFixed(2));
+          const groupDiscount =
+            merchandiseSubtotal > 0 ? Number(((discount * groupSubtotal) / merchandiseSubtotal).toFixed(2)) : 0;
+          const groupProducts = productDocs.filter((p) => String(p.data.sellerId || HOUSE_SELLER_ID) === sid).map((p) => p.data);
+          const calc = ShippingCalculationService.calculate({
+            destinationCountryIso: isDomestic ? 'PK' : (destCountryIso || 'PK'),
+            items: groupItems as any,
+            catalogProducts: groupProducts,
+            settings: (storeSettings as any) || DEFAULT_SETTINGS,
+            hasFreeShippingCoupon,
+            merchandiseSubtotalPkr: groupSubtotal,
+            discountPkr: groupDiscount,
+          });
+          const groupShipping = isQuoteRequest ? 0 : Number(calc.finalShippingFee.toFixed(2));
+          const groupTaxable = Math.max(0, groupSubtotal - groupDiscount);
+          const groupTax = Number(((groupTaxable * taxRate) / 100).toFixed(2));
+          const groupTotal = Number((groupTaxable + groupTax + groupShipping).toFixed(2));
+          const info = sellerInfo.get(sid)!;
+          const commissionAmount = Number(((groupTaxable * info.commissionPercent) / 100).toFixed(2));
+          return {
+            sellerId: sid,
+            sellerName: info.shopName,
+            items: groupItems,
+            subtotal: groupSubtotal,
+            discount: groupDiscount,
+            shippingFee: groupShipping,
+            tax: groupTax,
+            total: groupTotal,
+            calc,
+            commissionPercent: info.commissionPercent,
+            commissionAmount,
+            // The seller ships the parcel, so the shipping fee is theirs; the store keeps the commission
+            sellerEarning: Number((groupTaxable - commissionAmount + groupShipping).toFixed(2)),
+          };
+        });
 
         // Step G: Decrement stock for each product
         const now = new Date().toISOString();
@@ -2682,10 +2738,9 @@ app.post('/api/orders/create', async (req, res) => {
           transaction.update(couponRef, { usedCount: FieldValue.increment(1) });
         }
 
-        // Step H: Generate unique order number & guest tracking token
-        const orderNumber = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
-        const orderId = `ord-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+        // Step H: Guest tracking token (shared by the orders of this checkout) and checkout id
         const orderAccessToken = crypto.randomBytes(24).toString('hex');
+        const checkoutId = `chk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
         // Step I: Enforce status rules:
         // New orders start as PENDING_CONFIRMATION for admin confirmation verification before supplier dispatch.
@@ -2716,66 +2771,83 @@ app.post('/api/orders/create', async (req, res) => {
               .filter(Boolean)
               .join(', ') + ` (Phone: ${cleanPhone})`;
 
-        // Supplier name/cost per item is admin-only and goes to order_private
-        const { publicItems, privateItems } = splitOrderItemsPrivate(orderItems);
+        const created: Array<{ order: Order; ownerOrder: Order }> = [];
+        for (const g of groups) {
+          const orderNumber = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
+          const orderId = `ord-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+          // Supplier name/cost per item is admin-only and goes to order_private
+          const { publicItems, privateItems } = splitOrderItemsPrivate(g.items);
 
-        const orderData: Order = {
-          id: orderId,
-          orderNumber,
-          userId: userId || null,
-          orderAccessToken,
-          items: publicItems,
-          customerName: (customerName || req.body.name || '').toString().trim(),
-          customerEmail: (customerEmail || req.body.email || '').toString().trim().toLowerCase(),
-          customerPhone: cleanPhone,
-          destCountryIso: isDomestic ? 'PK' : (destCountryIso || 'PK'),
-          status: initialStatus,
-          paymentStatus: initialPaymentStatus,
-          paymentMethod: paymentMethod as any,
-          ...((tid || req.body.paymentReference) ? { paymentReference: String(tid || req.body.paymentReference).trim() } : {}),
-          subtotal: merchandiseSubtotal,
-          discount,
-          tax,
-          shippingFee,
-          total,
-          currency: 'PKR',
-          exchangeRateSnapshot: Number(storeSettings?.usdToPkrRate) || 278.5,
-          ...(couponData ? { couponCode: couponData.code } : {}),
-          shippingAddressSummary: fullAddressSummary,
-          shippingCalculationSnapshot: ShippingCalculationService.createSnapshot(shippingCalc),
-          district: district || city,
-          tehsil: tehsil || '',
-          notes: (notes || `[Items: ${orderItems.map((i) => `${i.sku}x${i.quantity}`).join(', ')}] | [Method: ${paymentMethod}${tid ? ` · TID: ${tid}` : ''}]`).slice(0, 950),
-          createdAt: now,
-          updatedAt: now,
-        };
+          const orderData: Order = {
+            id: orderId,
+            orderNumber,
+            userId: userId || null,
+            orderAccessToken,
+            checkoutId,
+            sellerId: g.sellerId,
+            sellerName: g.sellerName,
+            items: publicItems,
+            customerName: (customerName || req.body.name || '').toString().trim(),
+            customerEmail: (customerEmail || req.body.email || '').toString().trim().toLowerCase(),
+            customerPhone: cleanPhone,
+            destCountryIso: isDomestic ? 'PK' : (destCountryIso || 'PK'),
+            status: initialStatus,
+            paymentStatus: initialPaymentStatus,
+            paymentMethod: paymentMethod as any,
+            ...((tid || req.body.paymentReference) ? { paymentReference: String(tid || req.body.paymentReference).trim() } : {}),
+            subtotal: g.subtotal,
+            discount: g.discount,
+            tax: g.tax,
+            shippingFee: g.shippingFee,
+            total: g.total,
+            currency: 'PKR',
+            exchangeRateSnapshot: Number(storeSettings?.usdToPkrRate) || 278.5,
+            ...(couponData ? { couponCode: couponData.code } : {}),
+            shippingAddressSummary: fullAddressSummary,
+            shippingCalculationSnapshot: ShippingCalculationService.createSnapshot(g.calc),
+            district: district || city,
+            tehsil: tehsil || '',
+            notes: (notes || `[Items: ${g.items.map((i) => `${i.sku}x${i.quantity}`).join(', ')}] | [Method: ${paymentMethod}${tid ? ` · TID: ${tid}` : ''}]`).slice(0, 950),
+            createdAt: now,
+            updatedAt: now,
+          };
 
-        const orderRef = adminDb.collection('orders').doc(orderId);
-        // Stock was just taken for this order's items; the tracking history starts here
-        transaction.set(orderRef, {
-          ...orderData,
-          stockReleased: false,
-          trackingEvents: [
-            {
-              at: now,
-              status: orderData.status,
-              note: STATUS_EVENT_NOTES[orderData.status] || 'Order received.',
-            },
-          ],
-        });
-        transaction.set(adminDb.collection('order_private').doc(orderId), {
-          orderId,
-          items: privateItems,
-          updatedAt: now,
-        });
+          const orderRef = adminDb.collection('orders').doc(orderId);
+          // Stock was just taken for this order's items; the tracking history starts here
+          transaction.set(orderRef, {
+            ...orderData,
+            stockReleased: false,
+            trackingEvents: [
+              {
+                at: now,
+                status: orderData.status,
+                note:
+                  (STATUS_EVENT_NOTES[orderData.status] || 'Order received.') +
+                  (groups.length > 1 ? ` Shipped separately by ${g.sellerName}.` : ''),
+              },
+            ],
+          });
+          // Admin/seller-only money details stay out of the customer-readable order
+          transaction.set(adminDb.collection('order_private').doc(orderId), {
+            orderId,
+            items: privateItems,
+            sellerId: g.sellerId,
+            commissionPercent: g.commissionPercent,
+            commissionAmount: g.commissionAmount,
+            sellerEarning: g.sellerEarning,
+            updatedAt: now,
+          });
+          // Full item details (with supplier info) are used only for the store owner's email
+          created.push({ order: orderData, ownerOrder: { ...orderData, items: g.items } });
+        }
 
         return {
-          orderId,
-          orderNumber,
+          orderId: created[0].order.id,
+          orderNumber: created[0].order.orderNumber,
           orderAccessToken,
-          order: orderData,
-          // Full item details (with supplier info) are used only for the store owner's email
-          ownerOrder: { ...orderData, items: orderItems },
+          order: created[0].order,
+          ownerOrder: created[0].ownerOrder,
+          created,
         };
       });
     } catch (txnError: any) {
@@ -2783,7 +2855,8 @@ app.post('/api/orders/create', async (req, res) => {
       const isValidationError =
         txnError?.message?.includes('not found in catalog') ||
         txnError?.message?.includes('not active') ||
-        txnError?.message?.includes('Insufficient stock');
+        txnError?.message?.includes('Insufficient stock') ||
+        txnError?.message?.includes('seller in your cart');
 
       if (isValidationError) {
         return res.status(400).json({ error: txnError.message });
@@ -2813,16 +2886,18 @@ app.post('/api/orders/create', async (req, res) => {
           currency: result.order.currency,
         };
 
-        try {
-          await sendOrderPlacedCustomerEmail(adminDb, result.order, emailSettings);
-        } catch (custErr) {
-          console.error('[Order Placed Customer Email Error]:', custErr);
-        }
-
-        try {
-          await sendOrderPlacedOwnerEmail(adminDb, result.ownerOrder || result.order, emailSettings);
-        } catch (ownerErr) {
-          console.error('[Order Placed Owner Email Error]:', ownerErr);
+        // One email per order (each seller's order is shipped and tracked on its own)
+        for (const c of result.created) {
+          try {
+            await sendOrderPlacedCustomerEmail(adminDb, c.order, emailSettings);
+          } catch (custErr) {
+            console.error('[Order Placed Customer Email Error]:', custErr);
+          }
+          try {
+            await sendOrderPlacedOwnerEmail(adminDb, c.ownerOrder, emailSettings);
+          } catch (ownerErr) {
+            console.error('[Order Placed Owner Email Error]:', ownerErr);
+          }
         }
       })().catch((err) => console.error('[Order Placed Email Async Exception]:', err));
     }
@@ -2833,6 +2908,8 @@ app.post('/api/orders/create', async (req, res) => {
       orderAccessToken: result.orderAccessToken,
       orderId: result.orderId,
       order: result.order,
+      // All orders of this checkout (one per seller)
+      orders: result.created.map((c) => c.order),
       trackingUrl: `/track?order=${result.orderNumber}&token=${result.orderAccessToken}`,
     });
   } catch (err: any) {
@@ -3137,6 +3214,10 @@ app.post('/api/orders/cancel', async (req, res) => {
 });
 
 // 6.4. POST /api/orders/update-status (Authoritative Status Transitions & Real Resend Notifications)
+// Marketplace: products without a sellerId belong to the store itself (the "house" seller)
+const HOUSE_SELLER_ID = 'house';
+const DEFAULT_COMMISSION_PERCENT = 10;
+
 // Every status change goes through applyOrderStatusWithStock, which keeps product stock in step
 // with the order. Each order records in `stockReleased` whether its items are back in stock:
 // - these statuses put the items back (once): the order no longer needs them
@@ -3246,6 +3327,18 @@ async function applyOrderStatusWithStock(
     return { restored: restore, retaken: retake };
   });
 }
+
+// Seller Center API and admin seller/payout management
+registerMarketplaceRoutes(app, {
+  adminDb,
+  requireAuth,
+  requireAdmin,
+  applyOrderStatusWithStock: (ref, updates) => applyOrderStatusWithStock(ref, updates as any),
+  appendTrackingEvent,
+  isInsufficientStockError: (err) => err instanceof InsufficientStockError,
+  HOUSE_SELLER_ID,
+  DEFAULT_COMMISSION_PERCENT,
+});
 
 app.post('/api/orders/update-status', requireAdmin, async (req, res) => {
   const { orderId, orderNumber, status, trackingNumber, carrier, courierName, reason } = req.body;

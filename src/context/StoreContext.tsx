@@ -192,7 +192,8 @@ interface StoreContextValue {
       authType?: 'MPIN' | 'PASSWORD' | 'OTP' | '3DS';
       verified?: boolean;
     };
-  }) => Promise<Order>;
+    // splitOrders: every order of this checkout (one per seller); the first is also returned itself
+  }) => Promise<Order & { splitOrders: Order[]; orderAccessToken?: string }>;
   verifyManualPayment: (orderId: string, action: 'APPROVE' | 'REJECT', note?: string) => Promise<void>;
   updateShippingQuote: (orderId: string, payload: {
     quoteAmount: number;
@@ -992,6 +993,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     const createdOrder: Order = resData.order;
+    // A cart with items from several sellers becomes one order per seller
+    const splitOrders: Order[] = Array.isArray(resData.orders) && resData.orders.length > 0 ? resData.orders : [createdOrder];
 
     // Persist guest tracking credentials in localStorage so guests can track anytime
     if (resData.orderAccessToken) {
@@ -1006,21 +1009,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       } catch {}
     }
 
-    // Update local state with the authoritative server-created order
+    // Update local state with the authoritative server-created orders
     setOrders((prev) => {
-      const exists = prev.some((o) => o.id === createdOrder.id || o.orderNumber === createdOrder.orderNumber);
-      return exists ? prev : [createdOrder, ...prev];
+      const fresh = splitOrders.filter((n) => !prev.some((o) => o.id === n.id || o.orderNumber === n.orderNumber));
+      return fresh.length ? [...fresh, ...prev] : prev;
     });
 
     // Notify user of order submission
+    const grandTotal = splitOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
     await pushNotification(
       'NEW_ORDER',
-      `Order ${createdOrder.orderNumber} Recorded`,
-      `${payload.customerName} submitted an order for ${settings.currency} ${createdOrder.total.toLocaleString()}.`
+      `Order ${splitOrders.map((o) => o.orderNumber).join(', ')} Recorded`,
+      `${payload.customerName} submitted an order for ${settings.currency} ${grandTotal.toLocaleString()}.`
     );
 
     clearCart();
-    return createdOrder;
+    return { ...createdOrder, splitOrders, orderAccessToken: resData.orderAccessToken };
   };
 
   // Verify Manual Payment Workflow (Admin Only, Server and Local State Synchronized)
@@ -1377,6 +1381,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       reviewCount: Math.round(Number(input.reviewCount ?? existingProd?.reviewCount ?? 0)),
       weightKg: Number(input.weightKg ?? existingProd?.weightKg ?? 0.8),
       dimensions: (input.dimensions || existingProd?.dimensions || '30cm x 20cm x 10cm').slice(0, 95),
+      // A marketplace seller's product stays theirs when the store edits it
+      ...((input.sellerId ?? existingProd?.sellerId)
+        ? {
+            sellerId: (input.sellerId ?? existingProd?.sellerId) as string,
+            sellerName: ((input.sellerName ?? existingProd?.sellerName) || '') as string,
+          }
+        : {}),
       createdAt: existingProd?.createdAt || now,
       updatedAt: now,
     };

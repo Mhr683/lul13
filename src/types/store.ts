@@ -16,6 +16,45 @@ export interface UserProfile {
   updatedAt?: string;
 }
 
+export type SellerStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+
+/** Marketplace seller shop (sellers/{ownerUid}) */
+export interface SellerShop {
+  id: string;
+  ownerUid: string;
+  ownerEmail: string;
+  ownerName: string;
+  shopName: string;
+  phone: string;
+  city: string;
+  status: SellerStatus;
+  statusReason?: string;
+  /** Overrides the store's default commission for this seller */
+  commissionPercent?: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/** Seller details only the seller and the store admins can see (seller_private/{ownerUid}) */
+export interface SellerPrivate {
+  cnic: string;
+  address: string;
+  bankName: string;
+  accountTitle: string;
+  accountNumber: string;
+}
+
+export interface SellerPayout {
+  id: string;
+  sellerId: string;
+  amount: number;
+  orderIds: string[];
+  reference: string;
+  note?: string;
+  paidAt: string;
+  paidBy: string;
+}
+
 export interface ProductVariant {
   id: string;
   sku: string;
@@ -61,6 +100,9 @@ export interface Product {
   subcategory?: string;
   brand: string;
   status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
+  /** Marketplace seller that sells and ships this product (absent = the store itself) */
+  sellerId?: string;
+  sellerName?: string;
   featured?: boolean;
   bestSeller?: boolean;
   newArrival?: boolean;
@@ -256,6 +298,10 @@ export interface Order {
   cancelledAt?: string;
   /** Set by the server: true while this order's items are back in stock (cancelled/returned) */
   stockReleased?: boolean;
+  /** Seller who ships this order; one checkout creates one order per seller */
+  sellerId?: string;
+  sellerName?: string;
+  checkoutId?: string;
   /** Tracking history (oldest first), written by the server */
   trackingEvents?: OrderTrackingEvent[];
   confirmedByCustomer?: boolean;
@@ -445,6 +491,8 @@ export interface StoreSettings {
   bankIban?: string;
   bankTransferInstructions?: string;
   guestCheckoutEnabled?: boolean;
+  /** Default commission the store keeps on each seller sale (percent of the item amount) */
+  marketplaceCommissionPercent?: number;
   googleMapsApiKey?: string;
   aiTone?: 'Professional' | 'Premium' | 'Friendly' | 'Minimal' | 'Luxury' | 'Persuasive';
   // 24/7 Client Helpline & Concierge Configuration

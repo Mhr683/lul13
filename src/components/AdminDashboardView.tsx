@@ -44,12 +44,14 @@ import {
   CheckCircle2,
   MessageCircle,
   Menu,
+  Store,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AdminTeamPanel } from './AdminTeamPanel';
 import { StoreTextsPanel } from './StoreTextsPanel';
 import { BackupRestorePanel } from './BackupRestorePanel';
+import { AdminSellersPanel } from './AdminSellersPanel';
 import {
   Product,
   Order,
@@ -93,7 +95,8 @@ type AdminTab =
   | 'AI_TASKS'
   | 'AUDIT_LOGS'
   | 'NOTIFICATIONS'
-  | 'SETTINGS';
+  | 'SETTINGS'
+  | 'SELLERS';
 
 interface PendingConfirmation {
   id: string;
@@ -2565,6 +2568,7 @@ export const AdminDashboardView: React.FC<{
                 { id: 'AI_TASKS', label: 'AI Background Tasks', icon: Cpu },
                 { id: 'AUDIT_LOGS', label: 'Security Audit Log', icon: ShieldAlert },
                 { id: 'NOTIFICATIONS', label: 'Inbox', icon: Inbox },
+                { id: 'SELLERS', label: 'Sellers & Payouts', icon: Store },
                 { id: 'SETTINGS', label: 'Store & AI Settings', icon: Settings },
               ] as { id: AdminTab; label: string; icon: any }[]
             ).map((item) => {
@@ -4575,6 +4579,11 @@ export const AdminDashboardView: React.FC<{
                           <div className="text-[10px] text-[#575653] font-normal">
                             {ord.createdAt.slice(0, 10)}
                           </div>
+                          {ord.sellerId && ord.sellerId !== 'house' && (
+                            <div className="mt-1 text-[10px] font-semibold text-violet-800" title="Ye order seller khud bhejega">
+                              Seller: {ord.sellerName || ord.sellerId}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 max-w-xs">
                           <div className="text-[#141413] font-medium">{ord.customerName}</div>
@@ -6568,6 +6577,8 @@ export const AdminDashboardView: React.FC<{
           )}
 
           {/* ======================== TAB 12: STORE, MERCHANT, PAYMENT & LOGISTICS SETTINGS ======================== */}
+          {activeTab === 'SELLERS' && <AdminSellersPanel />}
+
           {activeTab === 'SETTINGS' && (
             <div className="max-w-4xl bg-white border border-black/15 p-6 sm:p-8 space-y-8">
               <div>

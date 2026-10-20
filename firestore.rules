@@ -73,8 +73,11 @@ service cloud.firestore {
           'lowStockThreshold', 'category', 'subcategory', 'brand', 'status',
           'featured', 'bestSeller', 'newArrival', 'seoTitle', 'seoDescription',
           'seoKeywords', 'primaryImage', 'rating', 'reviewCount', 'weightKg',
-          'dimensions', 'createdAt', 'updatedAt'
+          'dimensions', 'createdAt', 'updatedAt', 'sellerId', 'sellerName', 'suspendedHidden'
         ]) &&
+        (!('sellerId' in data) || (data.sellerId is string && data.sellerId.size() <= 128)) &&
+        (!('sellerName' in data) || (data.sellerName is string && data.sellerName.size() <= 80)) &&
+        (!('suspendedHidden' in data) || data.suspendedHidden is bool) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
         data.sku is string && data.sku.size() >= 1 && data.sku.size() <= 64 && data.sku.matches('^[a-zA-Z0-9_\\-]+$') &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
@@ -128,6 +131,7 @@ service cloud.firestore {
           'couponCode', 'shippingAddressSummary', 'shippingCalculationSnapshot',
           'trackingNumber', 'courierName', 'shipments', 'confirmedByCustomer', 'confirmedAt', 'confirmedBy',
           'cancellationReason', 'cancelledAt', 'stockReleased', 'trackingEvents',
+          'sellerId', 'sellerName', 'checkoutId',
           'quoteAmount', 'quoteCourier', 'quoteEstimatedDays',
           'quoteCustomsMode', 'quoteAdminNotes', 'quoteExpiresAt', 'district', 'tehsil', 'city', 'notes', 'createdAt', 'updatedAt'
         ]) &&
@@ -447,6 +451,21 @@ service cloud.firestore {
     }
     match /admin_invites/{email} {
       allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    // Marketplace: seller shops, their private details and payouts. Written only by the server;
+    // a seller can read their own records, admins can read all.
+    match /sellers/{sellerUid} {
+      allow read: if isSignedIn() && (request.auth.uid == sellerUid || isAdmin());
+      allow write: if false;
+    }
+    match /seller_private/{sellerUid} {
+      allow read: if isSignedIn() && (request.auth.uid == sellerUid || isAdmin());
+      allow write: if false;
+    }
+    match /payouts/{payoutId} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.sellerId == request.auth.uid);
       allow write: if false;
     }
 
