@@ -25,7 +25,7 @@
 
   /* Anokha wordmark (BrandLogo) */
   .font-brand {
-    font-family: 'Playfair Display', var(--font-serif);
+    font-family: 'Poppins', var(--font-sans);
   }
 
   .font-mono, .tabular-nums {
