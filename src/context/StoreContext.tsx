@@ -55,6 +55,8 @@ function friendlyAuthError(error: any): string {
 
 // The Seller Center app (/seller) is a separate app and loads none of the store / admin data
 const SELLER_PORTAL = portalFromLocation() === 'SELLER';
+// When the catalog was last fetched from the server (skips a second download right after startup)
+let lastCatalogLoad = 0;
 
 // Profile confirmed on the previous visit (UI hint only, see the userProfile state below)
 const PROFILE_CACHE_KEY = 'store_profile_cache_v1';
@@ -380,7 +382,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [categories]);
 
-  // 0. Persistent Server Catalog Hydration
+  // 0. Persistent Server Catalog Hydration (categories and settings follow in effect 2)
   useEffect(() => {
     const hydrateServerCatalog = async () => {
       // Seller Center loads only the seller's own products through its own API
@@ -389,6 +391,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (prodRes.ok) {
           const prodData = await prodRes.json();
           if (Array.isArray(prodData.products)) {
+            lastCatalogLoad = Date.now();
             setProducts(prodData.products);
             try {
               localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(prodData.products));
@@ -397,21 +400,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       } catch (e) {
         console.warn('Server catalog hydration fallback:', e);
-      }
-
-      try {
-        const catRes = await fetch('/api/catalog/categories');
-        if (catRes.ok) {
-          const catData = await catRes.json();
-          if (Array.isArray(catData.categories)) {
-            setCategories(catData.categories);
-            try {
-              localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(catData.categories));
-            } catch {}
-          }
-        }
-      } catch (e) {
-        console.warn('Server categories hydration fallback:', e);
       }
     };
 
@@ -495,31 +483,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     else if (!firebaseUser && !userProfile) writeCachedProfile(null);
   }, [authReady, firebaseUser, userProfile]);
 
-  // 2. Public Catalog Listeners (Products, Categories, Coupons, Approved Reviews, Settings)
+  // 2. Catalog, categories, coupons, approved reviews and store settings
+  //
+  // Everything customers and Seller Center see comes from the server's in-memory copy, so a visit
+  // costs no Firestore reads. Only admins, who edit categories, coupons, reviews and settings, keep
+  // live Firestore listeners for those (small collections). When the server cannot answer, the data
+  // already on screen / saved on this device stays; there is no fallback that reads every product
+  // from Firestore per visitor.
   useEffect(() => {
     if (!authReady) return;
-
-    // Seller Center only needs the store settings and category names; its products, orders and
-    // earnings come from /api/seller/*. Even when the seller is also a store admin, the admin
-    // listeners (whole catalog, 1000 orders, ...) are not started there.
-    if (SELLER_PORTAL) {
-      const unsubCats = onSnapshot(
-        query(collection(db, 'categories'), where('slug', '>=', '')),
-        (snap) => setCategories(snap.docs.map((d) => d.data() as Category)),
-        () => {}
-      );
-      const unsubCfg = onSnapshot(
-        doc(db, 'settings', 'store_config'),
-        (snap) => {
-          if (snap.exists()) setSettings(snap.data() as StoreSettings);
-        },
-        () => {}
-      );
-      return () => {
-        unsubCats();
-        unsubCfg();
-      };
-    }
+    let cancelled = false;
+    const timers: ReturnType<typeof setInterval>[] = [];
+    const unsubs: (() => void)[] = [];
 
     const applyProducts = (list: Product[]) => {
       setProducts(list);
@@ -527,21 +502,37 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(list));
       } catch {}
     };
-    const listenToFirestoreProducts = () =>
-      onSnapshot(
-        isAdmin ? collection(db, 'products') : query(collection(db, 'products'), where('status', '==', 'ACTIVE')),
-        (snap) => applyProducts(snap.docs.map((d) => d.data() as Product)),
-        (err) => console.warn('Products listener error:', err.message)
-      );
+    const applyCategories = (list: Category[]) => {
+      setCategories(list);
+      try {
+        localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(list));
+      } catch {}
+    };
+    const applySettings = (data: StoreSettings) => {
+      setSettings(data);
+      try {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(data));
+      } catch {}
+    };
 
-    // Everyone reads the catalog from the server's in-memory copy (no Firestore reads per visit; the
-    // free database allows 50,000 reads a day). Admins get every product with its supplier data,
-    // refreshed every minute and whenever the app comes back to the foreground. A direct Firestore
-    // listener is only the fallback when the server cannot serve it.
-    let unsubProducts: () => void = () => {};
-    let refreshTimer: ReturnType<typeof setInterval> | null = null;
-    let cancelled = false;
-    const refresh = async () => {
+    const loadBootstrap = async () => {
+      try {
+        const res = await fetch('/api/catalog/bootstrap');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.settings) applySettings(data.settings as StoreSettings);
+        if (Array.isArray(data.categories)) applyCategories(data.categories as Category[]);
+        if (!isAdmin) {
+          if (Array.isArray(data.coupons)) setCoupons(data.coupons as Coupon[]);
+          if (Array.isArray(data.reviews)) setReviews(data.reviews as Review[]);
+        }
+      } catch (err) {
+        console.warn('Store data unavailable, keeping what is on screen:', err);
+      }
+    };
+
+    const loadProducts = async () => {
       try {
         const headers: Record<string, string> = {};
         if (isAdmin) {
@@ -551,84 +542,62 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const res = await fetch('/api/catalog/products', { headers, cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        if (!cancelled && Array.isArray(data.products)) applyProducts(data.products as Product[]);
+        if (!cancelled && Array.isArray(data.products)) {
+          lastCatalogLoad = Date.now();
+          applyProducts(data.products as Product[]);
+        }
       } catch (err) {
-        if (cancelled || refreshTimer === null) return;
-        console.warn('Server catalog unavailable, using Firestore listener:', err);
-        clearInterval(refreshTimer);
-        refreshTimer = null;
-        unsubProducts = listenToFirestoreProducts();
+        console.warn('Catalog unavailable, keeping the products on screen:', err);
       }
     };
-    refreshTimer = setInterval(refresh, isAdmin ? 60_000 : 120_000);
-    refresh();
+
+    // Seller Center needs only the settings and category names (its products come from /api/seller)
+    if (!SELLER_PORTAL) {
+      // The catalog was usually just loaded at startup; admins need theirs (with drafts) right away
+      if (isAdmin || Date.now() - lastCatalogLoad > 60_000) loadProducts();
+      timers.push(setInterval(loadProducts, isAdmin ? 60_000 : 120_000));
+    }
+    loadBootstrap();
+    timers.push(setInterval(loadBootstrap, 5 * 60_000));
+
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && refreshTimer) refresh();
+      if (document.visibilityState !== 'visible') return;
+      if (!SELLER_PORTAL && Date.now() - lastCatalogLoad > 60_000) loadProducts();
     };
     document.addEventListener('visibilitychange', onVisible);
 
-    // Admins edit categories and see them live; customers use the server's copy loaded at startup
-    const unsubCategories = isAdmin
-      ? onSnapshot(
+    if (isAdmin && !SELLER_PORTAL) {
+      unsubs.push(
+        onSnapshot(
           query(collection(db, 'categories'), where('slug', '>=', '')),
+          (snap) => applyCategories(snap.docs.map((d) => d.data() as Category)),
+          () => {}
+        ),
+        onSnapshot(
+          collection(db, 'coupons'),
+          (snap) => setCoupons(snap.docs.map((d) => d.data() as Coupon)),
+          () => {}
+        ),
+        onSnapshot(
+          collection(db, 'reviews'),
+          (snap) => setReviews(snap.docs.map((d) => d.data() as Review)),
+          () => {}
+        ),
+        onSnapshot(
+          doc(db, 'settings', 'store_config'),
           (snap) => {
-            const list = snap.docs.map((d) => d.data() as Category);
-            setCategories(list);
-            try {
-              localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(list));
-            } catch {}
+            if (snap.exists()) applySettings(snap.data() as StoreSettings);
           },
           () => {}
         )
-      : () => {};
-
-    const coupQuery = isAdmin
-      ? collection(db, 'coupons')
-      : query(collection(db, 'coupons'), where('active', '==', true));
-
-    const unsubCoupons = onSnapshot(
-      coupQuery,
-      (snap) => {
-        setCoupons(snap.docs.map((d) => d.data() as Coupon));
-      },
-      () => {}
-    );
-
-    const revQuery = isAdmin
-      ? collection(db, 'reviews')
-      : query(collection(db, 'reviews'), where('status', '==', 'APPROVED'));
-
-    const unsubReviews = onSnapshot(
-      revQuery,
-      (snap) => {
-        setReviews(snap.docs.map((d) => d.data() as Review));
-      },
-      () => {}
-    );
-
-    const unsubSettings = onSnapshot(
-      doc(db, 'settings', 'store_config'),
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data() as StoreSettings;
-          setSettings(data);
-          try {
-            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(data));
-          } catch {}
-        }
-      },
-      () => {}
-    );
+      );
+    }
 
     return () => {
       cancelled = true;
-      if (refreshTimer) clearInterval(refreshTimer);
+      timers.forEach(clearInterval);
       document.removeEventListener('visibilitychange', onVisible);
-      unsubProducts();
-      unsubCategories();
-      unsubCoupons();
-      unsubReviews();
-      unsubSettings();
+      unsubs.forEach((u) => u());
     };
   }, [authReady, isAdmin]);
 

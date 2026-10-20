@@ -30,6 +30,7 @@ import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus, OrderShipment }
 import { ShippingCalculationService, generateCourierTrackingUrl } from './src/services/shippingService';
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
+import { createCatalogStore } from './server/catalogStore';
 import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
@@ -141,13 +142,19 @@ const ALLOWED_ADMIN_ROLES = [
 // and the owner set from the admin panel (admin_config/owner). Email must be verified.
 const DEFAULT_OWNER_EMAIL = (process.env.ADMIN_OWNER_EMAIL || BUILT_IN_OWNER_EMAILS[0]).trim().toLowerCase();
 
+// Remembered for 5 minutes (cleared when the admin team changes)
+let ownerEmailCache: { email: string; at: number } | null = null;
 async function getOwnerEmail(): Promise<string> {
+  if (ownerEmailCache && Date.now() - ownerEmailCache.at < 5 * 60 * 1000) return ownerEmailCache.email;
+  let email = DEFAULT_OWNER_EMAIL;
   try {
     const snap = await adminDb.collection('admin_config').doc('owner').get();
-    const email = String(snap.data()?.email || '').trim().toLowerCase();
-    if (email) return email;
-  } catch {}
-  return DEFAULT_OWNER_EMAIL;
+    email = String(snap.data()?.email || '').trim().toLowerCase() || DEFAULT_OWNER_EMAIL;
+  } catch {
+    return email;
+  }
+  ownerEmailCache = { email, at: Date.now() };
+  return email;
 }
 
 async function isOwnerEmail(email: string): Promise<boolean> {
@@ -167,7 +174,20 @@ interface DecodedAuthUser {
 // Works out a signed-in user's role and keeps users/{uid} in sync.
 // Admin roles are only granted to verified emails: the owner email, or an email a
 // SUPER_ADMIN invited from the admin panel (admin_invites/{email}).
+// Every admin request needs the caller's role; remember it for 5 minutes instead of reading the
+// user's profile on each request (the team routes clear this when admins change)
+const roleCache = new Map<string, { role: string; email: string; at: number }>();
+const ROLE_CACHE_MS = 5 * 60 * 1000;
 async function resolveUserRole(decoded: DecodedAuthUser): Promise<string> {
+  const email = String(decoded.email || '').trim().toLowerCase();
+  const hit = roleCache.get(decoded.uid);
+  if (hit && hit.email === email && Date.now() - hit.at < ROLE_CACHE_MS) return hit.role;
+  const role = await resolveUserRoleFresh(decoded);
+  roleCache.set(decoded.uid, { role, email, at: Date.now() });
+  return role;
+}
+
+async function resolveUserRoleFresh(decoded: DecodedAuthUser): Promise<string> {
   const email = String(decoded.email || '').trim().toLowerCase();
   const verified = Boolean(decoded.email_verified);
   const userRef = adminDb.collection('users').doc(decoded.uid);
@@ -354,6 +374,9 @@ async function getOptionalUser(
 const app = express();
 const PORT = 3000;
 
+// Behind Cloud Run / AI Studio's proxy: take the visitor's address from X-Forwarded-For (one hop),
+// so per-visitor limits do not lump every customer together
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
 
 app.use((_req, res, next) => {
@@ -371,7 +394,9 @@ app.post('/api/auth/sync', requireAuth, async (req, res) => {
   try {
     const authHeader = String(req.headers.authorization || '');
     const decoded = await admin.auth().verifyIdToken(authHeader.slice(7).trim());
-    const role = await resolveUserRole(decoded);
+    // Sign-in: always the fresh role (this is where admin invites are applied)
+    const role = await resolveUserRoleFresh(decoded);
+    roleCache.set(decoded.uid, { role, email: String(decoded.email || '').trim().toLowerCase(), at: Date.now() });
     const snap = await adminDb.collection('users').doc(decoded.uid).get();
     res.json({ success: true, role, profile: snap.data(), emailVerified: Boolean(decoded.email_verified) });
   } catch (err) {
@@ -382,6 +407,16 @@ app.post('/api/auth/sync', requireAuth, async (req, res) => {
 
 const normalizeEmail = (value: unknown) => String(value || '').trim().toLowerCase();
 const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+// Any change to the admin team takes effect at once (forget the remembered roles)
+app.use('/api/admin/team', (req, res, next) => {
+  if (req.method !== 'GET')
+    res.on('finish', () => {
+      roleCache.clear();
+      ownerEmailCache = null;
+    });
+  next();
+});
 
 // Owner, current admins and pending admin invites
 app.get('/api/admin/team', requireSuperAdmin, async (_req, res) => {
@@ -489,6 +524,30 @@ function checkRateLimit(ip: string, maxRequests = 45, windowMs = 60_000): boolea
   entry.count += 1;
   return true;
 }
+
+// Public endpoints that read Firestore get a per-IP limit, so a bot (or a stuck page) cannot use up
+// the database's daily reads
+const publicLimits = new Map<string, { count: number; resetAt: number }>();
+function limitPerIp(name: string, max: number, windowMs = 60_000) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const key = `${name}:${req.ip}`;
+    const now = Date.now();
+    const entry = publicLimits.get(key);
+    if (!entry || now > entry.resetAt) {
+      publicLimits.set(key, { count: 1, resetAt: now + windowMs });
+      if (publicLimits.size > 50_000) publicLimits.clear();
+      return next();
+    }
+    if (++entry.count > max) {
+      res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+      return res.status(429).json({ error: 'Too many requests. Please wait a minute and try again.' });
+    }
+    next();
+  };
+}
+app.use('/api/orders/track', limitPerIp('track', 20));
+app.use('/api/orders/updates', limitPerIp('updates', 20));
+app.use('/api/orders/create', limitPerIp('create', 10));
 
 // Initialize Server-Side Gemini Client with mandatory User-Agent header
 function getGenAIClient() {
@@ -1060,102 +1119,14 @@ app.post('/api/media/batch-download', requireAdmin, async (req, res) => {
 // STATELESS FIRESTORE CATALOG ENDPOINTS (Firestore is the ONLY source of truth)
 // ============================================================================
 
-// Live in-memory mirror of the public (ACTIVE) catalog. One Firestore listener reads every product
-// once and then only the changed ones, so customer visits cost no Firestore reads at all (the free
-// plan allows 50,000 reads a day; a full catalog read per visitor would exhaust that quickly).
-const publicCatalog = {
-  byId: new Map<string, any>(),
-  ready: false,
-  json: null as string | null,
-  gzip: null as Buffer | null,
-};
-// The same listener also keeps every product (drafts too) and the admin-only supplier data, so the
-// admin console reads the catalog from here instead of from Firestore on every visit.
-const fullCatalog = {
-  byId: new Map<string, any>(),
-  privateById: new Map<string, any>(),
-  ready: false,
-  privateReady: false,
-};
-const categoryMirror = { list: [] as any[], ready: false };
-
-function startPublicCatalogMirror() {
-  try {
-    adminDb.collection('products').onSnapshot(
-      (snap) => {
-        for (const change of snap.docChanges()) {
-          if (change.type === 'removed') {
-            publicCatalog.byId.delete(change.doc.id);
-            fullCatalog.byId.delete(change.doc.id);
-            continue;
-          }
-          const full = { id: change.doc.id, ...(change.doc.data() as any) };
-          fullCatalog.byId.set(change.doc.id, full);
-          if (full.status === 'ACTIVE') publicCatalog.byId.set(change.doc.id, splitProductPrivate(full).publicData);
-          else publicCatalog.byId.delete(change.doc.id);
-        }
-        publicCatalog.json = null;
-        publicCatalog.gzip = null;
-        if (!publicCatalog.ready) console.log(`[Catalog Mirror] Loaded ${fullCatalog.byId.size} products (${publicCatalog.byId.size} live).`);
-        publicCatalog.ready = true;
-        fullCatalog.ready = true;
-      },
-      (err) => {
-        console.warn('[Catalog Mirror] Listener stopped, retrying in 60s:', err?.message);
-        publicCatalog.ready = false;
-        fullCatalog.ready = false;
-        publicCatalog.byId.clear();
-        fullCatalog.byId.clear();
-        setTimeout(startPublicCatalogMirror, 60_000);
-      }
-    );
-  } catch (err: any) {
-    console.warn('[Catalog Mirror] Could not start:', err?.message);
-  }
-}
-startPublicCatalogMirror();
-
-function startPrivateCatalogMirror() {
-  try {
-    adminDb.collection('product_private').onSnapshot(
-      (snap) => {
-        for (const change of snap.docChanges()) {
-          if (change.type === 'removed') fullCatalog.privateById.delete(change.doc.id);
-          else fullCatalog.privateById.set(change.doc.id, change.doc.data());
-        }
-        fullCatalog.privateReady = true;
-      },
-      (err) => {
-        console.warn('[Supplier Mirror] Listener stopped, retrying in 60s:', err?.message);
-        fullCatalog.privateReady = false;
-        fullCatalog.privateById.clear();
-        setTimeout(startPrivateCatalogMirror, 60_000);
-      }
-    );
-  } catch (err: any) {
-    console.warn('[Supplier Mirror] Could not start:', err?.message);
-  }
-}
-startPrivateCatalogMirror();
-
-function startCategoryMirror() {
-  try {
-    adminDb.collection('categories').onSnapshot(
-      (snap) => {
-        categoryMirror.list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-        categoryMirror.ready = true;
-      },
-      (err) => {
-        console.warn('[Category Mirror] Listener stopped, retrying in 60s:', err?.message);
-        categoryMirror.ready = false;
-        setTimeout(startCategoryMirror, 60_000);
-      }
-    );
-  } catch (err: any) {
-    console.warn('[Category Mirror] Could not start:', err?.message);
-  }
-}
-startCategoryMirror();
+// Customers, Seller Center and the admin console read the catalog from this in-memory copy
+// (see server/catalogStore.ts): visits cost no Firestore reads and a new server instance loads a
+// saved copy in a few reads instead of reading every product again.
+const catalogStore = createCatalogStore(adminDb, {
+  toPublic: (p) => splitProductPrivate(p).publicData,
+  dir: path.join(process.cwd(), '.cache'),
+});
+catalogStore.start().catch((err) => console.warn('[Catalog] start failed:', err?.message));
 
 // Optional filtering / paging for large catalogs: ?q=&category=&offset=&limit=
 function filterCatalog(all: any[], query: any) {
@@ -1178,28 +1149,23 @@ function filterCatalog(all: any[], query: any) {
   return { list, total, filtered: Boolean(q || category || hasPaging) };
 }
 
+const sendJson = (req: express.Request, res: express.Response, json: string, gzip?: Buffer) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Vary', 'Accept-Encoding');
+  if (String(req.headers['accept-encoding'] || '').includes('gzip')) {
+    res.setHeader('Content-Encoding', 'gzip');
+    return res.end(gzip || zlib.gzipSync(json));
+  }
+  return res.end(json);
+};
+
+// The catalog always comes from the in-memory copy, never from Firestore per request: customers get
+// the live products, admins every product with its supplier data.
 app.get('/api/catalog/products', async (req, res) => {
   try {
-    const hasAuth = typeof (req.headers.authorization || req.headers.Authorization) === 'string';
-
-    // Public visitors are served from the in-memory mirror
-    if (!hasAuth && publicCatalog.ready) {
-      const all = Array.from(publicCatalog.byId.values());
-      const { list, total, filtered } = filterCatalog(all, req.query);
-      res.setHeader('Cache-Control', 'public, max-age=30');
-      if (filtered) return res.json({ success: true, total, products: list });
-
-      if (!publicCatalog.json) {
-        publicCatalog.json = JSON.stringify({ success: true, total, products: all });
-        publicCatalog.gzip = zlib.gzipSync(publicCatalog.json);
-      }
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.setHeader('Vary', 'Accept-Encoding');
-      if (String(req.headers['accept-encoding'] || '').includes('gzip') && publicCatalog.gzip) {
-        res.setHeader('Content-Encoding', 'gzip');
-        return res.end(publicCatalog.gzip);
-      }
-      return res.end(publicCatalog.json);
+    if (!catalogStore.ready) {
+      res.setHeader('Retry-After', '30');
+      return res.status(503).json({ error: 'The catalog is loading. Please try again in a moment.' });
     }
 
     let isAdminUser = false;
@@ -1209,82 +1175,39 @@ app.get('/api/catalog/products', async (req, res) => {
       if (token) {
         try {
           const decoded = await admin.auth().verifyIdToken(token);
-          let role: string | undefined;
-          try {
-            role = await resolveUserRole(decoded);
-          } catch {
-            try {
-              const userDoc = await clientGetDoc(clientDoc(clientDb, 'users', decoded.uid));
-              role = userDoc.data()?.role;
-            } catch {}
-          }
+          const role = await resolveUserRole(decoded).catch(() => '');
           isAdminUser = Boolean(role && ALLOWED_ADMIN_ROLES.includes(String(role).toUpperCase()));
         } catch {}
       }
     }
 
-    let products: any[] = [];
-    if (isAdminUser && fullCatalog.ready && fullCatalog.privateReady) {
-      // Every product with its supplier data, straight from memory (no Firestore reads)
-      const all = Array.from(fullCatalog.byId.values()).map((p) => mergeProductPrivate(p, fullCatalog.privateById.get(p.id)));
-      res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      const json = JSON.stringify({ success: true, total: all.length, products: all });
-      if (String(req.headers['accept-encoding'] || '').includes('gzip')) {
-        res.setHeader('Content-Encoding', 'gzip');
-        return res.end(zlib.gzipSync(json));
-      }
-      return res.end(json);
-    }
     if (isAdminUser) {
-      try {
-        const [snap, privateSnap] = await Promise.all([
-          adminDb.collection('products').get(),
-          adminDb.collection('product_private').get(),
-        ]);
-        const privateById = new Map(privateSnap.docs.map((d) => [d.id, d.data() as any]));
-        products = snap.docs.map((d) =>
-          mergeProductPrivate({ id: d.id, ...(d.data() as any) }, privateById.get(d.id))
-        );
-      } catch {
-        const q = clientQuery(
-          clientCollection(clientDb, 'products'),
-          clientWhere('status', '==', 'ACTIVE')
-        );
-        const snap = await clientGetDocs(q);
-        products = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-      }
-    } else {
-      // Public customer access: only ACTIVE products from Firestore
-      try {
-        const q = clientQuery(
-          clientCollection(clientDb, 'products'),
-          clientWhere('status', '==', 'ACTIVE')
-        );
-        const snap = await clientGetDocs(q);
-        products = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-      } catch {
-        try {
-          const snap = await adminDb.collection('products').where('status', '==', 'ACTIVE').get();
-          products = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-        } catch (readErr) {
-          console.warn('[Catalog Products] Client & admin reads failed:', readErr);
-          products = [];
-        }
-      }
-
-      // Admin-only fields MUST NEVER be exposed to public customers
-      products = products.map((p) => splitProductPrivate(p).publicData);
+      const all = catalogStore.allProducts().map((p) => mergeProductPrivate(p as any, catalogStore.supplierOf(p.id) as any));
+      res.setHeader('Cache-Control', 'no-store');
+      return sendJson(req, res, JSON.stringify({ success: true, total: all.length, products: all }));
     }
 
-    const { list, total } = filterCatalog(products, req.query);
-    return res.json({ success: true, total, products: list });
+    const { list, total, filtered } = filterCatalog(catalogStore.publicProducts(), req.query);
+    res.setHeader('Cache-Control', 'public, max-age=30');
+    if (filtered) return res.json({ success: true, total, products: list });
+    const { json, gzip } = catalogStore.publicCatalogResponse();
+    return sendJson(req, res, json, gzip);
   } catch (err: any) {
-    console.error('Firestore failed in /api/catalog/products:', err);
-    return res.status(503).json({
-      error: 'Service temporarily unavailable: unable to load product catalog from database. Please try again later.',
-    });
+    console.error('Failed in /api/catalog/products:', err);
+    return res.status(503).json({ error: 'The catalog is not available right now. Please try again later.' });
   }
+});
+
+// Store settings, active coupons and approved reviews for customers, from the same copy
+app.get('/api/catalog/bootstrap', (_req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.json({
+    success: true,
+    settings: catalogStore.settings(),
+    categories: catalogStore.categories(),
+    coupons: catalogStore.coupons(),
+    reviews: catalogStore.reviews(),
+  });
 });
 
 app.post('/api/catalog/products/batch', requireAdmin, async (req, res) => {
@@ -1301,7 +1224,8 @@ app.post('/api/catalog/products/batch', requireAdmin, async (req, res) => {
         if (p && p.id) {
           const { publicData, privateData } = splitProductPrivate(p);
           const productRef = adminDb.collection('products').doc(p.id);
-          batch.set(productRef, publicData, { merge: true });
+          // updatedAt lets the catalog copy pick up the change (it only reads changed products)
+          batch.set(productRef, { ...publicData, updatedAt: now }, { merge: true });
           // Make sure no supplier/cost field lingers on the public document
           batch.update(productRef, PRODUCT_PRIVATE_DELETE_PATCH);
           if (privateData) {
@@ -1344,7 +1268,8 @@ app.post('/api/catalog/products/save', requireAdmin, async (req, res) => {
     try {
       const productRef = adminDb.collection('products').doc(product.id);
       const batch = adminDb.batch();
-      batch.set(productRef, publicData, { merge: true });
+      // updatedAt lets the catalog copy pick up the change (it only reads changed products)
+      batch.set(productRef, { ...publicData, updatedAt: new Date().toISOString() }, { merge: true });
       batch.update(productRef, PRODUCT_PRIVATE_DELETE_PATCH);
       if (privateData) {
         batch.set(
@@ -1373,6 +1298,7 @@ app.delete('/api/catalog/products/:id', requireAdmin, async (req, res) => {
     try {
       await adminDb.collection('products').doc(id).delete();
       await adminDb.collection('product_private').doc(id).delete();
+      catalogStore.removeProduct(id);
     } catch {
       await clientDeleteDoc(clientDoc(clientDb, 'products', id));
     }
@@ -1387,9 +1313,9 @@ app.delete('/api/catalog/products/:id', requireAdmin, async (req, res) => {
 
 app.get('/api/catalog/categories', async (_req, res) => {
   try {
-    if (categoryMirror.ready) {
+    if (catalogStore.ready) {
       res.setHeader('Cache-Control', 'public, max-age=60');
-      return res.json({ success: true, categories: categoryMirror.list });
+      return res.json({ success: true, categories: catalogStore.categories() });
     }
     let categories: any[] = [];
     try {
@@ -3418,19 +3344,9 @@ registerMarketplaceRoutes(app, {
   appendTrackingEvent,
   isInsufficientStockError: (err) => err instanceof InsufficientStockError,
   archiveImageUrls,
-  activeProductsOfSeller: (sellerId) => {
-    if (!publicCatalog.ready) return null;
-    const list: any[] = [];
-    for (const p of publicCatalog.byId.values()) if (p.sellerId === sellerId) list.push(p);
-    return list;
-  },
-  allProductsOfSeller: (sellerId) => {
-    if (!fullCatalog.ready) return null;
-    const list: any[] = [];
-    for (const p of fullCatalog.byId.values()) if (p.sellerId === sellerId) list.push(p);
-    return list;
-  },
-  supplierOf: (productId) => (fullCatalog.privateReady ? fullCatalog.privateById.get(productId) || null : undefined),
+  activeProductsOfSeller: (sellerId) => (catalogStore.ready ? catalogStore.productsOfSeller(sellerId, true) : null),
+  allProductsOfSeller: (sellerId) => (catalogStore.ready ? catalogStore.productsOfSeller(sellerId) : null),
+  supplierOf: (productId) => (catalogStore.privateReady ? catalogStore.supplierOf(productId) : undefined),
   HOUSE_SELLER_ID,
   DEFAULT_COMMISSION_PERCENT,
 });

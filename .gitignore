@@ -8,3 +8,6 @@ coverage/
 !.env.example
 *service-account*.json
 *-firebase-adminsdk-*.json
+
+# Server's saved catalog copy (server/catalogStore.ts)
+.cache/
