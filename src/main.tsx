@@ -3,6 +3,13 @@ import {createRoot} from 'react-dom/client';
 import {registerSW} from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
+import {applyPortalBranding} from './portalBranding';
+import {captureInstallPrompt} from './hooks/usePWAInstall';
+
+// Point the page at the right app (store / Seller Center / admin) before the browser decides what
+// "Install" means, and keep the install prompt even if it fires before the page has rendered.
+applyPortalBranding();
+captureInstallPrompt();
 
 // The installed app keeps a copy of the store's code. Check for a new version on start, every hour
 // and whenever the app comes back to the foreground, and reload as soon as it is installed, so

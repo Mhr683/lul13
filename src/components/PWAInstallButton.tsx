@@ -3,9 +3,10 @@ import { Download, Laptop, Smartphone, Apple, CheckCircle2 } from 'lucide-react'
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { PWAInstallModal } from './PWAInstallModal';
 import { useStore } from '../context/StoreContext';
+import { portalAppName } from '../portalBranding';
 
 interface PWAInstallButtonProps {
-  variant?: 'header' | 'banner' | 'pill' | 'footer';
+  variant?: 'header' | 'banner' | 'pill' | 'footer' | 'onDark' | 'block';
   className?: string;
 }
 
@@ -31,7 +32,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   // Get device icon
   const DeviceIcon = isIOS ? Apple : isAndroid ? Smartphone : Laptop;
   const deviceLabel = isIOS ? 'iPhone / iPad' : isAndroid ? 'Android' : 'PC / Laptop';
-  const storeName = settings?.storeName || 'Store';
+  const storeName = portalAppName(settings?.storeName || 'Store');
 
   if (variant === 'banner') {
     if (isInstalled) return null;
@@ -68,6 +69,29 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
         >
           <DeviceIcon className="w-3.5 h-3.5 text-[#C5A059]" />
           <span>{isInstalled ? '✓ App Installed' : `Install on ${deviceLabel}`}</span>
+        </button>
+        <PWAInstallModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
+      </>
+    );
+  }
+
+  // Seller Center header (dark bar) and admin sidebar (full-width)
+  if (variant === 'onDark' || variant === 'block') {
+    if (isInstalled) return null;
+    return (
+      <>
+        <button
+          type="button"
+          onClick={handleClick}
+          title={`Install ${storeName} on ${deviceLabel}`}
+          className={
+            variant === 'onDark'
+              ? `px-2.5 py-1.5 border border-white/30 text-white text-xs flex items-center gap-1 cursor-pointer hover:bg-white/10 ${className}`
+              : `w-full py-2 bg-[#141413] text-white font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer hover:bg-black ${className}`
+          }
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span className={variant === 'onDark' ? 'hidden sm:inline' : ''}>Install App</span>
         </button>
         <PWAInstallModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
       </>

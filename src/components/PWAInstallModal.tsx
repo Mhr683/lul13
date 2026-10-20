@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useStore } from '../context/StoreContext';
+import { portalAppName } from '../portalBranding';
 
 interface PWAInstallModalProps {
   isOpen: boolean;
@@ -37,7 +38,7 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
   const [isInstalling, setIsInstalling] = useState(false);
   const [installSuccess, setInstallSuccess] = useState(false);
 
-  const storeName = settings?.storeName || 'Store';
+  const storeName = portalAppName(settings?.storeName || 'Store');
   const logoInitial = storeName.slice(0, 2).toUpperCase();
 
   useEffect(() => {

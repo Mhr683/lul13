@@ -49,6 +49,7 @@ import {
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AdminTeamPanel } from './AdminTeamPanel';
+import { PWAInstallButton } from './PWAInstallButton';
 import { StoreTextsPanel } from './StoreTextsPanel';
 import { BackupRestorePanel } from './BackupRestorePanel';
 import { AdminSellersPanel } from './AdminSellersPanel';
@@ -2615,6 +2616,7 @@ export const AdminDashboardView: React.FC<{
 
         {/* User / Role Status */}
         <div className="p-4 border-t border-black/[0.08] space-y-3 text-xs">
+          <PWAInstallButton variant="block" />
           {firebaseUser && (
             <div className="space-y-2">
               <div>

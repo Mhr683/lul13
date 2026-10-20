@@ -1,0 +1,17 @@
+{
+  "id": "/admin",
+  "name": "Store Admin",
+  "short_name": "Admin",
+  "description": "Store owner ka admin panel: orders, products, sellers aur payouts.",
+  "theme_color": "#1E3A8A",
+  "background_color": "#FBFBF9",
+  "display": "standalone",
+  "orientation": "any",
+  "start_url": "/admin",
+  "scope": "/admin",
+  "icons": [
+    { "src": "/admin-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/admin-512x512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/admin-maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

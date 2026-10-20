@@ -16,6 +16,7 @@ import {
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AuthPanel } from './AuthPanel';
+import { PWAInstallButton } from './PWAInstallButton';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 
@@ -116,6 +117,7 @@ export const SellerCenterView: React.FC = () => {
             <a href="/" className="text-xs text-white/80 hover:text-white underline hidden sm:inline">
               Store dekhein
             </a>
+            <PWAInstallButton variant="onDark" />
             {firebaseUser && (
               <button
                 type="button"

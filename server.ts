@@ -4957,9 +4957,30 @@ async function startServer() {
         },
       })
     );
-    app.get('*', (_req, res) => {
+    // /seller and /admin install as their own apps: give their page the matching manifest, icon and
+    // home-screen name (src/portalBranding.ts does the same in the browser)
+    const portalHead: Record<string, { manifest: string; icon: string; title: string; theme: string; name: string }> = {
+      seller: { manifest: '/manifest-seller.webmanifest', icon: '/seller-apple-touch-icon.png', title: 'Seller', theme: '#9A3412', name: 'Seller Center' },
+      admin: { manifest: '/manifest-admin.webmanifest', icon: '/admin-apple-touch-icon.png', title: 'Admin', theme: '#1E3A8A', name: 'Store Admin' },
+    };
+    const portalHtml = new Map<string, string>();
+    app.get('*', (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(path.join(distPath, 'index.html'));
+      const portal = /^\/(seller|admin)(\/|$)/i.exec(req.path)?.[1]?.toLowerCase();
+      if (!portal) return res.sendFile(path.join(distPath, 'index.html'));
+      let html = portalHtml.get(portal);
+      if (!html) {
+        const p = portalHead[portal];
+        html = fs
+          .readFileSync(path.join(distPath, 'index.html'), 'utf8')
+          .replace(/<link rel="manifest" href="[^"]*"/, `<link rel="manifest" href="${p.manifest}"`)
+          .replace(/<link rel="apple-touch-icon" href="[^"]*"/, `<link rel="apple-touch-icon" href="${p.icon}"`)
+          .replace(/<meta name="apple-mobile-web-app-title" content="[^"]*"/, `<meta name="apple-mobile-web-app-title" content="${p.title}"`)
+          .replace(/<meta name="theme-color" content="[^"]*"/, `<meta name="theme-color" content="${p.theme}"`)
+          .replace(/<title>[^<]*<\/title>/, `<title>${p.name}</title>`);
+        portalHtml.set(portal, html);
+      }
+      res.type('html').send(html);
     });
   }
 

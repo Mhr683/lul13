@@ -7,8 +7,22 @@ interface BeforeInstallPromptEvent extends Event {
 
 export type PlatformType = 'ios' | 'android' | 'desktop' | 'unknown';
 
+// The browser offers the install prompt once, often before the (lazy-loaded) Seller Center or
+// admin screen has mounted, so it is caught at startup and handed to whichever screen asks.
+let earlyPrompt: BeforeInstallPromptEvent | null = null;
+export function captureInstallPrompt() {
+  if (typeof window === 'undefined') return;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    earlyPrompt = e as BeforeInstallPromptEvent;
+  });
+  window.addEventListener('appinstalled', () => {
+    earlyPrompt = null;
+  });
+}
+
 export function usePWAInstall() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(() => earlyPrompt);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
@@ -67,6 +81,7 @@ export function usePWAInstall() {
     try {
       await deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
+      earlyPrompt = null;
       if (outcome === 'accepted') {
         setIsInstalled(true);
         setDeferredPrompt(null);

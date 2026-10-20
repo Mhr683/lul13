@@ -16,6 +16,7 @@ const SellerCenterView = lazy(() =>
 );
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthPanel } from './components/AuthPanel';
+import { Portal, applyPortalBranding, portalFromLocation } from './portalBranding';
 
 // Only signed-in admins can open the admin console; everyone else gets a login / access-denied screen.
 const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = ({ children, onBack }) => {
@@ -96,19 +97,13 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
 //   /         the store customers shop in
 //   /seller   Seller Center for marketplace sellers
 //   /admin    the store owner's admin console (old #admin links still open it)
-type Portal = 'STOREFRONT' | 'ADMIN' | 'SELLER';
-
-const portalFromLocation = (): Portal => {
-  if (typeof window === 'undefined') return 'STOREFRONT';
-  const path = window.location.pathname.replace(/\/+$/, '').toLowerCase();
-  if (path === '/seller' || path.startsWith('/seller/')) return 'SELLER';
-  if (path === '/admin' || path.startsWith('/admin/')) return 'ADMIN';
-  if (window.location.hash === '#admin') return 'ADMIN';
-  return 'STOREFRONT';
-};
-
+// Each one also installs as its own app (see portalBranding.ts).
 const MainRouter: React.FC = () => {
   const [mode, setMode] = useState<Portal>(portalFromLocation);
+
+  useEffect(() => {
+    applyPortalBranding(mode);
+  }, [mode]);
 
   // Follow manual address changes and the browser back/forward buttons
   useEffect(() => {
