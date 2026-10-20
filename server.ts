@@ -3336,6 +3336,12 @@ registerMarketplaceRoutes(app, {
   applyOrderStatusWithStock: (ref, updates) => applyOrderStatusWithStock(ref, updates as any),
   appendTrackingEvent,
   isInsufficientStockError: (err) => err instanceof InsufficientStockError,
+  activeProductsOfSeller: (sellerId) => {
+    if (!publicCatalog.ready) return null;
+    const list: any[] = [];
+    for (const p of publicCatalog.byId.values()) if (p.sellerId === sellerId) list.push(p);
+    return list;
+  },
   HOUSE_SELLER_ID,
   DEFAULT_COMMISSION_PERCENT,
 });

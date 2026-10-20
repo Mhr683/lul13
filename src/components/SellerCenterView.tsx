@@ -15,6 +15,7 @@ import {
   Upload,
   Download,
   Camera,
+  Search,
 } from 'lucide-react';
 import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
 import { useStore } from '../context/StoreContext';
@@ -27,42 +28,83 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 
 // Seller Center (/seller): marketplace sellers apply, then manage their own products, orders,
 // shipping/tracking and earnings. Everything goes through the /api/seller/* server routes.
+//
+// It opens instantly: the shop and product list from the last visit are shown at once (Firebase can
+// take many seconds to restore a sign-in) and refreshed in the background.
 
 type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'EARNINGS' | 'PROFILE';
 type SellerOrder = Order & { commissionAmount: number; commissionPercent: number; sellerEarning: number; payoutId: string | null };
+type ListProduct = Pick<Product, 'id' | 'sku' | 'name' | 'price' | 'stock' | 'category' | 'status' | 'primaryImage'> & {
+  compareAtPrice?: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 const COURIERS = ['TCS', 'Leopards', 'PostEx', 'Trax', 'M&P', 'Call Courier', 'BlueEx', 'Swyft', 'Daewoo', 'Pakistan Post', 'Other'];
 const OPEN_STATUSES = ['PENDING_CONFIRMATION', 'PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED'];
+const PAGE_SIZE = 40;
 
 async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+  // Wait until Firebase has restored the saved sign-in, so the request carries the seller's token
+  await auth.authStateReady();
+  if (!auth.currentUser) throw Object.assign(new Error('Please sign in again.'), { code: 'SIGNED_OUT' });
+  const token = await auth.currentUser.getIdToken();
   const res = await fetch(path, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${token}`,
       ...(init.headers || {}),
     },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data?.error || 'Kuch ghalat ho gaya. Dobara try karein.'), { code: data?.code });
+  if (!res.ok) throw Object.assign(new Error(data?.error || 'Something went wrong. Please try again.'), { code: data?.code });
   return data as T;
 }
+
+// ------------------------------------------------------------------ local cache (this device only)
+
+const ME_CACHE_KEY = 'seller_me_cache_v1';
+const PRODUCTS_CACHE_KEY = 'seller_products_cache_v1';
+
+function readCache<T>(key: string, uid: string | undefined): T | null {
+  if (!uid) return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed && parsed.uid === uid ? (parsed.data as T) : null;
+  } catch {
+    return null;
+  }
+}
+function writeCache(key: string, uid: string, data: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ uid, data }));
+  } catch {}
+}
+function clearSellerCache() {
+  try {
+    localStorage.removeItem(ME_CACHE_KEY);
+    localStorage.removeItem(PRODUCTS_CACHE_KEY);
+  } catch {}
+}
+
+// Orders and earnings stay in memory while the app is open, so switching tabs is instant
+const memo: { orders?: SellerOrder[]; earnings?: { summary: any; commissionPercent: number; payouts: SellerPayout[] } } = {};
 
 const inputCls = 'w-full px-3 py-2 bg-white border border-black/20 text-xs text-[#141413] focus:border-black focus:outline-none';
 const labelCls = 'block text-[11px] font-bold text-[#141413] mb-1';
 
 const statusLabel: Record<string, string> = {
-  PENDING_CONFIRMATION: 'Naya order',
-  PENDING: 'Naya order',
+  PENDING_CONFIRMATION: 'New order',
+  PENDING: 'New order',
   CONFIRMED: 'Confirmed',
-  PROCESSING: 'Tayyar ho raha',
+  PROCESSING: 'Processing',
   PACKED: 'Packed',
-  SHIPPED: 'Bhej diya',
-  OUT_FOR_DELIVERY: 'Delivery par',
-  DELIVERED: 'Deliver ho gaya',
+  SHIPPED: 'Shipped',
+  OUT_FOR_DELIVERY: 'Out for delivery',
+  DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
-  RETURNED: 'Wapas aaya',
+  RETURNED: 'Returned',
   REFUNDED: 'Refunded',
 };
 
@@ -76,38 +118,64 @@ const statusTone = (s: string) =>
     : 'bg-amber-100 text-amber-900 border-amber-400';
 
 export const SellerCenterView: React.FC = () => {
-  const { firebaseUser, authReady, emailVerified, refreshAccount, resendVerificationEmail, signOut, settings, categories, showToast } =
-    useStore();
+  const {
+    firebaseUser,
+    userProfile,
+    authReady,
+    emailVerified,
+    refreshAccount,
+    resendVerificationEmail,
+    signOut,
+    settings,
+    categories,
+    showToast,
+  } = useStore();
   const storeName = settings.storeName || 'My Store';
+  // The signed-in user, or the one remembered from the last visit while Firebase restores the sign-in
+  const uid = firebaseUser?.uid || userProfile?.uid;
 
-  const [loadingMe, setLoadingMe] = useState(true);
-  const [seller, setSeller] = useState<SellerShop | null>(null);
+  type Me = { seller: SellerShop | null; commissionPercent: number | null };
+  const cachedMe = readCache<Me>(ME_CACHE_KEY, uid);
+  const [seller, setSeller] = useState<SellerShop | null>(cachedMe?.seller || null);
+  const [commissionPercent, setCommissionPercent] = useState<number | null>(cachedMe?.commissionPercent ?? null);
   const [sellerPrivate, setSellerPrivate] = useState<SellerPrivate | null>(null);
-  const [commissionPercent, setCommissionPercent] = useState<number | null>(null);
+  const [loadingMe, setLoadingMe] = useState(!cachedMe);
   const [tab, setTab] = useState<Tab>('DASHBOARD');
 
   const loadMe = useCallback(async () => {
-    if (!firebaseUser) {
+    if (!uid) {
       setSeller(null);
       setLoadingMe(false);
       return;
     }
-    setLoadingMe(true);
     try {
       const data = await api('/api/seller/me');
       setSeller(data.seller);
       setSellerPrivate(data.privateData);
       setCommissionPercent(data.commissionPercent);
+      writeCache(ME_CACHE_KEY, uid, { seller: data.seller, commissionPercent: data.commissionPercent });
     } catch (err: any) {
-      showToast(err.message);
+      if (err.code === 'SIGNED_OUT') {
+        setSeller(null);
+        clearSellerCache();
+      } else {
+        showToast(err.message);
+      }
     } finally {
       setLoadingMe(false);
     }
-  }, [firebaseUser, showToast]);
+  }, [uid, showToast]);
 
   useEffect(() => {
     if (authReady) loadMe();
   }, [authReady, loadMe]);
+
+  const handleSignOut = async () => {
+    clearSellerCache();
+    delete memo.orders;
+    delete memo.earnings;
+    await signOut();
+  };
 
   const shell = (children: React.ReactNode) => (
     <div className="min-h-screen bg-[#FBFBF9] text-[#141413]">
@@ -120,13 +188,13 @@ export const SellerCenterView: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <a href="/" className="text-xs text-white/80 hover:text-white underline hidden sm:inline">
-              Store dekhein
+              View store
             </a>
             <PWAInstallButton variant="onDark" />
-            {firebaseUser && (
+            {uid && (
               <button
                 type="button"
-                onClick={signOut}
+                onClick={handleSignOut}
                 className="px-2.5 py-1.5 border border-white/30 text-xs flex items-center gap-1 cursor-pointer hover:bg-white/10"
               >
                 <LogOut className="w-3.5 h-3.5" /> Logout
@@ -139,30 +207,30 @@ export const SellerCenterView: React.FC = () => {
     </div>
   );
 
-  if (!authReady || (firebaseUser && loadingMe)) {
-    return shell(<div className="p-10 text-center text-sm text-[#575653]">Seller Center khul raha hai...</div>);
+  if (!authReady || (uid && loadingMe && !seller)) {
+    return shell(<div className="p-10 text-center text-sm text-[#575653]">Opening Seller Center...</div>);
   }
 
-  if (!firebaseUser) {
+  if (!uid) {
     return shell(
       <div className="max-w-5xl mx-auto px-4 py-10 grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
         <div className="space-y-4">
-          <h1 className="text-3xl font-display">{storeName} par apni dukaan kholein</h1>
+          <h1 className="text-3xl font-display">Open your shop on {storeName}</h1>
           <p className="text-sm text-[#454441]">
-            Apne products laakhon customers tak pohnchayein. Aap products daalein, order aane par khud parcel bhejein, aur
-            har delivered order ki kamai apne bank account mein payout ke zariye lein.
+            Reach thousands of customers with your products. You list your products, ship the parcel when an order comes
+            in, and receive your earnings for every delivered order in your bank account.
           </p>
           <ul className="text-sm space-y-2 text-[#141413]">
-            <li>✓ Muft account aur apna Seller Center</li>
-            <li>✓ Har sale par sirf commission, koi mahana fees nahi</li>
-            <li>✓ Cash on Delivery ka paisa store collect karta hai, aap ko payout milta hai</li>
-            <li>✓ Orders, tracking aur kamai sab ek jagah</li>
+            <li>✓ Free account and your own Seller Center</li>
+            <li>✓ Only a commission per sale, no monthly fees</li>
+            <li>✓ The store collects Cash on Delivery payments and pays you out</li>
+            <li>✓ Orders, tracking and earnings in one place</li>
           </ul>
         </div>
         <div className="bg-white border border-black/10 p-6">
           <AuthPanel
-            title="Seller login / naya account"
-            subtitle="Pehle account banayein ya login karein, phir seller application bharein."
+            title="Seller login / new account"
+            subtitle="Create an account or sign in, then fill in the seller application."
             allowSignup
           />
         </div>
@@ -174,17 +242,17 @@ export const SellerCenterView: React.FC = () => {
     return shell(
       <ApplyForm
         storeName={storeName}
-        rejectedReason={seller?.status === 'REJECTED' ? seller.statusReason || 'Application qubool nahi hui.' : ''}
+        rejectedReason={seller?.status === 'REJECTED' ? seller.statusReason || 'Your application was not accepted.' : ''}
         emailVerified={emailVerified}
         onResendVerification={async () => {
           const r = await resendVerificationEmail();
-          showToast(r.ok ? 'Verification email bhej di gayi.' : r.message || 'Email nahi gayi.');
+          showToast(r.ok ? 'Verification email sent.' : r.message || 'Could not send the email.');
         }}
         onRecheck={async () => {
           await refreshAccount();
           await loadMe();
         }}
-        defaultName={firebaseUser.displayName || ''}
+        defaultName={firebaseUser?.displayName || userProfile?.name || ''}
         onSubmitted={loadMe}
       />
     );
@@ -193,13 +261,13 @@ export const SellerCenterView: React.FC = () => {
   if (seller.status === 'PENDING') {
     return shell(
       <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
-        <h1 className="text-2xl font-display">Application review mein hai</h1>
+        <h1 className="text-2xl font-display">Your application is under review</h1>
         <p className="text-sm text-[#454441]">
-          <strong>{seller.shopName}</strong> ki application mil gayi hai. {storeName} ki team check karke approve karegi.
-          Approve hote hi aap yahan products daal sakenge.
+          We have received the application for <strong>{seller.shopName}</strong>. The {storeName} team will review and
+          approve it. Once approved you can start adding products here.
         </p>
         <button type="button" onClick={loadMe} className="px-4 py-2 border border-black/20 text-xs font-semibold cursor-pointer">
-          <RefreshCw className="w-3.5 h-3.5 inline mr-1" /> Dobara check karein
+          <RefreshCw className="w-3.5 h-3.5 inline mr-1" /> Check again
         </button>
       </div>
     );
@@ -208,8 +276,8 @@ export const SellerCenterView: React.FC = () => {
   if (seller.status === 'SUSPENDED') {
     return shell(
       <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-3">
-        <h1 className="text-2xl font-display">Seller account band hai</h1>
-        <p className="text-sm text-[#454441]">{seller.statusReason || `Mazeed maloomat ke liye ${storeName} se rabta karein.`}</p>
+        <h1 className="text-2xl font-display">Your seller account is suspended</h1>
+        <p className="text-sm text-[#454441]">{seller.statusReason || `Please contact ${storeName} for more information.`}</p>
       </div>
     );
   }
@@ -218,23 +286,21 @@ export const SellerCenterView: React.FC = () => {
     { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'ORDERS', label: 'Orders', icon: ShoppingCart },
     { id: 'PRODUCTS', label: 'Products', icon: Package },
-    { id: 'EARNINGS', label: 'Kamai', icon: Wallet },
+    { id: 'EARNINGS', label: 'Earnings', icon: Wallet },
     { id: 'PROFILE', label: 'Profile', icon: UserCog },
   ];
 
   return shell(
     <div className="max-w-6xl mx-auto px-4 py-5 space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setTab('PROFILE')} title="Profile tasveer" className="cursor-pointer">
-            <SellerAvatar src={seller.logoUrl || firebaseUser.photoURL} name={seller.shopName} size={52} className="border border-black/10" />
-          </button>
-          <div>
-          <h1 className="text-2xl font-display">{seller.shopName}</h1>
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => setTab('PROFILE')} title="Profile picture" className="cursor-pointer">
+          <SellerAvatar src={seller.logoUrl || firebaseUser?.photoURL} name={seller.shopName} size={52} className="border border-black/10" />
+        </button>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-display truncate">{seller.shopName}</h1>
           <p className="text-xs text-[#575653]">
-            Commission: {commissionPercent ?? 0}% har sale par · {seller.city}
+            Commission: {commissionPercent ?? 0}% per sale · {seller.city}
           </p>
-          </div>
         </div>
       </div>
       <nav className="flex gap-1 overflow-x-auto border-b border-black/10">
@@ -256,9 +322,14 @@ export const SellerCenterView: React.FC = () => {
       </nav>
       {tab === 'DASHBOARD' && <DashboardTab onGo={setTab} />}
       {tab === 'ORDERS' && <OrdersTab />}
-      {tab === 'PRODUCTS' && <ProductsTab categoryNames={categories.map((c) => c.name)} />}
+      {tab === 'PRODUCTS' && <ProductsTab uid={uid} categoryNames={categories.map((c) => c.name)} />}
       {tab === 'EARNINGS' && <EarningsTab />}
-      {tab === 'PROFILE' && <ProfileTab seller={seller} privateData={sellerPrivate} onSaved={loadMe} />}
+      {tab === 'PROFILE' &&
+        (sellerPrivate ? (
+          <ProfileTab seller={seller} privateData={sellerPrivate} onSaved={loadMe} />
+        ) : (
+          <p className="text-xs text-[#575653]">Loading your profile...</p>
+        ))}
     </div>
   );
 };
@@ -295,23 +366,25 @@ const ApplyForm: React.FC<{
       <div>
         <h1 className="text-2xl font-display">Seller application</h1>
         <p className="text-xs text-[#575653]">
-          {storeName} par bechne ke liye ye maloomat bharein. CNIC aur bank details sirf store ki team dekhti hai, payout ke liye.
+          Fill in these details to sell on {storeName}. Your CNIC and bank details are only visible to the store team, for
+          payouts.
         </p>
       </div>
       {rejectedReason && (
         <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs">
-          Pichli application qubool nahi hui: <strong>{rejectedReason}</strong>. Maloomat theek karke dobara bhejein.
+          Your previous application was not accepted: <strong>{rejectedReason}</strong>. Please correct the details and
+          apply again.
         </div>
       )}
       {!emailVerified && (
         <div className="p-3 bg-amber-50 border border-amber-400 text-amber-950 text-xs space-y-2">
-          <p>Apply karne se pehle apni email verify karein. Inbox (ya spam) mein aaye link par click karein.</p>
+          <p>Please verify your email before applying. Click the link we sent to your inbox (or spam folder).</p>
           <div className="flex gap-2">
             <button type="button" onClick={onResendVerification} className="px-3 py-1.5 border border-amber-500 font-semibold cursor-pointer">
-              Email dobara bhejein
+              Resend email
             </button>
             <button type="button" onClick={onRecheck} className="px-3 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer">
-              Maine verify kar li
+              I have verified it
             </button>
           </div>
         </div>
@@ -323,7 +396,7 @@ const ApplyForm: React.FC<{
           setSaving(true);
           try {
             await api('/api/seller/apply', { method: 'POST', body: JSON.stringify(form) });
-            showToast('Application bhej di gayi. Approval ka intezar karein.');
+            showToast('Application sent. Please wait for approval.');
             onSubmitted();
           } catch (err: any) {
             showToast(err.message);
@@ -333,11 +406,11 @@ const ApplyForm: React.FC<{
         }}
       >
         <div>
-          <label className={labelCls}>Dukaan ka naam *</label>
-          <input className={inputCls} value={form.shopName} onChange={set('shopName')} placeholder="misal: Ali Electronics" required />
+          <label className={labelCls}>Shop name *</label>
+          <input className={inputCls} value={form.shopName} onChange={set('shopName')} placeholder="e.g. Ali Electronics" required />
         </div>
         <div>
-          <label className={labelCls}>Aap ka poora naam *</label>
+          <label className={labelCls}>Your full name *</label>
           <input className={inputCls} value={form.ownerName} onChange={set('ownerName')} required />
         </div>
         <div>
@@ -345,20 +418,20 @@ const ApplyForm: React.FC<{
           <input className={inputCls} value={form.phone} onChange={set('phone')} placeholder="03XXXXXXXXX" inputMode="tel" required />
         </div>
         <div>
-          <label className={labelCls}>Shehar *</label>
-          <input className={inputCls} value={form.city} onChange={set('city')} placeholder="misal: Lahore" required />
+          <label className={labelCls}>City *</label>
+          <input className={inputCls} value={form.city} onChange={set('city')} placeholder="e.g. Lahore" required />
         </div>
         <div>
           <label className={labelCls}>CNIC *</label>
           <input className={inputCls} value={form.cnic} onChange={set('cnic')} placeholder="XXXXX-XXXXXXX-X" required />
         </div>
         <div className="sm:col-span-2">
-          <label className={labelCls}>Dukaan / godaam ka pata *</label>
+          <label className={labelCls}>Shop / warehouse address *</label>
           <textarea className={inputCls} rows={2} value={form.address} onChange={set('address')} required />
         </div>
         <div>
           <label className={labelCls}>Bank / wallet *</label>
-          <input className={inputCls} value={form.bankName} onChange={set('bankName')} placeholder="misal: MCB, Meezan, NayaPay" required />
+          <input className={inputCls} value={form.bankName} onChange={set('bankName')} placeholder="e.g. MCB, Meezan, NayaPay" required />
         </div>
         <div>
           <label className={labelCls}>Account title *</label>
@@ -374,7 +447,7 @@ const ApplyForm: React.FC<{
             disabled={saving || !emailVerified}
             className="w-full py-2.5 bg-[#141413] text-white text-sm font-bold disabled:opacity-50 cursor-pointer"
           >
-            {saving ? 'Bhej rahe hain...' : 'Application bhejein'}
+            {saving ? 'Sending...' : 'Send application'}
           </button>
         </div>
       </form>
@@ -385,19 +458,29 @@ const ApplyForm: React.FC<{
 // ------------------------------------------------------------------ dashboard
 
 const DashboardTab: React.FC<{ onGo: (t: Tab) => void }> = ({ onGo }) => {
-  const [orders, setOrders] = useState<SellerOrder[] | null>(null);
-  const [summary, setSummary] = useState<any>(null);
+  const [orders, setOrders] = useState<SellerOrder[] | null>(memo.orders || null);
+  const [summary, setSummary] = useState<any>(memo.earnings?.summary || null);
   useEffect(() => {
-    api('/api/seller/orders').then((d) => setOrders(d.orders)).catch(() => setOrders([]));
-    api('/api/seller/earnings').then((d) => setSummary(d.summary)).catch(() => setSummary(null));
+    api('/api/seller/orders')
+      .then((d) => {
+        memo.orders = d.orders;
+        setOrders(d.orders);
+      })
+      .catch(() => setOrders((o) => o || []));
+    api('/api/seller/earnings')
+      .then((d) => {
+        memo.earnings = d;
+        setSummary(d.summary);
+      })
+      .catch(() => {});
   }, []);
   const toShip = (orders || []).filter((o) => OPEN_STATUSES.includes(o.status)).length;
   const onTheWay = (orders || []).filter((o) => ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
   const cards = [
-    { label: 'Bhejne wale orders', value: orders ? String(toShip) : '…', tab: 'ORDERS' as Tab, strong: toShip > 0 },
-    { label: 'Raste mein', value: orders ? String(onTheWay) : '…', tab: 'ORDERS' as Tab },
-    { label: 'Payout ke liye tayyar', value: summary ? formatPKR(summary.available) : '…', tab: 'EARNINGS' as Tab },
-    { label: 'Ab tak payout', value: summary ? formatPKR(summary.paid) : '…', tab: 'EARNINGS' as Tab },
+    { label: 'Orders to ship', value: orders ? String(toShip) : '…', tab: 'ORDERS' as Tab, strong: toShip > 0 },
+    { label: 'On the way', value: orders ? String(onTheWay) : '…', tab: 'ORDERS' as Tab },
+    { label: 'Ready for payout', value: summary ? formatPKR(summary.available) : '…', tab: 'EARNINGS' as Tab },
+    { label: 'Paid out so far', value: summary ? formatPKR(summary.paid) : '…', tab: 'EARNINGS' as Tab },
   ];
   return (
     <div className="space-y-4">
@@ -415,11 +498,11 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void }> = ({ onGo }) => {
         ))}
       </div>
       <div className="p-4 bg-white border border-black/10 text-xs text-[#454441] space-y-1">
-        <strong className="block text-[#141413]">Order aane par kya karein</strong>
-        <p>1. Customer ko call/WhatsApp karke confirm karein → <strong>Confirm</strong> dabayein.</p>
-        <p>2. Maal pack karein → <strong>Packed</strong>.</p>
-        <p>3. Courier ko parcel dein, courier aur tracking number daal kar → <strong>Ship</strong>.</p>
-        <p>4. Courier deliver kare to → <strong>Delivered</strong>. Isi ke baad kamai payout ke liye tayyar hoti hai.</p>
+        <strong className="block text-[#141413]">When an order comes in</strong>
+        <p>1. Call / WhatsApp the customer to confirm, then press <strong>Confirm</strong>.</p>
+        <p>2. Pack the item, then press <strong>Packed</strong>.</p>
+        <p>3. Hand the parcel to the courier, enter the courier and tracking number, then press <strong>Ship</strong>.</p>
+        <p>4. When the courier delivers it, press <strong>Delivered</strong>. Your earning then becomes ready for payout.</p>
       </div>
     </div>
   );
@@ -429,17 +512,18 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void }> = ({ onGo }) => {
 
 const OrdersTab: React.FC = () => {
   const { showToast } = useStore();
-  const [orders, setOrders] = useState<SellerOrder[] | null>(null);
+  const [orders, setOrders] = useState<SellerOrder[] | null>(memo.orders || null);
   const [filter, setFilter] = useState<'OPEN' | 'SHIPPED' | 'DONE' | 'ALL'>('OPEN');
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const d = await api('/api/seller/orders');
+      memo.orders = d.orders;
       setOrders(d.orders);
     } catch (err: any) {
       showToast(err.message);
-      setOrders([]);
+      setOrders((o) => o || []);
     }
   }, [showToast]);
 
@@ -461,7 +545,7 @@ const OrdersTab: React.FC = () => {
     setBusy(o.id);
     try {
       await api(path, { method: 'POST', body: JSON.stringify({ orderId: o.id, ...body }) });
-      showToast(`${o.orderNumber}: save ho gaya.`);
+      showToast(`${o.orderNumber}: saved.`);
       await load();
     } catch (err: any) {
       showToast(err.message);
@@ -475,10 +559,10 @@ const OrdersTab: React.FC = () => {
       <div className="flex flex-wrap items-center gap-2">
         {(
           [
-            ['OPEN', 'Bhejne wale'],
-            ['SHIPPED', 'Raste mein'],
-            ['DONE', 'Mukammal / band'],
-            ['ALL', 'Sab'],
+            ['OPEN', 'To ship'],
+            ['SHIPPED', 'On the way'],
+            ['DONE', 'Completed / closed'],
+            ['ALL', 'All'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -498,9 +582,9 @@ const OrdersTab: React.FC = () => {
       </div>
 
       {orders === null ? (
-        <p className="text-xs text-[#575653]">Orders load ho rahe hain...</p>
+        <p className="text-xs text-[#575653]">Loading orders...</p>
       ) : visible.length === 0 ? (
-        <p className="p-6 bg-white border border-black/10 text-xs text-[#575653] text-center">Is list mein koi order nahi.</p>
+        <p className="p-6 bg-white border border-black/10 text-xs text-[#575653] text-center">No orders in this list.</p>
       ) : (
         <div className="space-y-3">
           {visible.map((o) => (
@@ -530,7 +614,9 @@ const SellerOrderCard: React.FC<{
           <span className="font-mono font-bold text-sm">{o.orderNumber}</span>
           <span className={`px-2 py-0.5 border text-[10px] font-bold ${statusTone(o.status)}`}>{statusLabel[o.status] || o.status}</span>
         </div>
-        <span className="text-[#575653]">{new Date(o.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span>
+        <span className="text-[#575653]">
+          {new Date(o.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+        </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -541,7 +627,7 @@ const SellerOrderCard: React.FC<{
           <div className="text-[#454441]">{o.shippingAddressSummary}</div>
         </div>
         <div>
-          <div className="font-bold text-[#141413]">Saman</div>
+          <div className="font-bold text-[#141413]">Items</div>
           {(o.items || []).map((it, i) => (
             <div key={i}>
               {it.quantity} × {it.name}
@@ -549,13 +635,15 @@ const SellerOrderCard: React.FC<{
           ))}
         </div>
         <div>
-          <div className="font-bold text-[#141413]">Raqam</div>
+          <div className="font-bold text-[#141413]">Amount</div>
           <div>
-            Customer dega: <strong>{formatPKR(o.total)}</strong> ({o.paymentMethod === 'COD' ? 'COD' : o.paymentMethod})
+            Customer pays: <strong>{formatPKR(o.total)}</strong> ({o.paymentMethod === 'COD' ? 'COD' : o.paymentMethod})
           </div>
-          <div>Commission ({o.commissionPercent}%): {formatPKR(o.commissionAmount)}</div>
-          <div className="text-emerald-800 font-bold">Aap ki kamai: {formatPKR(o.sellerEarning)}</div>
-          {o.payoutId && <div className="text-emerald-800">✓ Payout ho gaya</div>}
+          <div>
+            Commission ({o.commissionPercent}%): {formatPKR(o.commissionAmount)}
+          </div>
+          <div className="text-emerald-800 font-bold">Your earning: {formatPKR(o.sellerEarning)}</div>
+          {o.payoutId && <div className="text-emerald-800">✓ Paid out</div>}
         </div>
       </div>
 
@@ -609,7 +697,7 @@ const SellerOrderCard: React.FC<{
               type="button"
               disabled={busy}
               onClick={() => {
-                const location = window.prompt('Parcel abhi kahan hai? (misal: "Lahore hub")');
+                const location = window.prompt('Where is the parcel now? (e.g. "Lahore hub")');
                 if (location && location.trim()) act(o, { location: location.trim() }, '/api/seller/orders/event');
               }}
               className={`${btn} bg-white border-black/30`}
@@ -621,7 +709,7 @@ const SellerOrderCard: React.FC<{
             type="button"
             disabled={busy}
             onClick={() => {
-              const note = window.prompt('Customer ko kya message bhejna hai?');
+              const note = window.prompt('Message to the customer:');
               if (note && note.trim()) act(o, { note: note.trim() }, '/api/seller/orders/event');
             }}
             className={`${btn} bg-white border-black/30`}
@@ -633,7 +721,7 @@ const SellerOrderCard: React.FC<{
               type="button"
               disabled={busy}
               onClick={() => {
-                const reason = window.prompt(`Order ${o.orderNumber} cancel karne ki wajah? (stock wapas aa jayega)`);
+                const reason = window.prompt(`Reason for cancelling order ${o.orderNumber}? (the stock will be restored)`);
                 if (reason !== null) act(o, { status: 'CANCELLED', reason: reason.trim() });
               }}
               className={`${btn} bg-white border-rose-500 text-rose-800 ml-auto`}
@@ -668,31 +756,98 @@ const emptyProduct = {
   status: 'ACTIVE' as 'ACTIVE' | 'DRAFT',
 };
 
-const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) => {
+type ProductFilter = 'ALL' | 'ACTIVE' | 'DRAFT' | 'OUT' | 'ARCHIVED';
+
+const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, categoryNames }) => {
   const { showToast } = useStore();
-  const [products, setProducts] = useState<Product[] | null>(null);
+  const [products, setProducts] = useState<ListProduct[] | null>(() => readCache<ListProduct[]>(PRODUCTS_CACHE_KEY, uid));
+  const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState<typeof emptyProduct | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<ProductFilter>('ALL');
+  const [shown, setShown] = useState(PAGE_SIZE);
+
+  const applyList = useCallback(
+    (list: ListProduct[]) => {
+      setProducts(list);
+      writeCache(PRODUCTS_CACHE_KEY, uid, list);
+    },
+    [uid]
+  );
 
   const load = useCallback(async () => {
+    setRefreshing(true);
     try {
       const d = await api('/api/seller/products');
-      setProducts(d.products);
+      applyList(d.products);
     } catch (err: any) {
       showToast(err.message);
-      setProducts([]);
+      setProducts((p) => p || []);
+    } finally {
+      setRefreshing(false);
     }
-  }, [showToast]);
+  }, [applyList, showToast]);
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => setShown(PAGE_SIZE), [search, filter]);
+
+  const counts = useMemo(() => {
+    const list = products || [];
+    return {
+      ALL: list.filter((p) => p.status !== 'ARCHIVED').length,
+      ACTIVE: list.filter((p) => p.status === 'ACTIVE').length,
+      DRAFT: list.filter((p) => p.status === 'DRAFT').length,
+      OUT: list.filter((p) => p.status !== 'ARCHIVED' && Number(p.stock) <= 0).length,
+      ARCHIVED: list.filter((p) => p.status === 'ARCHIVED').length,
+    };
+  }, [products]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (products || []).filter((p) => {
+      if (filter === 'ALL' && p.status === 'ARCHIVED') return false;
+      if (filter === 'ACTIVE' && p.status !== 'ACTIVE') return false;
+      if (filter === 'DRAFT' && p.status !== 'DRAFT') return false;
+      if (filter === 'OUT' && (p.status === 'ARCHIVED' || Number(p.stock) > 0)) return false;
+      if (filter === 'ARCHIVED' && p.status !== 'ARCHIVED') return false;
+      return !q || [p.name, p.sku, p.category].some((v) => String(v || '').toLowerCase().includes(q));
+    });
+  }, [products, search, filter]);
+
+  const openEditor = async (p: ListProduct) => {
+    setOpening(p.id);
+    try {
+      const { product: full } = await api(`/api/seller/products/${encodeURIComponent(p.id)}`);
+      setEditing({
+        id: full.id,
+        name: full.name,
+        price: String(full.price),
+        compareAtPrice: full.compareAtPrice ? String(full.compareAtPrice) : '',
+        stock: String(full.stock),
+        category: full.category,
+        primaryImage: full.primaryImage || '',
+        shortDescription: full.shortDescription || '',
+        description: full.description || '',
+        weightKg: String(full.weightKg || 0.5),
+        status: full.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
+      });
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setOpening(null);
+    }
+  };
 
   const save = async () => {
     if (!editing) return;
     setSaving(true);
     try {
-      await api('/api/seller/products', {
+      const { product } = await api('/api/seller/products', {
         method: 'POST',
         body: JSON.stringify({
           ...editing,
@@ -702,13 +857,24 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
           weightKg: Number(editing.weightKg),
         }),
       });
-      showToast(editing.status === 'ACTIVE' ? 'Product save ho gaya aur store par live hai.' : 'Draft save ho gaya.');
+      showToast(editing.status === 'ACTIVE' ? 'Product saved and live in the store.' : 'Draft saved.');
       setEditing(null);
-      await load();
+      const rest = (products || []).filter((p) => p.id !== product.id);
+      applyList([product, ...rest]);
     } catch (err: any) {
       showToast(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const archive = async (p: ListProduct) => {
+    if (!window.confirm(`Remove "${p.name}" from the store?`)) return;
+    try {
+      await api(`/api/seller/products/${encodeURIComponent(p.id)}/archive`, { method: 'POST' });
+      applyList((products || []).map((x) => (x.id === p.id ? { ...x, status: 'ARCHIVED' } : x)));
+    } catch (err: any) {
+      showToast(err.message);
     }
   };
 
@@ -731,18 +897,18 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
   if (editing) {
     return (
       <div className="bg-white border border-black/10 p-5 space-y-4">
-        <h2 className="text-lg font-display">{editing.id ? 'Product edit karein' : 'Naya product'}</h2>
+        <h2 className="text-lg font-display">{editing.id ? 'Edit product' : 'New product'}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
-            <label className={labelCls}>Naam *</label>
+            <label className={labelCls}>Name *</label>
             <input className={inputCls} value={editing.name} onChange={set('name')} />
           </div>
           <div>
-            <label className={labelCls}>Qeemat (PKR) *</label>
+            <label className={labelCls}>Price (PKR) *</label>
             <input className={inputCls} value={editing.price} onChange={set('price')} inputMode="decimal" />
           </div>
           <div>
-            <label className={labelCls}>Purani qeemat (kat-ti hui, optional)</label>
+            <label className={labelCls}>Old price (shown crossed out, optional)</label>
             <input className={inputCls} value={editing.compareAtPrice} onChange={set('compareAtPrice')} inputMode="decimal" />
           </div>
           <div>
@@ -751,7 +917,7 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
           </div>
           <div>
             <label className={labelCls}>Category *</label>
-            <input className={inputCls} value={editing.category} onChange={set('category')} list="seller-categories" placeholder="Chunein ya likhein" />
+            <input className={inputCls} value={editing.category} onChange={set('category')} list="seller-categories" placeholder="Choose or type" />
             <datalist id="seller-categories">
               {categoryNames.map((c) => (
                 <option key={c} value={c} />
@@ -759,45 +925,56 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
             </datalist>
           </div>
           <div className="sm:col-span-2">
-            <label className={labelCls}>Tasveer ka link (https://...)</label>
+            <label className={labelCls}>Image link (https://...)</label>
             <input className={inputCls} value={editing.primaryImage} onChange={set('primaryImage')} placeholder="https://..." />
           </div>
           <div className="sm:col-span-2">
-            <label className={labelCls}>Mukhtasar tafseel</label>
+            <label className={labelCls}>Short description</label>
             <input className={inputCls} value={editing.shortDescription} onChange={set('shortDescription')} />
           </div>
           <div className="sm:col-span-2">
-            <label className={labelCls}>Poori tafseel</label>
+            <label className={labelCls}>Full description</label>
             <textarea className={inputCls} rows={4} value={editing.description} onChange={set('description')} />
           </div>
           <div>
-            <label className={labelCls}>Wazan (kg)</label>
+            <label className={labelCls}>Weight (kg)</label>
             <input className={inputCls} value={editing.weightKg} onChange={set('weightKg')} inputMode="decimal" />
           </div>
           <div>
             <label className={labelCls}>Status</label>
             <select className={inputCls} value={editing.status} onChange={set('status')}>
-              <option value="ACTIVE">Live (store par dikhe)</option>
-              <option value="DRAFT">Draft (chhupa hua)</option>
+              <option value="ACTIVE">Live (visible in the store)</option>
+              <option value="DRAFT">Draft (hidden)</option>
             </select>
           </div>
         </div>
         <div className="flex gap-2">
           <button type="button" disabled={saving} onClick={save} className="px-5 py-2 bg-[#141413] text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
-            {saving ? 'Save ho raha...' : 'Save'}
+            {saving ? 'Saving...' : 'Save'}
           </button>
           <button type="button" onClick={() => setEditing(null)} className="px-5 py-2 border border-black/20 text-xs cursor-pointer">
-            Wapas
+            Back
           </button>
         </div>
       </div>
     );
   }
 
+  const filterTabs: [ProductFilter, string][] = [
+    ['ALL', 'All'],
+    ['ACTIVE', 'Live'],
+    ['DRAFT', 'Draft'],
+    ['OUT', 'Out of stock'],
+    ['ARCHIVED', 'Removed'],
+  ];
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-[#575653]">{products ? `${products.length} products` : 'Load ho rahe hain...'}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs text-[#575653]">
+          {products ? `${counts.ALL} products` : 'Loading products...'}
+          {refreshing && products ? ' · updating…' : ''}
+        </span>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -811,18 +988,53 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
             onClick={() => setEditing({ ...emptyProduct })}
             className="px-4 py-2 bg-[#141413] text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
           >
-            <Plus className="w-4 h-4" /> Naya product
+            <Plus className="w-4 h-4" /> New product
           </button>
         </div>
       </div>
-      {products && products.length === 0 && (
-        <p className="p-6 bg-white border border-black/10 text-xs text-center text-[#575653]">Abhi koi product nahi. "Naya product" se shuru karein.</p>
+
+      {products && products.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#575653]" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, SKU or category"
+              className={`${inputCls} pl-8`}
+            />
+          </div>
+          {filterTabs.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setFilter(id)}
+              className={`px-3 py-1.5 text-xs font-semibold border cursor-pointer ${
+                filter === id ? 'bg-[#141413] text-white border-[#141413]' : 'bg-white border-black/20 text-[#141413]'
+              }`}
+            >
+              {label} ({counts[id]})
+            </button>
+          ))}
+        </div>
       )}
+
+      {products && products.length === 0 && (
+        <p className="p-6 bg-white border border-black/10 text-xs text-center text-[#575653]">
+          No products yet. Start with "New product" or "CSV / Bulk listing".
+        </p>
+      )}
+      {products && products.length > 0 && filtered.length === 0 && (
+        <p className="p-6 bg-white border border-black/10 text-xs text-center text-[#575653]">No products match.</p>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {(products || []).map((p) => (
-          <div key={p.id} className="bg-white border border-black/10 p-3 flex gap-3 text-xs">
+        {filtered.slice(0, shown).map((p) => (
+          <div key={p.id} className="bg-white border border-black/10 p-3 flex gap-3 text-xs [content-visibility:auto] [contain-intrinsic-size:auto_112px]">
             <div className="w-20 h-20 bg-[#F4F3EF] shrink-0 overflow-hidden">
-              {p.primaryImage ? <img src={p.primaryImage} alt="" className="w-full h-full object-cover" loading="lazy" /> : null}
+              {p.primaryImage ? (
+                <img src={p.primaryImage} alt="" width={80} height={80} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+              ) : null}
             </div>
             <div className="min-w-0 flex-1 space-y-1">
               <div className="font-bold truncate">{p.name}</div>
@@ -834,45 +1046,24 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
                   p.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-900 border-emerald-400' : 'bg-slate-100 text-slate-900 border-slate-400'
                 }`}
               >
-                {p.status === 'ACTIVE' ? 'Live' : p.status === 'DRAFT' ? 'Draft' : 'Archived'}
+                {p.status === 'ACTIVE' ? 'Live' : p.status === 'DRAFT' ? 'Draft' : 'Removed'}
               </span>
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() =>
-                    setEditing({
-                      id: p.id,
-                      name: p.name,
-                      price: String(p.price),
-                      compareAtPrice: p.compareAtPrice ? String(p.compareAtPrice) : '',
-                      stock: String(p.stock),
-                      category: p.category,
-                      primaryImage: p.primaryImage || '',
-                      shortDescription: p.shortDescription || '',
-                      description: p.description || '',
-                      weightKg: String(p.weightKg || 0.5),
-                      status: p.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
-                    })
-                  }
-                  className="px-2 py-1 border border-black/30 font-semibold cursor-pointer"
+                  disabled={opening === p.id}
+                  onClick={() => openEditor(p)}
+                  className="px-2 py-1 border border-black/30 font-semibold cursor-pointer disabled:opacity-50"
                 >
-                  Edit
+                  {opening === p.id ? 'Opening...' : 'Edit'}
                 </button>
                 {p.status !== 'ARCHIVED' && (
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (!window.confirm(`"${p.name}" store se hata dein?`)) return;
-                      try {
-                        await api(`/api/seller/products/${encodeURIComponent(p.id)}/archive`, { method: 'POST' });
-                        await load();
-                      } catch (err: any) {
-                        showToast(err.message);
-                      }
-                    }}
+                    onClick={() => archive(p)}
                     className="px-2 py-1 border border-rose-400 text-rose-800 font-semibold cursor-pointer"
                   >
-                    Hatayein
+                    Remove
                   </button>
                 )}
               </div>
@@ -880,6 +1071,15 @@ const ProductsTab: React.FC<{ categoryNames: string[] }> = ({ categoryNames }) =
           </div>
         ))}
       </div>
+      {filtered.length > shown && (
+        <button
+          type="button"
+          onClick={() => setShown((n) => n + PAGE_SIZE * 2)}
+          className="w-full py-2.5 bg-white border border-black/20 text-xs font-bold text-[#141413] cursor-pointer hover:bg-black/[0.03]"
+        >
+          Show more ({filtered.length - shown} more)
+        </button>
+      )}
     </div>
   );
 };
@@ -906,7 +1106,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
     () =>
       rows.map((r) => {
         const category = r.category || defaultCategory.trim();
-        const problem = r.problem === 'Category nahi hai' && category.length >= 2 ? '' : r.problem;
+        const problem = r.problem === 'No category' && category.length >= 2 ? '' : r.problem;
         return { ...r, category, problem, status: asDraft ? ('DRAFT' as const) : r.status };
       }),
     [rows, defaultCategory, asDraft]
@@ -917,7 +1117,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   const readFile = async (file: File) => {
     setResult(null);
     if (file.size > 15 * 1024 * 1024) {
-      showToast('File 15 MB se bari hai. Isay chhote hisson mein baant kar upload karein.');
+      showToast('The file is larger than 15 MB. Please split it into smaller files.');
       return;
     }
     const text = await file.text();
@@ -955,7 +1155,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
         setProgress({ done: Math.min(total, i + BULK_CHUNK), total });
       }
       setResult(sum);
-      showToast(`${sum.created} naye products, ${sum.updated} update hue.`);
+      showToast(`${sum.created} new products, ${sum.updated} updated.`);
     } catch (err: any) {
       setResult(sum);
       showToast(err.message);
@@ -967,33 +1167,33 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   return (
     <div className="bg-white border border-black/10 p-5 space-y-4 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-display">CSV se bulk listing</h2>
+        <h2 className="text-lg font-display">Bulk listing from CSV</h2>
         <button type="button" onClick={onClose} className="px-4 py-2 border border-black/20 cursor-pointer">
-          Wapas
+          Back
         </button>
       </div>
 
       <div className="p-3 bg-[#F4F3EF] border border-black/10 space-y-1.5 text-[#141413]">
         <p>
-          Excel ya Google Sheets mein products ki list banayein aur <strong>CSV</strong> save karein. Daraz, Shopify ya
-          WooCommerce ki export file bhi chal jati hai.
+          Make a product list in Excel or Google Sheets and save it as <strong>CSV</strong>. Export files from Daraz, Shopify
+          or WooCommerce also work.
         </p>
         <p>
-          Zaroori columns: <strong>name, price, category</strong>. Baqi: sku, old_price, stock, image_url, short_description,
-          description, weight_kg.
+          Required columns: <strong>name, price, category</strong>. Optional: sku, old_price, stock, image_url,
+          short_description, description, weight_kg.
         </p>
         <p>
-          Same <strong>sku</strong> wali file dobara upload karne se naye products nahi bante, purane products ki qeemat aur
-          stock update ho jata hai.
+          Uploading a file again with the same <strong>sku</strong> does not create duplicates: it updates the price and stock
+          of the existing products.
         </p>
         <button type="button" onClick={downloadTemplate} className="mt-1 px-3 py-1.5 bg-white border border-black/30 font-semibold flex items-center gap-1 cursor-pointer">
-          <Download className="w-3.5 h-3.5" /> Namoona (template) file download karein
+          <Download className="w-3.5 h-3.5" /> Download a sample (template) file
         </button>
       </div>
 
       <label className="block p-6 border-2 border-dashed border-black/25 text-center cursor-pointer hover:bg-black/[0.02]">
         <Upload className="w-6 h-6 mx-auto mb-2 text-[#454441]" />
-        <span className="font-bold text-[#141413]">{fileName ? `${fileName}: dobara chunne ke liye click karein` : 'CSV file chunein'}</span>
+        <span className="font-bold text-[#141413]">{fileName ? `${fileName}: click to choose another file` : 'Choose a CSV file'}</span>
         <input
           type="file"
           accept=".csv,.tsv,.txt,text/csv"
@@ -1010,13 +1210,13 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>Jin products ki category khali hai, unki category</label>
+              <label className={labelCls}>Category for products that have none</label>
               <input
                 className={inputCls}
                 value={defaultCategory}
                 onChange={(e) => setDefaultCategory(e.target.value)}
                 list="seller-bulk-categories"
-                placeholder="Chunein ya likhein"
+                placeholder="Choose or type"
               />
               <datalist id="seller-bulk-categories">
                 {categoryNames.map((c) => (
@@ -1026,15 +1226,15 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
             </div>
             <label className="flex items-center gap-2 font-semibold text-[#141413] sm:pt-5">
               <input type="checkbox" checked={asDraft} onChange={(e) => setAsDraft(e.target.checked)} />
-              Sab ko Draft mein rakhein (pehle check kar ke baad mein live karunga)
+              Save all as Draft (I will review them and make them live later)
             </label>
           </div>
 
           <p className="text-[#141413]">
-            <strong>{ready.length}</strong> products tayyar hain
+            <strong>{ready.length}</strong> products ready
             {skipped > 0 && (
               <>
-                {' '}· <strong className="text-rose-800">{skipped}</strong> chhod diye jayenge (neeche wajah dekhein)
+                {' '}· <strong className="text-rose-800">{skipped}</strong> will be skipped (see the reason below)
               </>
             )}
           </p>
@@ -1044,12 +1244,12 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
               <thead className="bg-[#F4F3EF] sticky top-0">
                 <tr>
                   <th className="p-2">Line</th>
-                  <th className="p-2">Tasveer</th>
-                  <th className="p-2">Naam</th>
-                  <th className="p-2">Qeemat</th>
+                  <th className="p-2">Image</th>
+                  <th className="p-2">Name</th>
+                  <th className="p-2">Price</th>
                   <th className="p-2">Stock</th>
                   <th className="p-2">Category</th>
-                  <th className="p-2">Halat</th>
+                  <th className="p-2">Check</th>
                 </tr>
               </thead>
               <tbody>
@@ -1057,18 +1257,18 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
                   <tr key={r.row} className={`border-t border-black/[0.06] ${r.problem ? 'bg-rose-50' : ''}`}>
                     <td className="p-2 font-mono">{r.row}</td>
                     <td className="p-2">
-                      {r.primaryImage ? <img src={r.primaryImage} alt="" className="w-9 h-9 object-cover" loading="lazy" /> : '—'}
+                      {r.primaryImage ? <img src={r.primaryImage} alt="" className="w-9 h-9 object-cover" loading="lazy" decoding="async" /> : '—'}
                     </td>
                     <td className="p-2 max-w-[220px] truncate">{r.name || '—'}</td>
                     <td className="p-2 font-mono">{r.price ? formatPKR(r.price) : '—'}</td>
                     <td className="p-2 font-mono">{r.stock}</td>
                     <td className="p-2">{r.category || '—'}</td>
-                    <td className={`p-2 font-semibold ${r.problem ? 'text-rose-800' : 'text-emerald-800'}`}>{r.problem || 'Theek'}</td>
+                    <td className={`p-2 font-semibold ${r.problem ? 'text-rose-800' : 'text-emerald-800'}`}>{r.problem || 'OK'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {prepared.length > 300 && <p className="p-2 text-[#575653]">…aur {prepared.length - 300} products (sab upload honge)</p>}
+            {prepared.length > 300 && <p className="p-2 text-[#575653]">…and {prepared.length - 300} more products (all will be uploaded)</p>}
           </div>
 
           <button
@@ -1077,7 +1277,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
             onClick={upload}
             className="w-full py-2.5 bg-[#141413] text-white text-sm font-bold disabled:opacity-50 cursor-pointer"
           >
-            {progress ? `Upload ho rahe hain... ${progress.done} / ${progress.total}` : `${ready.length} products upload karein`}
+            {progress ? `Uploading... ${progress.done} / ${progress.total}` : `Upload ${ready.length} products`}
           </button>
         </>
       )}
@@ -1085,15 +1285,15 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
       {result && (
         <div className="p-3 border border-emerald-400 bg-emerald-50 text-emerald-950 space-y-1">
           <p>
-            ✓ {result.created} naye products bane, {result.updated} purane update hue.
+            ✓ {result.created} new products created, {result.updated} existing products updated.
           </p>
           {result.errors.length > 0 && (
             <p className="text-rose-800">
-              {result.errors.length} line save nahi hui: {result.errors.slice(0, 5).map((e) => `line ${e.row} (${e.error})`).join(', ')}
+              {result.errors.length} lines were not saved: {result.errors.slice(0, 5).map((e) => `line ${e.row} (${e.error})`).join(', ')}
             </p>
           )}
           <button type="button" onClick={onDone} className="mt-1 px-4 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer">
-            Products dekhein
+            View products
           </button>
         </div>
       )}
@@ -1105,22 +1305,25 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
 
 const EarningsTab: React.FC = () => {
   const { showToast } = useStore();
-  const [data, setData] = useState<{ summary: any; commissionPercent: number; payouts: SellerPayout[] } | null>(null);
+  const [data, setData] = useState(memo.earnings || null);
   useEffect(() => {
     api('/api/seller/earnings')
-      .then(setData)
+      .then((d) => {
+        memo.earnings = d;
+        setData(d);
+      })
       .catch((err) => showToast(err.message));
   }, [showToast]);
-  if (!data) return <p className="text-xs text-[#575653]">Load ho raha hai...</p>;
+  if (!data) return <p className="text-xs text-[#575653]">Loading...</p>;
   const s = data.summary;
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          ['Payout ke liye tayyar', s.available, 'Delivered orders, payout baqi'],
-          ['Aane wali kamai', s.pending, 'Orders jo abhi deliver nahi hue'],
-          ['Ab tak mila', s.paid, 'Bank mein bheja ja chuka'],
-          ['Store commission', s.commission, `${data.commissionPercent}% har sale par`],
+          ['Ready for payout', s.available, 'Delivered orders, not yet paid out'],
+          ['Upcoming earnings', s.pending, 'Orders not delivered yet'],
+          ['Paid out', s.paid, 'Already sent to your bank'],
+          ['Store commission', s.commission, `${data.commissionPercent}% per sale`],
         ].map(([label, value, hint]) => (
           <div key={label as string} className="p-4 bg-white border border-black/10">
             <div className="text-[11px] text-[#575653]">{label}</div>
@@ -1130,13 +1333,13 @@ const EarningsTab: React.FC = () => {
         ))}
       </div>
       <p className="text-xs text-[#454441]">
-        Customer ka COD ka paisa store collect karta hai. Order deliver hone ke baad aap ki kamai (raqam − commission + shipping)
-        "payout ke liye tayyar" mein aa jati hai, aur store aap ke bank account mein bhej deta hai.
+        The store collects the customer's Cash on Delivery payment. Once an order is delivered, your earning (amount −
+        commission + shipping) moves to "Ready for payout" and the store transfers it to your bank account.
       </p>
       <div className="bg-white border border-black/10">
         <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Payouts</div>
         {data.payouts.length === 0 ? (
-          <p className="p-4 text-xs text-[#575653]">Abhi koi payout nahi hua.</p>
+          <p className="p-4 text-xs text-[#575653]">No payouts yet.</p>
         ) : (
           <ul className="divide-y divide-black/[0.06] text-xs">
             {data.payouts.map((p) => (
@@ -1165,7 +1368,7 @@ async function shrinkToSquareJpeg(file: File, size = 256): Promise<string> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
       el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('Ye tasveer khul nahi saki. JPG ya PNG chunein.'));
+      el.onerror = () => reject(new Error('This picture could not be opened. Please choose a JPG or PNG.'));
       el.src = url;
     });
     const side = Math.min(img.naturalWidth, img.naturalHeight);
@@ -1182,7 +1385,7 @@ async function shrinkToSquareJpeg(file: File, size = 256): Promise<string> {
   }
 }
 
-const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | null; onSaved: () => void }> = ({
+const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onSaved: () => void }> = ({
   seller,
   privateData,
   onSaved,
@@ -1190,12 +1393,23 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
   const { showToast, firebaseUser } = useStore();
   const [photoBusy, setPhotoBusy] = useState(false);
   const photo = seller.logoUrl || firebaseUser?.photoURL || '';
+  const [form, setForm] = useState({
+    phone: seller.phone || '',
+    city: seller.city || '',
+    address: privateData.address || '',
+    bankName: privateData.bankName || '',
+    accountTitle: privateData.accountTitle || '',
+    accountNumber: privateData.accountNumber || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const savePhoto = async (logoUrl: string) => {
     setPhotoBusy(true);
     try {
       await api('/api/seller/profile', { method: 'PUT', body: JSON.stringify({ logoUrl }) });
-      showToast(logoUrl ? 'Tasveer save ho gayi.' : 'Tasveer hata di gayi.');
+      showToast(logoUrl ? 'Picture saved.' : 'Picture removed.');
       onSaved();
     } catch (err: any) {
       showToast(err.message);
@@ -1203,17 +1417,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
       setPhotoBusy(false);
     }
   };
-  const [form, setForm] = useState({
-    phone: seller.phone || '',
-    city: seller.city || '',
-    address: privateData?.address || '',
-    bankName: privateData?.bankName || '',
-    accountTitle: privateData?.accountTitle || '',
-    accountNumber: privateData?.accountNumber || '',
-  });
-  const [saving, setSaving] = useState(false);
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
+
   return (
     <form
       className="bg-white border border-black/10 p-5 grid grid-cols-1 sm:grid-cols-2 gap-4"
@@ -1222,7 +1426,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
         setSaving(true);
         try {
           await api('/api/seller/profile', { method: 'PUT', body: JSON.stringify(form) });
-          showToast('Profile save ho gaya.');
+          showToast('Profile saved.');
           onSaved();
         } catch (err: any) {
           showToast(err.message);
@@ -1235,8 +1439,8 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
         <SellerAvatar src={photo} name={seller.shopName} size={88} className="border border-black/10" />
         <div className="space-y-2 text-xs text-[#575653]">
           <div>
-            Dukaan: <strong className="text-[#141413]">{seller.shopName}</strong> · {seller.ownerEmail}
-            <span className="block">Dukaan ka naam badalne ke liye store se rabta karein.</span>
+            Shop: <strong className="text-[#141413]">{seller.shopName}</strong> · {seller.ownerEmail}
+            <span className="block">To change the shop name, please contact the store.</span>
           </div>
           <div className="flex flex-wrap gap-2">
             <label
@@ -1244,7 +1448,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
                 photoBusy ? 'opacity-50 pointer-events-none' : ''
               }`}
             >
-              <Camera className="w-3.5 h-3.5" /> {photoBusy ? 'Save ho rahi...' : seller.logoUrl ? 'Tasveer badlein' : 'Tasveer lagayein'}
+              <Camera className="w-3.5 h-3.5" /> {photoBusy ? 'Saving...' : seller.logoUrl ? 'Change picture' : 'Add picture'}
               <input
                 type="file"
                 accept="image/*"
@@ -1268,7 +1472,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
                 onClick={() => savePhoto('')}
                 className="px-3 py-1.5 border border-black/30 text-[#141413] font-semibold cursor-pointer disabled:opacity-50"
               >
-                Hatayein
+                Remove
               </button>
             )}
           </div>
@@ -1279,11 +1483,11 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
         <input className={inputCls} value={form.phone} onChange={set('phone')} />
       </div>
       <div>
-        <label className={labelCls}>Shehar</label>
+        <label className={labelCls}>City</label>
         <input className={inputCls} value={form.city} onChange={set('city')} />
       </div>
       <div className="sm:col-span-2">
-        <label className={labelCls}>Pata</label>
+        <label className={labelCls}>Address</label>
         <textarea className={inputCls} rows={2} value={form.address} onChange={set('address')} />
       </div>
       <div>
@@ -1295,12 +1499,12 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate | nu
         <input className={inputCls} value={form.accountTitle} onChange={set('accountTitle')} />
       </div>
       <div className="sm:col-span-2">
-        <label className={labelCls}>Account number / IBAN (payout isi par aayega)</label>
+        <label className={labelCls}>Account number / IBAN (payouts are sent here)</label>
         <input className={inputCls} value={form.accountNumber} onChange={set('accountNumber')} />
       </div>
       <div className="sm:col-span-2">
         <button type="submit" disabled={saving} className="px-5 py-2 bg-[#141413] text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
-          {saving ? 'Save ho raha...' : 'Save'}
+          {saving ? 'Saving...' : 'Save'}
         </button>
       </div>
     </form>

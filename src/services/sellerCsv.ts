@@ -41,7 +41,7 @@ const cleanText = (s: string) =>
 
 export function parseSellerCsv(raw: string, usdToPkrRate: number): { rows: SellerCsvRow[]; error?: string } {
   const { rows: all } = parseCsvRFC4180(raw);
-  if (all.length < 2) return { rows: [], error: 'File mein pehli line par column ke naam aur neeche kam az kam ek product hona chahiye.' };
+  if (all.length < 2) return { rows: [], error: 'The file needs column names on the first line and at least one product below it.' };
 
   const headers = all[0].map(norm);
   const col = (...names: string[]) => {
@@ -71,8 +71,8 @@ export function parseSellerCsv(raw: string, usdToPkrRate: number): { rows: Selle
     brand: col('brand', 'vendor', 'manufacturer'),
     status: col('status', 'published'),
   };
-  if (c.name === -1) return { rows: [], error: 'Product ke naam ka column nahi mila (name / title).' };
-  if (c.price === -1 && c.sale === -1) return { rows: [], error: 'Qeemat ka column nahi mila (price).' };
+  if (c.name === -1) return { rows: [], error: 'No product name column found (name / title).' };
+  if (c.price === -1 && c.sale === -1) return { rows: [], error: 'No price column found (price).' };
 
   const usd = detectPriceCurrency(raw.slice(0, 5000), all[0]) === 'USD';
   const toPkr = (n: number) => (usd && n > 0 ? Math.round(n * (usdToPkrRate || 278.5)) : n);
@@ -105,11 +105,11 @@ export function parseSellerCsv(raw: string, usdToPkrRate: number): { rows: Selle
 
     const problem =
       name.length < 3
-        ? 'Naam nahi hai'
+        ? 'No name'
         : !(price > 0)
-        ? 'Qeemat nahi hai'
+        ? 'No price'
         : category.length < 2
-        ? 'Category nahi hai'
+        ? 'No category'
         : '';
 
     rows.push({

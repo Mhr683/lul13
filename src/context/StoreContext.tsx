@@ -11,6 +11,7 @@ import {
   signOut as firebaseSignOut,
   User,
 } from 'firebase/auth';
+import { portalFromLocation } from '../portalBranding';
 
 export interface AuthResult {
   ok: boolean;
@@ -51,6 +52,9 @@ function friendlyAuthError(error: any): string {
       return error?.message || 'Login nahi ho saka. Dobara try karein.';
   }
 }
+
+// The Seller Center app (/seller) is a separate app and loads none of the store / admin data
+const SELLER_PORTAL = portalFromLocation() === 'SELLER';
 
 // Profile confirmed on the previous visit (UI hint only, see the userProfile state below)
 const PROFILE_CACHE_KEY = 'store_profile_cache_v1';
@@ -264,6 +268,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [emailVerified, setEmailVerified] = useState(false);
 
   const [products, setProducts] = useState<Product[]>(() => {
+    if (SELLER_PORTAL) return [];
     try {
       const saved = localStorage.getItem(PRODUCTS_STORAGE_KEY);
       if (saved) {
@@ -378,7 +383,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // 0. Persistent Server Catalog Hydration
   useEffect(() => {
     const hydrateServerCatalog = async () => {
-      try {
+      // Seller Center loads only the seller's own products through its own API
+      if (!SELLER_PORTAL) try {
         const prodRes = await fetch('/api/catalog/products');
         if (prodRes.ok) {
           const prodData = await prodRes.json();
@@ -493,6 +499,28 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (!authReady) return;
 
+    // Seller Center only needs the store settings and category names; its products, orders and
+    // earnings come from /api/seller/*. Even when the seller is also a store admin, the admin
+    // listeners (whole catalog, 1000 orders, ...) are not started there.
+    if (SELLER_PORTAL) {
+      const unsubCats = onSnapshot(
+        query(collection(db, 'categories'), where('slug', '>=', '')),
+        (snap) => setCategories(snap.docs.map((d) => d.data() as Category)),
+        () => {}
+      );
+      const unsubCfg = onSnapshot(
+        doc(db, 'settings', 'store_config'),
+        (snap) => {
+          if (snap.exists()) setSettings(snap.data() as StoreSettings);
+        },
+        () => {}
+      );
+      return () => {
+        unsubCats();
+        unsubCfg();
+      };
+    }
+
     const applyProducts = (list: Product[]) => {
       setProducts(list);
       try {
@@ -596,7 +624,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // 4. Authenticated Listeners (Orders, Audit Logs, AI Tasks, Notifications)
   useEffect(() => {
-    if (!authReady || !firebaseUser) {
+    if (!authReady || !firebaseUser || SELLER_PORTAL) {
       setOrders([]);
       setAuditLogs([]);
       setAiTasks([]);

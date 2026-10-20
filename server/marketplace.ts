@@ -25,6 +25,8 @@ export interface MarketplaceDeps {
   ) => Promise<{ restored: boolean; retaken: boolean }>;
   appendTrackingEvent: (existing: any, event: { at: string; status?: string; location?: string; note: string }) => any[];
   isInsufficientStockError: (err: unknown) => boolean;
+  /** Live (ACTIVE) products of one seller from the server's in-memory catalog mirror, or null while it loads */
+  activeProductsOfSeller: (sellerId: string) => any[] | null;
   HOUSE_SELLER_ID: string;
   DEFAULT_COMMISSION_PERCENT: number;
 }
@@ -54,22 +56,34 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     return { seller: s.exists ? (s.data() as any) : null, privateData: p.exists ? (p.data() as any) : null };
   };
 
+  // Shop records are read on every Seller Center request; keep them for a minute (dropped on every change)
+  const sellerCache = new Map<string, { at: number; seller: any }>();
+  const SELLER_CACHE_MS = 60_000;
+  const getSellerCached = async (uid: string) => {
+    const hit = sellerCache.get(uid);
+    if (hit && Date.now() - hit.at < SELLER_CACHE_MS) return hit.seller;
+    const snap = await sellersCol().doc(uid).get();
+    const seller = snap.exists ? (snap.data() as any) : null;
+    sellerCache.set(uid, { at: Date.now(), seller });
+    return seller;
+  };
+  const forgetSeller = (uid: string) => sellerCache.delete(uid);
+
   // Signed-in user whose seller shop is approved; the shop is attached as req.seller
   const requireSeller: Handler = (req, res, next) =>
     d.requireAuth(req, res, async () => {
       try {
         const uid = (req as any).user.uid as string;
-        const snap = await sellersCol().doc(uid).get();
-        const seller = snap.exists ? (snap.data() as any) : null;
-        if (!seller) return res.status(403).json({ error: 'Pehle seller account ke liye apply karein.', code: 'NOT_A_SELLER' });
+        const seller = await getSellerCached(uid);
+        if (!seller) return res.status(403).json({ error: 'Please apply for a seller account first.', code: 'NOT_A_SELLER' });
         if (seller.status !== 'APPROVED') {
-          return res.status(403).json({ error: 'Aap ka seller account abhi approved nahi hai.', code: `SELLER_${seller.status}` });
+          return res.status(403).json({ error: 'Your seller account is not approved yet.', code: `SELLER_${seller.status}` });
         }
         (req as any).seller = seller;
         next();
       } catch (err) {
         console.error('[requireSeller] failed:', err);
-        res.status(503).json({ error: 'Seller account load nahi ho saka.' });
+        res.status(503).json({ error: 'Could not load your seller account. Please try again.' });
       }
     });
 
@@ -142,7 +156,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.json({ success: true, seller, privateData, commissionPercent });
     } catch (err) {
       console.error('[seller/me] failed:', err);
-      res.status(503).json({ error: 'Seller account load nahi ho saka.' });
+      res.status(503).json({ error: 'Could not load your seller account. Please try again.' });
     }
   });
 
@@ -150,7 +164,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   app.post('/api/seller/apply', d.requireAuth, async (req, res) => {
     const user = (req as any).user;
     if (!user.emailVerified) {
-      return res.status(403).json({ error: 'Pehle apni email verify karein (inbox mein link), phir apply karein.', code: 'EMAIL_NOT_VERIFIED' });
+      return res.status(403).json({ error: 'Please verify your email first (check your inbox for the link), then apply.', code: 'EMAIL_NOT_VERIFIED' });
     }
     const b = req.body || {};
     const shopName = str(b.shopName, 60);
@@ -164,27 +178,27 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const accountNumber = str(b.accountNumber, 40).replace(/\s+/g, '');
 
     const missing: string[] = [];
-    if (shopName.length < 3) missing.push('Dukaan ka naam');
-    if (ownerName.length < 3) missing.push('Apna naam');
+    if (shopName.length < 3) missing.push('Shop name');
+    if (ownerName.length < 3) missing.push('Your name');
     if (!/^(\+92|0)3\d{9}$/.test(phone)) missing.push('Mobile number (03XXXXXXXXX)');
-    if (city.length < 2) missing.push('Shehar');
-    if (cnic.replace(/-/g, '').length !== 13) missing.push('CNIC (13 hindsay)');
-    if (address.length < 8) missing.push('Pata');
+    if (city.length < 2) missing.push('City');
+    if (cnic.replace(/-/g, '').length !== 13) missing.push('CNIC (13 digits)');
+    if (address.length < 8) missing.push('Address');
     if (bankName.length < 2 || accountTitle.length < 3 || accountNumber.length < 8) missing.push('Bank details');
-    if (missing.length) return res.status(400).json({ error: `Ye maloomat theek karein: ${missing.join(', ')}.` });
+    if (missing.length) return res.status(400).json({ error: `Please check: ${missing.join(', ')}.` });
 
     try {
       const ref = sellersCol().doc(user.uid);
       const existing = await ref.get();
       const current = existing.data() as any;
-      if (current?.status === 'APPROVED') return res.status(409).json({ error: 'Aap ka seller account pehle se approved hai.' });
-      if (current?.status === 'SUSPENDED') return res.status(403).json({ error: 'Aap ka seller account band hai. Store se rabta karein.' });
+      if (current?.status === 'APPROVED') return res.status(409).json({ error: 'Your seller account is already approved.' });
+      if (current?.status === 'SUSPENDED') return res.status(403).json({ error: 'Your seller account is suspended. Please contact the store.' });
 
       // Shop names must be unique (case-insensitive)
       const shopKey = shopName.toLowerCase();
       const clash = await sellersCol().where('shopKey', '==', shopKey).limit(2).get();
       if (clash.docs.some((doc) => doc.id !== user.uid)) {
-        return res.status(409).json({ error: 'Is naam ki dukaan pehle se maujood hai. Koi aur naam chunein.' });
+        return res.status(409).json({ error: 'A shop with this name already exists. Please choose another name.' });
       }
 
       const now = new Date().toISOString();
@@ -203,10 +217,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         updatedAt: now,
       });
       await adminDb.collection('seller_private').doc(user.uid).set({ cnic, address, bankName, accountTitle, accountNumber, updatedAt: now });
+      forgetSeller(user.uid);
       res.json({ success: true, status: 'PENDING' });
     } catch (err) {
       console.error('[seller/apply] failed:', err);
-      res.status(503).json({ error: 'Application save nahi hui. Dobara try karein.' });
+      res.status(503).json({ error: 'Could not save your application. Please try again.' });
     }
   });
 
@@ -218,7 +233,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const priv: Record<string, any> = { updatedAt: updates.updatedAt };
     if (b.phone !== undefined) {
       const phone = str(b.phone, 20).replace(/[^\d+]/g, '');
-      if (!/^(\+92|0)3\d{9}$/.test(phone)) return res.status(400).json({ error: 'Mobile number 03XXXXXXXXX hona chahiye.' });
+      if (!/^(\+92|0)3\d{9}$/.test(phone)) return res.status(400).json({ error: 'Mobile number must be in the format 03XXXXXXXXX.' });
       updates.phone = phone;
     }
     if (b.city !== undefined) updates.city = str(b.city, 60);
@@ -227,9 +242,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       // Sent from the browser already cropped and shrunk to 256px; Firebase Storage is not available
       // on the free plan, so the small image is kept on the shop record itself
       if (logo && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(logo) && !/^https:\/\/\S+$/i.test(logo)) {
-        return res.status(400).json({ error: 'Tasveer sahi format mein nahi hai. JPG ya PNG chunein.' });
+        return res.status(400).json({ error: 'Unsupported picture format. Please choose a JPG or PNG.' });
       }
-      if (logo.length > 200_000) return res.status(400).json({ error: 'Tasveer bohat bari hai. Choti tasveer chunein.' });
+      if (logo.length > 200_000) return res.status(400).json({ error: 'This picture is too large. Please choose a smaller one.' });
       updates.logoUrl = logo;
     }
     if (b.address !== undefined) priv.address = str(b.address, 300);
@@ -239,26 +254,77 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     try {
       await sellersCol().doc(uid).set(updates, { merge: true });
       await adminDb.collection('seller_private').doc(uid).set(priv, { merge: true });
+      forgetSeller(uid);
       res.json({ success: true });
     } catch (err) {
       console.error('[seller/profile] failed:', err);
-      res.status(503).json({ error: 'Profile save nahi hua.' });
+      res.status(503).json({ error: 'Could not save your profile. Please try again.' });
     }
   });
 
   // ---------------------------------------------------------------- seller: products
 
+  // Only what the product list shows; the full product is fetched when the seller opens it to edit
+  const listFields = (p: any) => ({
+    id: p.id,
+    sku: p.sku,
+    name: p.name,
+    price: p.price,
+    compareAtPrice: p.compareAtPrice || 0,
+    stock: p.stock,
+    category: p.category,
+    status: p.status,
+    primaryImage: p.primaryImage || '',
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  });
+
+  // Live products come from the server's catalog mirror (no Firestore reads, always current);
+  // only drafts and archived ones are read from Firestore.
   app.get('/api/seller/products', requireSeller, async (req, res) => {
     try {
       const uid = (req as any).user.uid as string;
-      const snap = await adminDb.collection('products').where('sellerId', '==', uid).limit(2000).get();
-      const products = snap.docs
-        .map((doc) => ({ ...(doc.data() as any), id: doc.id }))
-        .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
-      res.json({ success: true, products });
+      let products: any[];
+      const live = d.activeProductsOfSeller(uid);
+      if (live) {
+        let hidden: any[];
+        try {
+          const snap = await adminDb
+            .collection('products')
+            .where('sellerId', '==', uid)
+            .where('status', 'in', ['DRAFT', 'ARCHIVED'])
+            .limit(5000)
+            .get();
+          hidden = snap.docs.map((doc) => ({ ...(doc.data() as any), id: doc.id }));
+        } catch {
+          const snap = await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get();
+          hidden = snap.docs.map((doc) => ({ ...(doc.data() as any), id: doc.id })).filter((p) => p.status !== 'ACTIVE');
+        }
+        products = [...live, ...hidden];
+      } else {
+        const snap = await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get();
+        products = snap.docs.map((doc) => ({ ...(doc.data() as any), id: doc.id }));
+      }
+      products.sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, products: products.map(listFields) });
     } catch (err) {
       console.error('[seller/products] failed:', err);
-      res.status(503).json({ error: 'Products load nahi ho sake.' });
+      res.status(503).json({ error: 'Could not load your products. Please try again.' });
+    }
+  });
+
+  app.get('/api/seller/products/:id', requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    try {
+      const snap = await adminDb.collection('products').doc(String(req.params.id)).get();
+      const product = snap.exists ? (snap.data() as any) : null;
+      if (!product || product.sellerId !== uid) return res.status(404).json({ error: 'Product not found.' });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, product: { ...product, id: snap.id } });
+    } catch (err) {
+      console.error('[seller/product] failed:', err);
+      res.status(503).json({ error: 'Could not load this product. Please try again.' });
     }
   });
 
@@ -268,10 +334,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const price = money(b.price);
     const category = str(b.category, 75);
     const primaryImage = str(b.primaryImage, 980);
-    if (name.length < 3) return { error: 'Product ka naam likhein (kam az kam 3 huroof).' };
-    if (!(price > 0)) return { error: 'Qeemat (PKR) likhein.' };
-    if (category.length < 2) return { error: 'Category chunein.' };
-    if (primaryImage && !/^https:\/\//i.test(primaryImage)) return { error: 'Tasveer ka link https:// se shuru hona chahiye.' };
+    if (name.length < 3) return { error: 'Enter a product name (at least 3 characters).' };
+    if (!(price > 0)) return { error: 'Enter a price (PKR).' };
+    if (category.length < 2) return { error: 'Choose a category.' };
+    if (primaryImage && !/^https:\/\//i.test(primaryImage)) return { error: 'The image link must start with https://' };
     return {
       fields: {
         name,
@@ -341,7 +407,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const uid = (req as any).user.uid as string;
     const seller = (req as any).seller;
     const rows = Array.isArray(req.body?.products) ? req.body.products.slice(0, 500) : [];
-    if (!rows.length) return res.status(400).json({ error: 'CSV mein koi product nahi mila.' });
+    if (!rows.length) return res.status(400).json({ error: 'No products found in the file.' });
     try {
       const existingSnap = await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get();
       const bySku = new Map<string, { id: string; data: any }>();
@@ -378,7 +444,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.json({ success: true, created, updated, errors });
     } catch (err) {
       console.error('[seller/products bulk] failed:', err);
-      res.status(503).json({ error: 'Products save nahi hue. Dobara try karein.' });
+      res.status(503).json({ error: 'Could not save the products. Please try again.' });
     }
   });
 
@@ -395,7 +461,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (id) {
         const snap = await adminDb.collection('products').doc(id).get();
         existing = snap.exists ? snap.data() : null;
-        if (!existing || existing.sellerId !== uid) return res.status(403).json({ error: 'Ye product aap ka nahi hai.' });
+        if (!existing || existing.sellerId !== uid) return res.status(403).json({ error: 'This product does not belong to your shop.' });
       } else {
         id = `prod-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
       }
@@ -404,7 +470,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.json({ success: true, product });
     } catch (err) {
       console.error('[seller/products save] failed:', err);
-      res.status(503).json({ error: 'Product save nahi hua. Dobara try karein.' });
+      res.status(503).json({ error: 'Could not save the product. Please try again.' });
     }
   });
 
@@ -414,12 +480,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     try {
       const ref = adminDb.collection('products').doc(String(req.params.id));
       const snap = await ref.get();
-      if (!snap.exists || snap.data()?.sellerId !== uid) return res.status(403).json({ error: 'Ye product aap ka nahi hai.' });
+      if (!snap.exists || snap.data()?.sellerId !== uid) return res.status(403).json({ error: 'This product does not belong to your shop.' });
       await ref.update({ status: 'ARCHIVED', updatedAt: new Date().toISOString() });
       res.json({ success: true });
     } catch (err) {
       console.error('[seller/products archive] failed:', err);
-      res.status(503).json({ error: 'Product hata nahi saka.' });
+      res.status(503).json({ error: 'Could not remove the product. Please try again.' });
     }
   });
 
@@ -433,7 +499,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.json({ success: true, orders: orders.map(sellerSafeOrder) });
     } catch (err) {
       console.error('[seller/orders] failed:', err);
-      res.status(503).json({ error: 'Orders load nahi ho sake.' });
+      res.status(503).json({ error: 'Could not load your orders. Please try again.' });
     }
   });
 
@@ -449,20 +515,20 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const status = String(req.body?.status || '');
     const trackingNumber = str(req.body?.trackingNumber, 110);
     const courierName = str(req.body?.courierName, 60);
-    if (!SELLER_ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Ye status seller nahi laga sakta.' });
+    if (!SELLER_ORDER_STATUSES.includes(status)) return res.status(400).json({ error: 'Sellers cannot set this status.' });
     try {
       const own = await loadOwnOrder(uid, String(req.body?.orderId || ''));
-      if (!own) return res.status(404).json({ error: 'Order nahi mila.' });
+      if (!own) return res.status(404).json({ error: 'Order not found.' });
       const { ref, order } = own;
       if (CLOSED_STATUSES.includes(order.status)) {
-        return res.status(409).json({ error: 'Ye order band ho chuka hai. Tabdeeli ke liye store se rabta karein.' });
+        return res.status(409).json({ error: 'This order is closed. Please contact the store to change it.' });
       }
       if (status === 'CANCELLED' && SHIPPED_OR_LATER.includes(order.status)) {
-        return res.status(409).json({ error: 'Bheja hua order cancel nahi ho sakta. Return ke liye store se rabta karein.' });
+        return res.status(409).json({ error: 'A shipped order cannot be cancelled. Please contact the store for a return.' });
       }
       const finalTracking = trackingNumber || order.trackingNumber || '';
       if (SHIPPED_OR_LATER.includes(status) && finalTracking.length < 4) {
-        return res.status(400).json({ error: 'Parcel bhejne se pehle courier ka asal tracking number daalein.' });
+        return res.status(400).json({ error: 'Enter the courier tracking number before marking the parcel as shipped.' });
       }
       const updates: Record<string, any> & { status: string } = { status, updatedAt: new Date().toISOString() };
       if (trackingNumber) updates.trackingNumber = trackingNumber;
@@ -477,7 +543,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     } catch (err) {
       if (d.isInsufficientStockError(err)) return res.status(409).json({ error: (err as Error).message });
       console.error('[seller/orders/status] failed:', err);
-      res.status(503).json({ error: 'Status save nahi hua. Dobara try karein.' });
+      res.status(503).json({ error: 'Could not update the status. Please try again.' });
     }
   });
 
@@ -485,10 +551,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const uid = (req as any).user.uid as string;
     const location = str(req.body?.location, 120);
     const note = str(req.body?.note, 300);
-    if (!location && !note) return res.status(400).json({ error: 'Location ya message likhein.' });
+    if (!location && !note) return res.status(400).json({ error: 'Enter a location or a message.' });
     try {
       const own = await loadOwnOrder(uid, String(req.body?.orderId || ''));
-      if (!own) return res.status(404).json({ error: 'Order nahi mila.' });
+      if (!own) return res.status(404).json({ error: 'Order not found.' });
       const now = new Date().toISOString();
       await adminDb.runTransaction(async (tx) => {
         const snap = await tx.get(own.ref);
@@ -504,7 +570,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.json({ success: true });
     } catch (err) {
       console.error('[seller/orders/event] failed:', err);
-      res.status(503).json({ error: 'Update save nahi hui.' });
+      res.status(503).json({ error: 'Could not save the update. Please try again.' });
     }
   });
 
@@ -529,7 +595,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       });
     } catch (err) {
       console.error('[seller/earnings] failed:', err);
-      res.status(503).json({ error: 'Kamai ka hisaab load nahi ho saka.' });
+      res.status(503).json({ error: 'Could not load your earnings. Please try again.' });
     }
   });
 
@@ -565,7 +631,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.json({ success: true, sellers, defaultCommission });
     } catch (err) {
       console.error('[admin/sellers] failed:', err);
-      res.status(503).json({ error: 'Sellers load nahi ho sake.' });
+      res.status(503).json({ error: 'Could not load sellers. Please try again.' });
     }
   });
 
@@ -576,12 +642,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     try {
       const ref = sellersCol().doc(id);
       const snap = await ref.get();
-      if (!snap.exists) return res.status(404).json({ error: 'Seller nahi mila.' });
+      if (!snap.exists) return res.status(404).json({ error: 'Seller not found.' });
       const current = snap.data() as any;
       const now = new Date().toISOString();
       const updates: Record<string, any> = { updatedAt: now };
       if (b.status !== undefined) {
-        if (!['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'].includes(b.status)) return res.status(400).json({ error: 'Ghalat status.' });
+        if (!['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'].includes(b.status)) return res.status(400).json({ error: 'Invalid status.' });
         updates.status = b.status;
         updates.statusReason = str(b.statusReason, 300);
       }
@@ -590,11 +656,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           updates.commissionPercent = null;
         } else {
           const pct = Number(b.commissionPercent);
-          if (!(pct >= 0 && pct <= 100)) return res.status(400).json({ error: 'Commission 0 se 100 ke darmiyan ho.' });
+          if (!(pct >= 0 && pct <= 100)) return res.status(400).json({ error: 'Commission must be between 0 and 100.' });
           updates.commissionPercent = pct;
         }
       }
       await ref.set(updates, { merge: true });
+      forgetSeller(id);
 
       // A suspended seller's live products leave the store; they come back when re-approved
       const statusChanged = updates.status && updates.status !== current.status;
@@ -621,7 +688,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.json({ success: true, changedProducts });
     } catch (err) {
       console.error('[admin/sellers update] failed:', err);
-      res.status(503).json({ error: 'Seller update nahi hua.' });
+      res.status(503).json({ error: 'Could not update the seller. Please try again.' });
     }
   });
 
@@ -639,7 +706,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.json({ success: true, payouts });
     } catch (err) {
       console.error('[admin/payouts] failed:', err);
-      res.status(503).json({ error: 'Payouts load nahi ho sake.' });
+      res.status(503).json({ error: 'Could not load payouts. Please try again.' });
     }
   });
 
@@ -648,12 +715,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const sellerId = str(req.body?.sellerId, 128);
     const reference = str(req.body?.reference, 120);
     const note = str(req.body?.note, 300);
-    if (!sellerId || sellerId === d.HOUSE_SELLER_ID) return res.status(400).json({ error: 'Seller chunein.' });
-    if (reference.length < 3) return res.status(400).json({ error: 'Bank transfer ka reference / TID likhein.' });
+    if (!sellerId || sellerId === d.HOUSE_SELLER_ID) return res.status(400).json({ error: 'Choose a seller.' });
+    if (reference.length < 3) return res.status(400).json({ error: 'Enter the bank transfer reference / TID.' });
     try {
       const orders = await loadSellerOrders(sellerId, 1000);
       const due = orders.filter((o) => o.status === 'DELIVERED' && !o.payoutId && Number(o.sellerEarning) > 0);
-      if (due.length === 0) return res.status(409).json({ error: 'Is seller ka koi payout baqi nahi.' });
+      if (due.length === 0) return res.status(409).json({ error: 'This seller has no payout due.' });
       const amount = money(due.reduce((s, o) => s + Number(o.sellerEarning || 0), 0));
       const payoutRef = adminDb.collection('payouts').doc(`pay-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`);
       const paidAt = new Date().toISOString();
@@ -677,9 +744,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       });
       res.json({ success: true, payoutId: payoutRef.id, amount, orders: due.length });
     } catch (err: any) {
-      if (err?.message === 'ALREADY_PAID') return res.status(409).json({ error: 'Kuch orders ka payout pehle hi ho chuka hai. Page refresh karein.' });
+      if (err?.message === 'ALREADY_PAID') return res.status(409).json({ error: 'Some of these orders have already been paid out. Please refresh the page.' });
       console.error('[admin/payouts create] failed:', err);
-      res.status(503).json({ error: 'Payout save nahi hua.' });
+      res.status(503).json({ error: 'Could not record the payout. Please try again.' });
     }
   });
 }
