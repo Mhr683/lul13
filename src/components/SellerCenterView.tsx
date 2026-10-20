@@ -33,11 +33,28 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 // take many seconds to restore a sign-in) and refreshed in the background.
 
 type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'EARNINGS' | 'PROFILE';
-type SellerOrder = Order & { commissionAmount: number; commissionPercent: number; sellerEarning: number; payoutId: string | null };
+type SupplierItem = { productId: string; supplierName?: string; supplierSku?: string; supplierProductUrl?: string; supplierCostPrice?: number };
+type SellerOrder = Order & {
+  commissionAmount: number;
+  commissionPercent: number;
+  sellerEarning: number;
+  payoutId: string | null;
+  supplierItems?: SupplierItem[];
+  supplierCost?: number;
+};
 type ListProduct = Pick<Product, 'id' | 'sku' | 'name' | 'price' | 'stock' | 'category' | 'status' | 'primaryImage'> & {
   compareAtPrice?: number;
+  adminHidden?: boolean;
+  adminHiddenReason?: string;
   createdAt?: string;
   updatedAt?: string;
+};
+
+// wa.me link with a ready message (Pakistani 03xx numbers become 923xx)
+const whatsAppLink = (phone: string | undefined, text: string) => {
+  let digits = String(phone || '').replace(/\D/g, '');
+  if (digits.startsWith('0')) digits = `92${digits.slice(1)}`;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 };
 
 const COURIERS = ['TCS', 'Leopards', 'PostEx', 'Trax', 'M&P', 'Call Courier', 'BlueEx', 'Swyft', 'Daewoo', 'Pakistan Post', 'Other'];
@@ -601,11 +618,47 @@ const SellerOrderCard: React.FC<{
   busy: boolean;
   act: (o: SellerOrder, body: Record<string, any>, path?: string) => Promise<void>;
 }> = ({ order: o, busy, act }) => {
+  const { settings, showToast } = useStore();
   const [courier, setCourier] = useState(o.courierName || 'TCS');
   const [tracking, setTracking] = useState(o.trackingNumber || '');
   const closed = ['CANCELLED', 'RETURNED', 'REFUNDED', 'DELIVERED'].includes(o.status);
   const shipped = ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status);
   const btn = 'px-2.5 py-1.5 text-[11px] font-semibold border cursor-pointer disabled:opacity-50';
+  const storeName = settings.storeName || 'our store';
+  const supplierFor = (productId: string) => (o.supplierItems || []).find((s) => s.productId === productId);
+  const hasSupplier = (o.items || []).some((it) => {
+    const s = supplierFor(it.productId);
+    return s && (s.supplierName || s.supplierProductUrl || s.supplierSku);
+  });
+  const profit = (Number(o.sellerEarning) || 0) - (Number(o.supplierCost) || 0);
+
+  const confirmText =
+    `Hello ${o.customerName}!\n\n` +
+    `We have received your order #${o.orderNumber} at ${storeName}:\n` +
+    (o.items || []).map((i) => `• ${i.name} x${i.quantity}`).join('\n') +
+    `\n\nTotal: ${formatPKR(o.total)} (${o.paymentMethod === 'COD' ? 'Cash on Delivery' : o.paymentMethod})\n` +
+    `Address: ${o.shippingAddressSummary || ''}\n\nPlease reply "YES" to confirm your order. Thank you!`;
+
+  // Text to paste into the supplier's portal / WhatsApp when forwarding a dropshipping order
+  const supplierText =
+    `Order ${o.orderNumber}\n` +
+    (o.items || [])
+      .map((i) => {
+        const s = supplierFor(i.productId);
+        return `• ${i.name} x${i.quantity}${s?.supplierSku ? ` (SKU ${s.supplierSku})` : ''}${s?.supplierProductUrl ? `\n  ${s.supplierProductUrl}` : ''}`;
+      })
+      .join('\n') +
+    `\n\nDeliver to: ${o.customerName}, ${o.customerPhone}\n${o.shippingAddressSummary || ''}\n` +
+    (o.paymentMethod === 'COD' ? `Collect cash on delivery: ${formatPKR(o.total)}\n` : 'Prepaid, do not collect cash\n');
+
+  const copySupplierText = async () => {
+    try {
+      await navigator.clipboard.writeText(supplierText);
+      showToast('Order details copied. Paste them into the supplier portal.');
+    } catch {
+      window.prompt('Copy these order details for the supplier:', supplierText);
+    }
+  };
 
   return (
     <div className="bg-white border border-black/10 p-4 space-y-3 text-xs">
@@ -643,16 +696,64 @@ const SellerOrderCard: React.FC<{
             Commission ({o.commissionPercent}%): {formatPKR(o.commissionAmount)}
           </div>
           <div className="text-emerald-800 font-bold">Your earning: {formatPKR(o.sellerEarning)}</div>
-          {o.payoutId && <div className="text-emerald-800">✓ Paid out</div>}
+          {Number(o.supplierCost) > 0 && (
+            <>
+              <div>Supplier cost: {formatPKR(Number(o.supplierCost))}</div>
+              <div className={`font-bold ${profit >= 0 ? 'text-emerald-800' : 'text-rose-800'}`}>Profit: {formatPKR(profit)}</div>
+            </>
+          )}
+          {o.payoutId && <div className="text-emerald-800">✓ {o.payoutId === 'OWN_SHOP' ? 'Settled' : 'Paid out'}</div>}
         </div>
       </div>
+
+      {hasSupplier && !closed && !shipped && (
+        <div className="p-3 bg-violet-50 border border-violet-300 space-y-2">
+          <div className="font-bold text-violet-950">Supplier (dropshipping)</div>
+          {(o.items || []).map((it, i) => {
+            const s = supplierFor(it.productId);
+            if (!s) return null;
+            return (
+              <div key={i} className="text-[#141413]">
+                {it.quantity} × {it.name} — {s.supplierName || 'Supplier'}
+                {s.supplierSku ? ` · SKU ${s.supplierSku}` : ''}
+                {Number(s.supplierCostPrice) > 0 ? ` · cost ${formatPKR(Number(s.supplierCostPrice))}` : ''}
+                {s.supplierProductUrl && (
+                  <a href={s.supplierProductUrl} target="_blank" rel="noopener noreferrer" className="ml-2 underline text-violet-900">
+                    Open supplier page
+                  </a>
+                )}
+              </div>
+            );
+          })}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={copySupplierText} className={`${btn} bg-white border-violet-500 text-violet-950`}>
+              Copy order for supplier
+            </button>
+            {o.status === 'CONFIRMED' && (
+              <button type="button" disabled={busy} onClick={() => act(o, { status: 'PROCESSING' })} className={`${btn} bg-violet-700 text-white border-violet-700`}>
+                ✓ Sent to supplier
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {!closed && (
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-black/10">
           {['PENDING_CONFIRMATION', 'PENDING'].includes(o.status) && (
-            <button type="button" disabled={busy} onClick={() => act(o, { status: 'CONFIRMED' })} className={`${btn} bg-emerald-700 text-white border-emerald-700`}>
-              ✓ Confirm
-            </button>
+            <>
+              <a
+                href={whatsAppLink(o.customerPhone, confirmText)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`${btn} bg-[#128C4A] text-white border-[#128C4A]`}
+              >
+                Confirm on WhatsApp
+              </a>
+              <button type="button" disabled={busy} onClick={() => act(o, { status: 'CONFIRMED' })} className={`${btn} bg-emerald-700 text-white border-emerald-700`}>
+                ✓ Confirm
+              </button>
+            </>
           )}
           {['CONFIRMED', 'PROCESSING'].includes(o.status) && (
             <button type="button" disabled={busy} onClick={() => act(o, { status: 'PACKED' })} className={`${btn} bg-white border-black/30`}>
@@ -691,6 +792,22 @@ const SellerOrderCard: React.FC<{
             <button type="button" disabled={busy} onClick={() => act(o, { status: 'DELIVERED' })} className={`${btn} bg-emerald-700 text-white border-emerald-700`}>
               ✓ Delivered
             </button>
+          )}
+          {shipped && o.trackingNumber && (
+            <a
+              href={whatsAppLink(
+                o.customerPhone,
+                `Hello ${o.customerName}!\n\nYour order #${o.orderNumber} has been handed to ${o.courierName || 'the courier'}.\n` +
+                  `Tracking number: ${o.trackingNumber}\n` +
+                  (o.paymentMethod === 'COD' ? `Please pay ${formatPKR(o.total)} on delivery.\n` : '') +
+                  `Thank you! ${storeName}`
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${btn} bg-white border-[#128C4A] text-[#0B5C30]`}
+            >
+              Send tracking on WhatsApp
+            </a>
           )}
           {shipped && (
             <button
@@ -754,6 +871,11 @@ const emptyProduct = {
   description: '',
   weightKg: '0.5',
   status: 'ACTIVE' as 'ACTIVE' | 'DRAFT',
+  supplierName: '',
+  supplierCostPrice: '',
+  supplierProductUrl: '',
+  supplierSku: '',
+  adminHiddenReason: '',
 };
 
 type ProductFilter = 'ALL' | 'ACTIVE' | 'DRAFT' | 'OUT' | 'ARCHIVED';
@@ -766,6 +888,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
   const [opening, setOpening] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<ProductFilter>('ALL');
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -822,8 +946,13 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
   const openEditor = async (p: ListProduct) => {
     setOpening(p.id);
     try {
-      const { product: full } = await api(`/api/seller/products/${encodeURIComponent(p.id)}`);
+      const { product: full, supplier } = await api(`/api/seller/products/${encodeURIComponent(p.id)}`);
       setEditing({
+        supplierName: supplier?.supplierName || '',
+        supplierCostPrice: supplier?.supplierCostPrice ? String(supplier.supplierCostPrice) : '',
+        supplierProductUrl: supplier?.supplierProductUrl || '',
+        supplierSku: supplier?.supplierSku || '',
+        adminHiddenReason: full.adminHidden ? full.adminHiddenReason || 'Hidden by the store' : '',
         id: full.id,
         name: full.name,
         price: String(full.price),
@@ -855,9 +984,16 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
           compareAtPrice: Number(editing.compareAtPrice) || 0,
           stock: Number(editing.stock),
           weightKg: Number(editing.weightKg),
+          supplierCostPrice: Number(editing.supplierCostPrice) || 0,
         }),
       });
-      showToast(editing.status === 'ACTIVE' ? 'Product saved and live in the store.' : 'Draft saved.');
+      showToast(
+        product.adminHidden
+          ? 'Saved. The store has hidden this product, so it stays hidden until the store restores it.'
+          : editing.status === 'ACTIVE'
+          ? 'Product saved and live in the store.'
+          : 'Draft saved.'
+      );
       setEditing(null);
       const rest = (products || []).filter((p) => p.id !== product.id);
       applyList([product, ...rest]);
@@ -865,6 +1001,26 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
       showToast(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Copies the pictures in batches of 150 until all are stored
+  const archiveImages = async () => {
+    setArchiving(true);
+    try {
+      let total = 0;
+      for (let round = 0; round < 40; round++) {
+        const r = await api('/api/seller/media/archive', { method: 'POST' });
+        total += r.archived || 0;
+        if (!r.remaining || !r.archived) break;
+        showToast(`${total} images saved, ${r.remaining} to go...`);
+      }
+      showToast(total ? `${total} images saved to the store.` : 'All images are already saved.');
+      if (total) await load();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -894,10 +1050,37 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
     );
   }
 
+  const writeWithAi = async () => {
+    if (!editing || editing.name.trim().length < 3) return showToast('Enter the product name first.');
+    setAiBusy(true);
+    try {
+      const r = await api('/api/ai/generate-product-content', {
+        method: 'POST',
+        body: JSON.stringify({ name: editing.name, category: editing.category, price: Number(editing.price) || 0 }),
+      });
+      setEditing((p) =>
+        p ? { ...p, shortDescription: r.shortDescription || p.shortDescription, description: r.description || p.description } : p
+      );
+      showToast('Description written. Check it before saving.');
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   if (editing) {
+    const cost = Number(editing.supplierCostPrice) || 0;
+    const price = Number(editing.price) || 0;
     return (
       <div className="bg-white border border-black/10 p-5 space-y-4">
         <h2 className="text-lg font-display">{editing.id ? 'Edit product' : 'New product'}</h2>
+        {editing.adminHiddenReason && (
+          <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs">
+            The store has hidden this product: <strong>{editing.adminHiddenReason}</strong>. You can still edit it; please contact the
+            store to make it live again.
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
             <label className={labelCls}>Name *</label>
@@ -928,6 +1111,17 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
             <label className={labelCls}>Image link (https://...)</label>
             <input className={inputCls} value={editing.primaryImage} onChange={set('primaryImage')} placeholder="https://..." />
           </div>
+          <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] text-[#575653]">Let AI write the short and full description from the name and category.</span>
+            <button
+              type="button"
+              disabled={aiBusy}
+              onClick={writeWithAi}
+              className="px-3 py-1.5 bg-[#C5A059] text-black text-xs font-bold cursor-pointer disabled:opacity-50"
+            >
+              {aiBusy ? 'Writing...' : '✨ Write description with AI'}
+            </button>
+          </div>
           <div className="sm:col-span-2">
             <label className={labelCls}>Short description</label>
             <input className={inputCls} value={editing.shortDescription} onChange={set('shortDescription')} />
@@ -946,6 +1140,31 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
               <option value="ACTIVE">Live (visible in the store)</option>
               <option value="DRAFT">Draft (hidden)</option>
             </select>
+          </div>
+          <div className="sm:col-span-2 pt-2 border-t border-black/10">
+            <div className="text-xs font-bold text-[#141413]">Supplier (dropshipping, optional)</div>
+            <p className="text-[11px] text-[#575653]">Only you and the store team can see this. It is shown on your orders so you can forward them.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Supplier name</label>
+            <input className={inputCls} value={editing.supplierName} onChange={set('supplierName')} placeholder="e.g. AliExpress, local wholesaler" />
+          </div>
+          <div>
+            <label className={labelCls}>Supplier cost per piece (PKR)</label>
+            <input className={inputCls} value={editing.supplierCostPrice} onChange={set('supplierCostPrice')} inputMode="decimal" />
+            {cost > 0 && price > 0 && (
+              <span className={`block mt-1 text-[11px] font-semibold ${price - cost >= 0 ? 'text-emerald-800' : 'text-rose-800'}`}>
+                Margin before commission: {formatPKR(price - cost)} ({Math.round(((price - cost) / price) * 100)}%)
+              </span>
+            )}
+          </div>
+          <div>
+            <label className={labelCls}>Supplier product link</label>
+            <input className={inputCls} value={editing.supplierProductUrl} onChange={set('supplierProductUrl')} placeholder="https://..." />
+          </div>
+          <div>
+            <label className={labelCls}>Supplier SKU / code</label>
+            <input className={inputCls} value={editing.supplierSku} onChange={set('supplierSku')} />
           </div>
         </div>
         <div className="flex gap-2">
@@ -976,6 +1195,17 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
           {refreshing && products ? ' · updating…' : ''}
         </span>
         <div className="flex flex-wrap gap-2">
+          {products && products.length > 0 && (
+            <button
+              type="button"
+              disabled={archiving}
+              onClick={archiveImages}
+              title="Copy product pictures into the store's storage so they stay even if the supplier deletes them"
+              className="px-4 py-2 bg-white border border-black/30 text-[#141413] text-xs font-bold cursor-pointer hover:bg-black/[0.04] disabled:opacity-50"
+            >
+              {archiving ? 'Saving images...' : 'Save images to store'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setBulkOpen(true)}
@@ -1048,6 +1278,11 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
               >
                 {p.status === 'ACTIVE' ? 'Live' : p.status === 'DRAFT' ? 'Draft' : 'Removed'}
               </span>
+              {p.adminHidden && (
+                <span className="ml-1 inline-block px-1.5 py-0.5 border text-[10px] font-bold bg-rose-100 text-rose-900 border-rose-400" title={p.adminHiddenReason}>
+                  Hidden by store
+                </span>
+              )}
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
@@ -1180,7 +1415,8 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
         </p>
         <p>
           Required columns: <strong>name, price, category</strong>. Optional: sku, old_price, stock, image_url,
-          short_description, description, weight_kg.
+          short_description, description, weight_kg. For dropshipping: supplier, supplier_cost, supplier_link, supplier_sku
+          (only you and the store team see these).
         </p>
         <p>
           Uploading a file again with the same <strong>sku</strong> does not create duplicates: it updates the price and stock
@@ -1324,6 +1560,12 @@ const EarningsTab: React.FC = () => {
           ['Upcoming earnings', s.pending, 'Orders not delivered yet'],
           ['Paid out', s.paid, 'Already sent to your bank'],
           ['Store commission', s.commission, `${data.commissionPercent}% per sale`],
+          ...(Number(s.supplierCost) > 0
+            ? [
+                ['Supplier cost', s.supplierCost, 'Dropshipping cost of your orders'],
+                ['Estimated profit', s.profit, 'Earnings minus supplier cost (returns not included)'],
+              ]
+            : []),
         ].map(([label, value, hint]) => (
           <div key={label as string} className="p-4 bg-white border border-black/10">
             <div className="text-[11px] text-[#575653]">{label}</div>

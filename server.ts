@@ -311,6 +311,17 @@ async function requireAdmin(
   }
 }
 
+// AI listing tools are used by approved marketplace sellers (Seller Center) as well as admins
+function requireAdminOrSeller(req: express.Request, res: express.Response, next: express.NextFunction) {
+  return requireAuth(req, res, async () => {
+    try {
+      const shop = await adminDb.collection('sellers').doc((req as any).user.uid).get();
+      if (shop.exists && shop.data()?.status === 'APPROVED') return next();
+    } catch {}
+    return requireAdmin(req, res, next);
+  });
+}
+
 function requireSuperAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   return requireAdmin(req, res, () => {
     if ((req as any).user?.role !== 'SUPER_ADMIN') {
@@ -1009,11 +1020,8 @@ app.post('/api/media/upload', async (req, res) => {
 
 // 0. API Endpoint: Batch download and archive multiple images to Firebase Storage
 // Admin-only: otherwise anyone could make the server fetch arbitrary URLs
-app.post('/api/media/batch-download', requireAdmin, async (req, res) => {
-  const { urls } = req.body;
-  if (!Array.isArray(urls)) {
-    return res.status(400).json({ error: 'urls array is required' });
-  }
+// Copies remote images into the store's Firebase Storage; returns old URL -> stored URL
+async function archiveImageUrls(urls: unknown[]) {
   const validUrls = Array.from(new Set(urls.filter((u): u is string => typeof u === 'string' && u.trim().length > 0))).slice(0, 2000);
   const results: Record<string, string> = {};
 
@@ -1021,12 +1029,10 @@ app.post('/api/media/batch-download', requireAdmin, async (req, res) => {
   // up front instead of downloading every image for nothing
   try {
     const [bucketExists] = await adminBucket.exists();
-    if (!bucketExists) {
-      return res.json({ success: false, storageUnavailable: true, count: 0, results });
-    }
+    if (!bucketExists) return { success: false, storageUnavailable: true, count: 0, results };
   } catch (err: any) {
     console.warn('[Image Archiver] Storage bucket check failed:', err?.message);
-    return res.json({ success: false, storageUnavailable: true, count: 0, results });
+    return { success: false, storageUnavailable: true, count: 0, results };
   }
 
   // Process in concurrent batches of 8
@@ -1039,8 +1045,15 @@ app.post('/api/media/batch-download', requireAdmin, async (req, res) => {
       })
     );
   }
+  return { success: true, storageUnavailable: false, count: validUrls.length, results };
+}
 
-  res.json({ success: true, count: validUrls.length, results });
+app.post('/api/media/batch-download', requireAdmin, async (req, res) => {
+  const { urls } = req.body;
+  if (!Array.isArray(urls)) {
+    return res.status(400).json({ error: 'urls array is required' });
+  }
+  res.json(await archiveImageUrls(urls));
 });
 
 // ============================================================================
@@ -1524,7 +1537,7 @@ Strict Operating & Security Rules:
 });
 
 // 2. AI Product Content, FAQ, Tags, Social & SEO Generator Endpoint (Structured JSON)
-app.post('/api/ai/generate-product-content', requireAdmin, async (req, res) => {
+app.post('/api/ai/generate-product-content', requireAdminOrSeller, async (req, res) => {
   try {
     const { name, category, brand, price, tone = 'Professional' } = req.body;
     if (!name || typeof name !== 'string') {
@@ -1601,7 +1614,7 @@ Desired Tone: ${tone}`,
 });
 
 // 3. AI CSV Enrichment Endpoint (Batch Enrich Missing Descriptions & SEO)
-app.post('/api/ai/enrich-csv-rows', requireAdmin, async (req, res) => {
+app.post('/api/ai/enrich-csv-rows', requireAdminOrSeller, async (req, res) => {
   try {
     const { rows, tone = 'Professional' } = req.body;
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -3336,6 +3349,7 @@ registerMarketplaceRoutes(app, {
   applyOrderStatusWithStock: (ref, updates) => applyOrderStatusWithStock(ref, updates as any),
   appendTrackingEvent,
   isInsufficientStockError: (err) => err instanceof InsufficientStockError,
+  archiveImageUrls,
   activeProductsOfSeller: (sellerId) => {
     if (!publicCatalog.ready) return null;
     const list: any[] = [];

@@ -4037,21 +4037,22 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     <span>Store Owner &amp; Seller Hub</span>
                   </div>
                   <h2 className="text-xl font-display font-medium text-white">
-                    Product Listing &amp; Catalog Management
+                    Seller Center &amp; Admin Console
                   </h2>
                   <p className="text-xs text-white/70 max-w-2xl leading-relaxed">
-                    Use the buttons below to view and manage your store's catalog.
+                    List products, update stock and ship orders in Seller Center. The admin console is for sellers, payouts,
+                    promotions and store settings.
                   </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 shrink-0">
-                  <button
-                    onClick={() => onOpenAdmin('PRODUCTS')}
+                  <a
+                    href="/seller"
                     className="px-4 py-2.5 border border-white/20 hover:border-white text-white text-xs font-medium flex items-center gap-2 cursor-pointer transition-colors"
                   >
                     <Package className="w-4 h-4" />
-                    <span>New Listing ({products.length})</span>
-                  </button>
+                    <span>Seller Center</span>
+                  </a>
                   <button
                     onClick={() => onOpenAdmin('DASHBOARD')}
                     className="px-4 py-2.5 border border-white/20 hover:border-white text-white text-xs font-medium cursor-pointer transition-colors"

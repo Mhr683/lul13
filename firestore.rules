@@ -73,8 +73,11 @@ service cloud.firestore {
           'lowStockThreshold', 'category', 'subcategory', 'brand', 'status',
           'featured', 'bestSeller', 'newArrival', 'seoTitle', 'seoDescription',
           'seoKeywords', 'primaryImage', 'rating', 'reviewCount', 'weightKg',
-          'dimensions', 'createdAt', 'updatedAt', 'sellerId', 'sellerName', 'suspendedHidden'
+          'dimensions', 'createdAt', 'updatedAt', 'sellerId', 'sellerName', 'suspendedHidden',
+          'adminHidden', 'adminHiddenReason'
         ]) &&
+        (!('adminHidden' in data) || data.adminHidden is bool) &&
+        (!('adminHiddenReason' in data) || (data.adminHiddenReason is string && data.adminHiddenReason.size() <= 300)) &&
         (!('sellerId' in data) || (data.sellerId is string && data.sellerId.size() <= 128)) &&
         (!('sellerName' in data) || (data.sellerName is string && data.sellerName.size() <= 80)) &&
         (!('suspendedHidden' in data) || data.suspendedHidden is bool) &&

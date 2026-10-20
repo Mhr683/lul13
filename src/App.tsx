@@ -117,9 +117,9 @@ const MainRouter: React.FC = () => {
   }, []);
   const [adminInitialTab, setAdminInitialTab] = useState<string | undefined>(() => {
     try {
-      return localStorage.getItem('atelier_admin_tab') || 'PRODUCTS';
+      return localStorage.getItem('atelier_admin_tab') || 'DASHBOARD';
     } catch {
-      return 'PRODUCTS';
+      return 'DASHBOARD';
     }
   });
   const [autoOpenNewProduct, setAutoOpenNewProduct] = useState(false);
@@ -148,7 +148,7 @@ const MainRouter: React.FC = () => {
       ) : mode === 'STOREFRONT' ? (
         <StorefrontView
           onOpenAdmin={(tab?: string, openNewProduct?: boolean) => {
-            const chosenTab = tab || 'PRODUCTS';
+            const chosenTab = tab || 'DASHBOARD';
             setAdminInitialTab(chosenTab);
             try {
               localStorage.setItem('atelier_admin_tab', chosenTab);

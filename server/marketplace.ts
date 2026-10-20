@@ -27,6 +27,8 @@ export interface MarketplaceDeps {
   isInsufficientStockError: (err: unknown) => boolean;
   /** Live (ACTIVE) products of one seller from the server's in-memory catalog mirror, or null while it loads */
   activeProductsOfSeller: (sellerId: string) => any[] | null;
+  /** Copies remote images into the store's Firebase Storage (old URL -> stored URL) */
+  archiveImageUrls: (urls: unknown[]) => Promise<{ storageUnavailable: boolean; results: Record<string, string> }>;
   HOUSE_SELLER_ID: string;
   DEFAULT_COMMISSION_PERCENT: number;
 }
@@ -107,12 +109,22 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     return orders
       .map((o) => {
         const p = privById.get(o.id) || {};
+        // Supplier details of each item (the seller's own dropshipping data, recorded when the order was placed)
+        const supplierItems = (Array.isArray(p.items) ? p.items : []).filter((s: any) => s && s.productId);
+        const supplierCost = money(
+          (o.items || []).reduce((sum: number, it: any) => {
+            const s = supplierItems.find((x: any) => x.productId === it.productId);
+            return sum + (Number(s?.supplierCostPrice) || 0) * (Number(it.quantity) || 0);
+          }, 0)
+        );
         return {
           ...o,
           commissionPercent: p.commissionPercent ?? 0,
           commissionAmount: p.commissionAmount ?? 0,
           sellerEarning: p.sellerEarning ?? 0,
           payoutId: p.payoutId || null,
+          supplierItems,
+          supplierCost,
         };
       })
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -123,9 +135,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     let available = 0;
     let paid = 0;
     let commission = 0;
+    let supplierCost = 0;
+    let earnings = 0;
     for (const o of orders) {
       if (CLOSED_STATUSES.includes(o.status)) continue;
       commission += Number(o.commissionAmount) || 0;
+      supplierCost += Number(o.supplierCost) || 0;
+      earnings += Number(o.sellerEarning) || 0;
       if (o.status === 'DELIVERED') {
         if (o.payoutId) paid += Number(o.sellerEarning) || 0;
         else available += Number(o.sellerEarning) || 0;
@@ -133,7 +149,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         pending += Number(o.sellerEarning) || 0;
       }
     }
-    return { pending: money(pending), available: money(available), paid: money(paid), commission: money(commission) };
+    return {
+      pending: money(pending),
+      available: money(available),
+      paid: money(paid),
+      commission: money(commission),
+      supplierCost: money(supplierCost),
+      // earnings after paying suppliers (dropshipping), before returns
+      profit: money(earnings - supplierCost),
+    };
   };
 
   // Strip supplier/internal fields before sending an order to the seller
@@ -275,6 +299,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     category: p.category,
     status: p.status,
     primaryImage: p.primaryImage || '',
+    adminHidden: p.adminHidden === true,
+    adminHiddenReason: p.adminHiddenReason || '',
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   });
@@ -317,11 +343,25 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   app.get('/api/seller/products/:id', requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     try {
-      const snap = await adminDb.collection('products').doc(String(req.params.id)).get();
+      const id = String(req.params.id);
+      const [snap, privSnap] = await Promise.all([
+        adminDb.collection('products').doc(id).get(),
+        adminDb.collection('product_private').doc(id).get(),
+      ]);
       const product = snap.exists ? (snap.data() as any) : null;
       if (!product || product.sellerId !== uid) return res.status(404).json({ error: 'Product not found.' });
+      const p = (privSnap.data() as any) || {};
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ success: true, product: { ...product, id: snap.id } });
+      res.json({
+        success: true,
+        product: { ...product, id: snap.id },
+        supplier: {
+          supplierName: p.supplierName || '',
+          supplierCostPrice: p.supplierCostPrice ?? p.costPrice ?? 0,
+          supplierProductUrl: p.supplierProductUrl || '',
+          supplierSku: p.supplierSku || '',
+        },
+      });
     } catch (err) {
       console.error('[seller/product] failed:', err);
       res.status(503).json({ error: 'Could not load this product. Please try again.' });
@@ -364,30 +404,34 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       (f.sellerSku
         ? sellerSkuFor(uid, f.sellerSku)
         : `${skuPrefix(uid)}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`);
-    const shortDescription = str(b.shortDescription, 480) || name.slice(0, 120);
-    const description = str(b.description, 4800) || shortDescription;
+    const shortDescription = str(b.shortDescription, 480) || existing?.shortDescription || name.slice(0, 120);
+    const description = str(b.description, 4800) || existing?.description || shortDescription;
+    // A product the store has hidden stays hidden until the store restores it
+    const adminHidden = existing?.adminHidden === true;
     return {
+      // Fields this form does not edit (gallery images, variants, tags, specs, ...) are kept as they are
+      ...(existing || {}),
       id,
       sku,
       name,
-      slug: slugify(name),
+      slug: existing?.slug && existing?.name === name ? existing.slug : slugify(name),
       shortDescription,
       description,
       price,
       compareAtPrice: compareAtPrice > price ? compareAtPrice : 0,
       stock,
       reservedStock: existing?.reservedStock ?? 0,
-      lowStockThreshold: 5,
+      lowStockThreshold: existing?.lowStockThreshold ?? 5,
       category,
-      subcategory: str(b.subcategory, 75) || 'Marketplace',
-      brand: str(b.brand, 75) || seller.shopName,
-      status,
+      subcategory: str(b.subcategory, 75) || existing?.subcategory || 'Marketplace',
+      brand: str(b.brand, 75) || existing?.brand || seller.shopName,
+      status: adminHidden ? 'DRAFT' : status,
       featured: existing?.featured ?? false,
       bestSeller: existing?.bestSeller ?? false,
       newArrival: existing?.newArrival ?? true,
-      seoTitle: `${name} | ${seller.shopName}`.slice(0, 150),
-      seoDescription: shortDescription.slice(0, 310),
-      seoKeywords: `${category.toLowerCase()}, ${seller.shopName.toLowerCase()}`.slice(0, 390),
+      seoTitle: existing?.seoTitle || `${name} | ${seller.shopName}`.slice(0, 150),
+      seoDescription: existing?.seoDescription || shortDescription.slice(0, 310),
+      seoKeywords: existing?.seoKeywords || `${category.toLowerCase()}, ${seller.shopName.toLowerCase()}`.slice(0, 390),
       // A CSV row without a picture keeps the one the product already has
       primaryImage: primaryImage || (b.fromCsv ? existing?.primaryImage || '' : ''),
       rating: existing?.rating ?? 0,
@@ -400,6 +444,28 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       updatedAt: now,
     };
   };
+
+  // Dropshipping data of a product (supplier, cost, link); kept in product_private, which only the
+  // seller (through this API) and the store's admins can read
+  const readSupplier = (b: any) => {
+    const has = ['supplierName', 'supplierCostPrice', 'supplierProductUrl', 'supplierSku'].some(
+      (k) => b[k] !== undefined && String(b[k]).trim() !== ''
+    );
+    if (!has) return null;
+    const url = str(b.supplierProductUrl, 980);
+    return {
+      supplierName: str(b.supplierName, 80),
+      supplierCostPrice: money(b.supplierCostPrice),
+      supplierProductUrl: /^https?:\/\//i.test(url) ? url : '',
+      supplierSku: str(b.supplierSku, 80),
+    };
+  };
+  const supplierDoc = (productId: string, s: any) => ({
+    productId,
+    ...s,
+    costPrice: s.supplierCostPrice,
+    updatedAt: new Date().toISOString(),
+  });
 
   // Bulk listing from a CSV the seller uploads (parsed in the browser). A row whose SKU matches one of
   // the seller's existing products updates it, so re-uploading a sheet refreshes price and stock.
@@ -431,10 +497,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         const id = match?.id || `prod-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}`;
         const product = buildSellerProduct(uid, seller, id, { ...rows[i], fromCsv: true }, checked.fields, match?.data || null);
         batch.set(adminDb.collection('products').doc(id), product);
+        const supplier = readSupplier(rows[i] || {});
+        if (supplier) {
+          batch.set(adminDb.collection('product_private').doc(id), supplierDoc(id, supplier), { merge: true });
+          inBatch++;
+        }
         if (match) updated++;
         else created++;
         if (skuKey) bySku.set(skuKey, { id, data: product });
-        if (++inBatch === 400) {
+        if (++inBatch >= 400) {
           await batch.commit();
           batch = adminDb.batch();
           inBatch = 0;
@@ -466,8 +537,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         id = `prod-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
       }
       const product = buildSellerProduct(uid, seller, id, b, checked.fields, existing);
-      await adminDb.collection('products').doc(id).set(product);
-      res.json({ success: true, product });
+      const supplier = readSupplier(b);
+      const batch = adminDb.batch();
+      batch.set(adminDb.collection('products').doc(id), product);
+      if (supplier) batch.set(adminDb.collection('product_private').doc(id), supplierDoc(id, supplier), { merge: true });
+      await batch.commit();
+      res.json({ success: true, product: listFields(product) });
     } catch (err) {
       console.error('[seller/products save] failed:', err);
       res.status(503).json({ error: 'Could not save the product. Please try again.' });
@@ -486,6 +561,70 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     } catch (err) {
       console.error('[seller/products archive] failed:', err);
       res.status(503).json({ error: 'Could not remove the product. Please try again.' });
+    }
+  });
+
+  // Copy the pictures of the seller's products into the store's own storage, so they stay even when
+  // the supplier removes them (needs Firebase Storage, i.e. the Blaze plan)
+  app.post('/api/seller/media/archive', requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    try {
+      const snap = await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get();
+      const isStored = (u: string) => /^https:\/\/(firebasestorage|storage)\.googleapis\.com\//.test(u);
+      const todo = snap.docs
+        .map((doc) => ({ ref: doc.ref, data: doc.data() as any }))
+        .filter((p) => p.data.status !== 'ARCHIVED' && p.data.primaryImage && !isStored(p.data.primaryImage))
+        .slice(0, 150);
+      if (!todo.length) return res.json({ success: true, archived: 0, remaining: 0 });
+      const result = await d.archiveImageUrls(todo.map((p) => p.data.primaryImage));
+      if (result.storageUnavailable) {
+        return res.status(409).json({
+          error: 'Image storage is not enabled for the store yet (Firebase Storage needs the Blaze plan). Images keep using their links.',
+          code: 'STORAGE_UNAVAILABLE',
+        });
+      }
+      let archived = 0;
+      const batch = adminDb.batch();
+      for (const p of todo) {
+        const stored = result.results[p.data.primaryImage];
+        if (stored && stored !== p.data.primaryImage && isStored(stored)) {
+          batch.update(p.ref, { primaryImage: stored, updatedAt: new Date().toISOString() });
+          archived++;
+        }
+      }
+      if (archived) await batch.commit();
+      const remaining = snap.docs.filter((doc) => {
+        const data = doc.data() as any;
+        return data.status !== 'ARCHIVED' && data.primaryImage && !isStored(data.primaryImage);
+      }).length - archived;
+      res.json({ success: true, archived, remaining: Math.max(0, remaining) });
+    } catch (err) {
+      console.error('[seller/media/archive] failed:', err);
+      res.status(503).json({ error: 'Could not save the images. Please try again.' });
+    }
+  });
+
+  // ---------------------------------------------------------------- admin: product moderation
+
+  // The store can take any seller's product off the store (and put it back); the seller cannot
+  // make a product the store has hidden live again
+  app.post('/api/admin/products/:id/moderate', d.requireAdmin, async (req, res) => {
+    const hidden = req.body?.hidden === true;
+    const reason = str(req.body?.reason, 300);
+    try {
+      const ref = adminDb.collection('products').doc(String(req.params.id));
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: 'Product not found.' });
+      const now = new Date().toISOString();
+      await ref.update(
+        hidden
+          ? { status: 'DRAFT', adminHidden: true, adminHiddenReason: reason || 'Hidden by the store', updatedAt: now }
+          : { status: 'ACTIVE', adminHidden: false, adminHiddenReason: '', updatedAt: now }
+      );
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[admin/products moderate] failed:', err);
+      res.status(503).json({ error: 'Could not update the product. Please try again.' });
     }
   });
 
