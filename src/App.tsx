@@ -36,7 +36,7 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
       <>
         {!firebaseUser && (
           <div className="sticky top-0 z-50 bg-amber-100 border-b border-amber-300 text-amber-900 text-xs font-semibold px-4 py-1.5 text-center">
-            Account se connect ho raha hai... tab tak tabdeeliyan save nahi hongi.
+            Connecting to your account... changes will not be saved until then.
           </div>
         )}
         {children}
@@ -52,19 +52,19 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
         {!firebaseUser ? (
           <AuthPanel
             title="Admin login"
-            subtitle="Store ka admin panel sirf store owner aur unke banaye hue admins ke liye hai."
+            subtitle="The admin panel is only for the store owner and the admins they have added."
             allowSignup={false}
           />
         ) : (
           <div className="space-y-4 text-sm text-[#141413]">
-            <h2 className="text-xl font-display">Access nahi hai</h2>
+            <h2 className="text-xl font-display">No access</h2>
             <p className="text-xs text-[#575653]">
-              Aap <strong>{firebaseUser.email}</strong> se login hain, lekin ye account admin nahi hai.
+              You are signed in as <strong>{firebaseUser.email}</strong>, but this account is not an admin.
             </p>
             {usesPassword && !emailVerified && (
               <p className="text-xs text-amber-800 bg-amber-50 border border-amber-300 p-2.5">
-                Admin access ke liye email verify hona zaroori hai. Email mein aaya link kholein, phir
-                &quot;Dobara check karein&quot; dabayein.
+                Admin access requires a verified email. Open the link we emailed you, then press
+                &quot;Check again&quot;.
               </p>
             )}
             <div className="flex flex-wrap gap-2">
@@ -73,20 +73,20 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
                 onClick={refreshAccount}
                 className="px-4 py-2 border border-black/20 text-xs font-semibold cursor-pointer"
               >
-                Dobara check karein
+                Check again
               </button>
               <button
                 type="button"
                 onClick={signOut}
                 className="px-4 py-2 bg-[#141413] text-white text-xs font-semibold cursor-pointer"
               >
-                Logout / doosre account se login
+                Logout / sign in with another account
               </button>
             </div>
           </div>
         )}
         <button type="button" onClick={onBack} className="text-xs underline text-[#575653] cursor-pointer">
-          ← Store par wapas jayein
+          ← Back to the store
         </button>
       </div>
     </div>
@@ -139,7 +139,7 @@ const MainRouter: React.FC = () => {
         <Suspense
           fallback={
             <div className="min-h-screen flex items-center justify-center bg-[#FBFBF9] text-sm text-[#575653]">
-              Seller Center khul raha hai...
+              Opening Seller Center...
             </div>
           }
         >
@@ -162,7 +162,7 @@ const MainRouter: React.FC = () => {
           <Suspense
             fallback={
               <div className="min-h-screen flex items-center justify-center bg-[#FBFBF9] text-sm text-[#575653]">
-                Admin panel khul raha hai...
+                Opening the admin panel...
               </div>
             }
           >

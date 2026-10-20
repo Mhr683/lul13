@@ -63,7 +63,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     {
       id: 'msg-welcome',
       role: 'assistant',
-      content: `Assalam o Alaikum! Welcome to ${storeName} support.\n\nI am the store's AI assistant. Ask me in English, Urdu or Roman Urdu about products, payment, delivery or tracking. If you need a person, just say so and our team will reply in this chat.`,
+      content: `Hello! Welcome to ${storeName} support.\n\nI am the store's AI assistant. Ask me about products, payment, delivery or tracking. If you need a person, just say so and our team will reply in this chat.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       suggestedActions: [
         'Track my order',
@@ -186,7 +186,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
           {
             id: 'ast-team-' + Date.now(),
             role: 'assistant',
-            content: 'Aap ka message hamari team ko mil gaya hai. Jawab isi chat mein aayega.',
+            content: 'Our team has received your message. The reply will appear in this chat.',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           },
         ]);
@@ -454,7 +454,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
             <div className="px-4 py-2 bg-amber-50 border-b border-amber-200/60 flex items-center justify-between text-[11px] text-amber-900 shrink-0">
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
-                <strong>AI Support:</strong> Speaks English, Urdu (اردو), and Roman Urdu. Order tracking &amp; store answers.
+                <strong>AI Support:</strong> Order tracking &amp; store answers.
               </span>
               <button
                 type="button"
@@ -537,28 +537,28 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
               <span className="text-black/60 text-[10px] font-mono shrink-0">Suggestions:</span>
               <button
                 type="button"
-                onClick={() => handleSendAiMessage('Mera order kab dispatch hoga? Track status.')}
+                onClick={() => handleSendAiMessage('When will my order be dispatched? Track status.')}
                 className="px-2 py-0.5 rounded bg-white border border-black/10 hover:border-black/30 whitespace-nowrap cursor-pointer"
               >
                 📦 Track Order
               </button>
               <button
                 type="button"
-                onClick={() => handleSendAiMessage('Cash on delivery Lahore or Karachi me available hai?')}
+                onClick={() => handleSendAiMessage('Is Cash on Delivery available in Lahore or Karachi?')}
                 className="px-2 py-0.5 rounded bg-white border border-black/10 hover:border-black/30 whitespace-nowrap cursor-pointer"
               >
                 💵 COD in Pakistan
               </button>
               <button
                 type="button"
-                onClick={() => handleSendAiMessage('Mujhe WhatsApp support agent ka number dain.')}
+                onClick={() => handleSendAiMessage('Please give me the WhatsApp support number.')}
                 className="px-2 py-0.5 rounded bg-white border border-black/10 hover:border-black/30 whitespace-nowrap cursor-pointer"
               >
                 💬 WhatsApp Number
               </button>
               <button
                 type="button"
-                onClick={() => handleSendAiMessage('30-day return or exchange policy kya hai?')}
+                onClick={() => handleSendAiMessage('What is the 30-day return or exchange policy?')}
                 className="px-2 py-0.5 rounded bg-white border border-black/10 hover:border-black/30 whitespace-nowrap cursor-pointer"
               >
                 🔄 Returns & Warranty
@@ -578,7 +578,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask in English or Roman Urdu (e.g. 'Delivery kab hogi?', 'Watch warranty?')..."
+                  placeholder="Ask a question (e.g. 'When will my order arrive?', 'Watch warranty?')..."
                   className="flex-1 bg-[#FBFBF9] border border-black/15 focus:border-[#141413] rounded-md px-3.5 py-2.5 text-xs text-[#141413] placeholder:text-black/40 focus:outline-none"
                   disabled={isAiLoading}
                 />

@@ -62,11 +62,11 @@ export const BackupRestorePanel: React.FC = () => {
     try {
       backup = JSON.parse(await file.text());
     } catch {
-      setStatus('Ye file sahi backup nahi hai (JSON parh nahi saka).');
+      setStatus('This file is not a valid backup (could not read the JSON).');
       return;
     }
     if (backup?.format !== 'store-backup' || !Array.isArray(backup.products)) {
-      setStatus('Ye file is store ka backup nahi lagti.');
+      setStatus('This file does not look like a backup of this store.');
       return;
     }
     const ok = window.confirm(
@@ -79,12 +79,12 @@ export const BackupRestorePanel: React.FC = () => {
 
     setBusy(true);
     try {
-      setStatus('Settings restore ho rahi hain...');
+      setStatus('Restoring settings...');
       if (backup.settings && typeof backup.settings === 'object' && Object.keys(backup.settings).length > 0) {
         await updateStoreSettings(backup.settings);
       }
 
-      setStatus(`Categories restore ho rahi hain (${backup.categories?.length || 0})...`);
+      setStatus(`Restoring categories (${backup.categories?.length || 0})...`);
       for (const cat of backup.categories || []) {
         if (cat?.name) await saveCategory(cat);
       }
@@ -93,24 +93,24 @@ export const BackupRestorePanel: React.FC = () => {
       const CHUNK = 100;
       let savedProducts = 0;
       for (let i = 0; i < validProducts.length; i += CHUNK) {
-        setStatus(`Products restore ho rahe hain: ${Math.min(i + CHUNK, validProducts.length)} / ${validProducts.length}`);
+        setStatus(`Restoring products: ${Math.min(i + CHUNK, validProducts.length)} / ${validProducts.length}`);
         const result = await importProductsBatch(validProducts.slice(i, i + CHUNK));
         savedProducts += result?.count ?? 0;
       }
 
-      setStatus(`Coupons restore ho rahe hain (${backup.coupons?.length || 0})...`);
+      setStatus(`Restoring coupons (${backup.coupons?.length || 0})...`);
       for (const c of backup.coupons || []) {
         if (c?.code && c?.type) await saveCoupon(c);
       }
 
       setStatus(
-        `Restore mukammal: ${savedProducts} / ${validProducts.length} products, ${backup.categories?.length || 0} categories, ${
+        `Restore complete: ${savedProducts} / ${validProducts.length} products, ${backup.categories?.length || 0} categories, ${
           backup.coupons?.length || 0
         } coupons aur settings.`
       );
-      showToast('Backup restore ho gaya.');
+      showToast('Backup restored.');
     } catch (err: any) {
-      setStatus(`Restore beech mein ruk gaya: ${err?.message || err}. Dobara chalayein, pehle wale items overwrite ho jayenge.`);
+      setStatus(`Restore stopped part-way: ${err?.message || err}. Run it again; items already restored will be overwritten.`);
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -122,9 +122,9 @@ export const BackupRestorePanel: React.FC = () => {
       <div>
         <h2 className="text-xs font-black uppercase tracking-wider">Backup &amp; Restore</h2>
         <p className="font-semibold mt-1">
-          Store ko kisi doosre Gmail / AI Studio account mein le jana ho to pehle yahan se backup download karein, phir naye
-          store mein isi jagah se restore karein. Products (supplier data ke saath), categories, coupons aur settings jate
-          hain. Orders aur customer accounts nahi jate.
+          To move the store to another Gmail / AI Studio account, first download a backup here, then restore it from the
+          same place in the new store. Products (with supplier data), categories, coupons and settings are included.
+          Orders and customer accounts are not.
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">

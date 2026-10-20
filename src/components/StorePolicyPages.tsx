@@ -605,7 +605,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                 {/* Orders placed from this device: one click, no order number or phone needed */}
                 {deviceOrders.length > 0 && (
                   <div className="p-4 bg-white border border-black/15 rounded space-y-2">
-                    <strong className="block text-xs text-[#141413]">Aap ke orders (is device se)</strong>
+                    <strong className="block text-xs text-[#141413]">Your orders (on this device)</strong>
                     <div className="flex flex-wrap gap-2">
                       {deviceOrders.map((o) => (
                         <button
@@ -781,7 +781,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                             </span>
                             <div className="text-base font-bold text-blue-950 flex items-center gap-2">
                               <Truck className="w-4 h-4 text-blue-700" />
-                              <span>{trackedOrder.courierName || 'Courier assign hona baqi hai'}</span>
+                              <span>{trackedOrder.courierName || 'Courier not assigned yet'}</span>
                             </div>
                           </div>
 

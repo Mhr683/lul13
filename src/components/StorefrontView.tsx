@@ -792,7 +792,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
   const handleConfirmAddress = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if ((customerName || userProfile?.name || '').trim().length < 2) {
-      setCheckoutErrorBanner('Apna poora naam likhein (Full Name), jis naam par parcel aayega.');
+      setCheckoutErrorBanner('Enter your full name, the name the parcel will be addressed to.');
       focusCheckoutField('checkout-customer-name');
       return;
     }
@@ -826,7 +826,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
     }
 
     if ((customerName || userProfile?.name || '').trim().length < 2) {
-      setCheckoutErrorBanner('Apna poora naam likhein (Full Name), jis naam par parcel aayega.');
+      setCheckoutErrorBanner('Enter your full name, the name the parcel will be addressed to.');
       setCheckoutStep(1);
       focusCheckoutField('checkout-customer-name');
       return;
@@ -1311,7 +1311,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                 }}
                 className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
               >
-                <span>Track Your Order (آرڈر ٹریک کریں)</span>
+                <span>Track Your Order</span>
                 <Package className="w-4 h-4 text-[#8C6D46]" />
               </button>
 
@@ -2060,7 +2060,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         onClick={() => setCatalogVisibleCount((n) => n + CATALOG_STEP)}
                         className="px-6 py-2.5 bg-[#141413] text-white text-xs font-bold cursor-pointer hover:bg-black"
                       >
-                        Aur products dikhayein
+                        Show more products
                       </button>
                     )}
                   </div>
@@ -2462,7 +2462,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             ✓
                           </div>
                           <strong className="text-emerald-950 text-sm font-semibold">
-                            ادائیگی خودکار چارج اور موصول ہو چکی ہے (Payment Charged &amp; Confirmed)!
+                            Payment Charged &amp; Confirmed!
                           </strong>
                         </div>
                         <span className="px-2.5 py-0.5 bg-emerald-700 text-white font-mono text-[11px] font-bold tracking-wider">
@@ -2470,7 +2470,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         </span>
                       </div>
                       <p className="text-xs text-emerald-800 leading-relaxed">
-                        Store <strong className="text-emerald-950 font-bold">{activeStoreName}</strong> main apki advance payment ba-hifazat receive ho chuki hai! Aap ke account se raqam khud-bakhud deduct ho kar hamare store merchant account main jama ho gai hai, aur system ne order foran <strong>CONFIRMED</strong> kar dia hai. Packaging and fulfillment shuru ho chuki hai.
+                        <strong className="text-emerald-950 font-bold">{activeStoreName}</strong> has received your advance payment. The amount has been credited to the store's merchant account and your order is now <strong>CONFIRMED</strong>. Packaging and fulfillment have started.
                       </p>
                     </div>
                   ) : isCod ? (
@@ -2490,7 +2490,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             ⏳
                           </div>
                           <strong className="text-amber-950 text-sm font-semibold">
-                            Payment Pending Verification (ادائیگی تصدیق کے لیے زیرِ التواء ہے)
+                            Payment Pending Verification
                           </strong>
                         </div>
                         <span className="px-2.5 py-0.5 bg-amber-800 text-white font-mono text-[11px] font-bold tracking-wider">
@@ -2499,13 +2499,13 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       </div>
                       <div className="text-xs text-amber-900 leading-relaxed space-y-2 bg-white/90 p-3.5 border border-amber-300/80 rounded">
                         <p className="font-semibold text-amber-950 flex items-center gap-1.5">
-                          <span>⚠️ اہم نوٹس (Account Charge &amp; Verification Notice):</span>
+                          <span>⚠️ Account Charge &amp; Verification Notice:</span>
                         </p>
                         <p>
-                          <strong>آپ کے بینک یا والیٹ اکاؤنٹ سے رقم خودکار طور پر نہیں کٹی۔</strong> کیونکہ ویب سائٹ پر ابھی لائیو بینک گیٹ وے API خودکار کٹوتی کے لیے منسلک نہیں ہے یا مینوئل بینک/والیٹ منتقلی درکار ہے۔
+                          <strong>No money has been deducted from your bank or wallet automatically.</strong> The website is not connected to a live payment gateway yet, so a manual bank / wallet transfer is required.
                         </p>
                         <p>
-                          آپ کا آرڈر اور پیمنٹ ریفرنس (<strong className="font-mono text-amber-950 font-bold">{activeTid}</strong>) اسٹور پر <strong>PENDING</strong> حالت میں درج ہو گیا ہے۔ جب اسٹور ایڈمن کو آپ کی طرف سے رقم کی منتقلی موصول ہو گی اور وہ اپنے اکاؤنٹ میں چیک کر کے کنفرم کریں گے، تب ہی آرڈر کا اسٹیٹس <strong>&apos;PAID&apos;</strong> اور <strong>&apos;CONFIRMED&apos;</strong> ہو گا اور آرڈر کی پروسیسنگ شروع ہو گی۔
+                          Your order and payment reference (<strong className="font-mono text-amber-950 font-bold">{activeTid}</strong>) have been recorded as <strong>PENDING</strong>. Once the store receives your transfer and confirms it, the order status changes to <strong>&apos;PAID&apos;</strong> and <strong>&apos;CONFIRMED&apos;</strong> and processing begins.
                         </p>
                       </div>
                     </div>
@@ -2515,7 +2515,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                   {confirmedSplitOrders.length > 1 && (
                     <div className="p-4 bg-sky-50 border border-sky-300 text-xs space-y-2">
                       <strong className="block text-sky-950">
-                        Aap ka order {confirmedSplitOrders.length} alag parcels mein aayega (har seller apna parcel bhejega):
+                        Your order will arrive in {confirmedSplitOrders.length} separate parcels (each seller ships their own parcel):
                       </strong>
                       <ul className="space-y-1">
                         {confirmedSplitOrders.map((o) => (
@@ -2527,7 +2527,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         ))}
                       </ul>
                       <span className="block text-sky-900">
-                        Kul raqam: <strong>{formatPKR(confirmedSplitOrders.reduce((s, o) => s + (Number(o.total) || 0), 0))}</strong> · har order ki tracking alag hogi.
+                        Total: <strong>{formatPKR(confirmedSplitOrders.reduce((s, o) => s + (Number(o.total) || 0), 0))}</strong> · each order has its own tracking.
                       </span>
                     </div>
                   )}
@@ -2549,13 +2549,13 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           ? 'PAID · Advance Payment Received'
                           : isCod
                           ? 'PENDING (Due on Delivery)'
-                          : 'PENDING VERIFICATION · Unpaid (رقم کی تصدیق باقی ہے)'}
+                          : 'PENDING VERIFICATION · Unpaid'}
                       </strong>
                     </div>
                     <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
                       <span className="text-[#787774]">Order Status:</span>
                       <strong className={isOrderPaid ? "text-emerald-700 font-bold" : "text-amber-800 font-semibold"}>
-                        {isOrderPaid ? 'CONFIRMED · In Fulfillment' : 'PENDING · Awaiting Payment (پروسیسنگ تصدیق کے بعد شروع ہوگی)'}
+                        {isOrderPaid ? 'CONFIRMED · In Fulfillment' : 'PENDING · Awaiting Payment'}
                       </strong>
                     </div>
                     <div className="flex justify-between items-center pb-1.5 border-b border-black/[0.06]">
@@ -2657,7 +2657,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           <div className="flex items-center gap-2">
                             <MessageCircle className="w-5 h-5 text-emerald-700" />
                             <strong className="text-emerald-950 text-sm font-bold">
-                              Confirm on WhatsApp (واٹس ایپ پر آرڈر کنفرم کریں)
+                              Confirm on WhatsApp
                             </strong>
                           </div>
                           <span className="text-[10px] font-bold text-emerald-800 bg-emerald-200/90 px-2 py-0.5 rounded uppercase tracking-wider">
@@ -2688,7 +2688,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       <div className="flex items-center gap-2">
                         <Package className="w-4 h-4 text-amber-800" />
                         <strong className="text-amber-950 text-xs font-semibold">
-                          Live Order Tracking Link (ٹریکنگ لنک)
+                          Live Order Tracking Link
                         </strong>
                       </div>
                       <span className="text-[10px] font-mono font-medium text-amber-900 bg-amber-200/60 px-2 py-0.5 rounded">
@@ -2798,7 +2798,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           {checkoutStep > 1 ? <Check className="w-3.5 h-3.5" /> : '1'}
                         </div>
                         <div className="text-left">
-                          <span className="block text-[9px] uppercase tracking-wider text-[#787774]">Step 1 (صفحہ 1)</span>
+                          <span className="block text-[9px] uppercase tracking-wider text-[#787774]">Step 1</span>
                           <span className="font-bold">Address & Delivery</span>
                         </div>
                       </button>
@@ -2835,7 +2835,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           {checkoutStep > 2 ? <Check className="w-3.5 h-3.5" /> : '2'}
                         </div>
                         <div className="text-left">
-                          <span className="block text-[9px] uppercase tracking-wider text-[#787774]">Step 2 (صفحہ 2)</span>
+                          <span className="block text-[9px] uppercase tracking-wider text-[#787774]">Step 2</span>
                           <span className="font-bold">Payment Method</span>
                         </div>
                       </button>
@@ -2971,7 +2971,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                           autoComplete="name"
                           value={customerName}
                           onChange={(e) => setCustomerName(e.target.value)}
-                          placeholder="Apna poora naam likhein"
+                          placeholder="Enter your full name"
                           className={`w-full px-3.5 py-2.5 border text-xs ${
                             checkoutErrorBanner && customerName.trim().length < 2
                               ? 'border-red-500 ring-1 ring-red-500'
@@ -3319,12 +3319,12 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                                 {streetAddress}, {effectiveTehsil ? `Tehsil: ${effectiveTehsil}, ` : ''}{district}, {stateProvince}, {postalCode}, {country}
                               </p>
                               <p className="text-[11px] text-emerald-800 pt-1 font-medium border-t border-emerald-200/80">
-                                ایڈریس مکمل اور درست ہے۔ دوسرے صفحے پر آن لائن یا کیش آن ڈیلیوری ادائیگی کا طریقہ منتخب کرنے کے لیے نیچے دیئے گئے "Confirm Address" بٹن پر کلک کریں۔
+                                The address is complete. Click "Confirm Address" below to choose online payment or Cash on Delivery on the next page.
                               </p>
                             </>
                           ) : (
                             <p className="text-amber-900 text-[11px] leading-relaxed">
-                              براہ کرم ڈیلیوری کا ایڈریس مکمل کریں۔ (گلی/محلہ ایڈریس، فون نمبر، تحصیل اور پوسٹل کوڈ لازمی ہیں تاکہ پارسل بغیر کسی تاخیر کے پہنچ سکے)۔
+                              Please complete the delivery address (street / area, phone number, tehsil and postal code are required so the parcel arrives without delay).
                             </p>
                           )}
                         </div>
@@ -3339,12 +3339,12 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       className="w-full py-4 bg-[#F85606] hover:bg-[#E04D05] text-white text-xs font-bold uppercase tracking-widest rounded shadow-sm disabled:opacity-40 disabled:hover:bg-[#F85606] cursor-pointer transition-colors flex items-center justify-center gap-2"
                     >
                       {!addressVerification.isFullyVerified ? (
-                        <span>Complete Address Verification Above to Continue (ایڈریس مکمل کریں)</span>
+                        <span>Complete Address Verification Above to Continue</span>
                       ) : (
                         <>
                           <Check className="w-4 h-4" />
                           <span>Confirm Address &amp; Proceed to Payment (Step 2) →</span>
-                          <span className="text-[10px] opacity-90 font-medium">(ایڈریس تصدیق کریں اور ادائیگی پر جائیں)</span>
+                          <span className="text-[10px] opacity-90 font-medium">(confirm the address and continue to payment)</span>
                         </>
                       )}
                     </button>
@@ -3363,7 +3363,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                         <div>
                           <div className="flex items-center gap-2">
                             <strong className="text-emerald-950 font-bold text-xs uppercase tracking-wide">
-                              ✓ Confirmed Delivery Address · تصدیق شدہ ڈیلیوری ایڈریس
+                              ✓ Confirmed Delivery Address
                             </strong>
                             <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-200 text-emerald-900 font-semibold font-mono">
                               VERIFIED
@@ -3392,7 +3392,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                         <span>Change Address</span>
-                        <span className="text-[10px] font-normal">(ایڈریس تبدیل کریں)</span>
+                        <span className="text-[10px] font-normal">(change address)</span>
                       </button>
                     </div>
 
@@ -3974,7 +3974,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                 <p className="text-xs text-[#575653] mt-1">
                   {firebaseUser
                     ? `${userProfile?.email || firebaseUser.email || ''}${isAdmin ? ` · ${userProfile?.role}` : ''}`
-                    : 'Login karein taake aap ke orders aur tracking har device par nazar aayein.'}
+                    : 'Sign in to see your orders and tracking on every device.'}
                 </p>
               </div>
 
@@ -4003,7 +4003,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
             {firebaseUser && !emailVerified && firebaseUser.providerData.some((p) => p.providerId === 'password') && (
               <div className="p-4 bg-amber-50 border border-amber-300 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-3">
                 <span>
-                  Aap ki email ({firebaseUser.email}) abhi verify nahi hui. Email mein aaya hua link kholein.
+                  Your email ({firebaseUser.email}) is not verified yet. Please open the link we emailed you.
                 </span>
                 <div className="flex gap-2">
                   <button
@@ -4014,14 +4014,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                     }}
                     className="px-3 py-1.5 border border-amber-500 font-semibold cursor-pointer"
                   >
-                    Link dobara bhejein
+                    Resend link
                   </button>
                   <button
                     type="button"
                     onClick={refreshAccount}
                     className="px-3 py-1.5 bg-amber-600 text-white font-semibold cursor-pointer"
                   >
-                    Maine verify kar liya
+                    I have verified it
                   </button>
                 </div>
               </div>
@@ -4034,13 +4034,13 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                 <div className="space-y-1.5">
                   <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-[#C5A059]/20 text-[#C5A059] border border-[#C5A059]/30 text-[11px] font-semibold tracking-wider uppercase">
                     <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span>Store Owner &amp; Seller Hub · دکان کا کنٹرول پینل</span>
+                    <span>Store Owner &amp; Seller Hub</span>
                   </div>
                   <h2 className="text-xl font-display font-medium text-white">
-                    Product Listing &amp; Catalog Management (پراڈکٹ لسٹنگ)
+                    Product Listing &amp; Catalog Management
                   </h2>
                   <p className="text-xs text-white/70 max-w-2xl leading-relaxed">
-                    Apni dukan ka catalog dekhne aur manage karne ke liye neeche buttons istemal karein.
+                    Use the buttons below to view and manage your store's catalog.
                   </p>
                 </div>
 
@@ -4095,11 +4095,11 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             Status:{' '}
                             {order.status === 'PENDING' ? (
                               <span className="text-amber-800 font-semibold">
-                                PENDING (Awaiting Payment · پروسیسنگ تصدیق کے بعد ہو گی)
+                                PENDING (Awaiting Payment)
                               </span>
                             ) : order.status === 'PENDING_CONFIRMATION' ? (
                               <span className="text-amber-800 font-semibold">
-                                Order mil gaya · confirmation call ka intezar
+                                Order received · awaiting confirmation call
                               </span>
                             ) : order.status === 'CONFIRMED' ? (
                               <span className="text-emerald-800 font-semibold">
@@ -4118,7 +4118,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                               </span>
                             ) : order.paymentStatus === 'PENDING_VERIFICATION' ? (
                               <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 font-semibold text-[10px] rounded">
-                                ⏳ PENDING VERIFICATION · Unpaid (رقم زیرِ تصدیق)
+                                ⏳ PENDING VERIFICATION · Unpaid
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 bg-slate-100 text-slate-800 font-medium text-[10px] rounded">
@@ -4143,13 +4143,13 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                       {order.paymentStatus === 'PENDING_VERIFICATION' && (
                         <div className="p-3 bg-amber-50/90 border border-amber-300 text-xs text-amber-900 rounded space-y-1">
                           <div className="flex items-center justify-between font-semibold">
-                            <span>⚠️ Payment Notice (رقم کٹوتی اور تصدیق کی تفصیل):</span>
+                            <span>⚠️ Payment Notice:</span>
                             <span className="text-[10px] font-mono bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
                               NOT CHARGED AUTOMATICALLY
                             </span>
                           </div>
                           <p className="text-[11px] leading-relaxed">
-                            آپ کے اکاؤنٹ سے پیسے خودکار طور پر نہیں کٹے۔ آرڈر ابھی <strong>PENDING</strong> ہے اور اسٹور ایڈمن کی طرف سے رقم کی تصدیق ہونے پر ہی آرڈر کنفرم ہو گا اور تیاری شروع ہو گی۔
+                            No money was deducted from your account automatically. The order is <strong>PENDING</strong> and will be confirmed and prepared once the store verifies your payment.
                           </p>
                         </div>
                       )}

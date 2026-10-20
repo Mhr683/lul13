@@ -34,12 +34,12 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
     setInfo(null);
 
     if (mode === 'SIGNUP') {
-      if (name.trim().length < 2) return setError('Apna poora naam likhein.');
+      if (name.trim().length < 2) return setError('Please enter your full name.');
       if (password.length < 8) return setError('Password kam az kam 8 characters ka rakhein.');
       if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
-        return setError('Password mein letters aur numbers dono hon.');
+        return setError('The password must contain both letters and numbers.');
       }
-      if (password !== confirmPassword) return setError('Dono passwords ek jaise nahi hain.');
+      if (password !== confirmPassword) return setError('The two passwords do not match.');
     }
 
     setBusy(true);
@@ -52,11 +52,11 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
     setBusy(false);
 
     if (!result.ok) {
-      setError(result.message || 'Kuch ghalat ho gaya. Dobara try karein.');
+      setError(result.message || 'Something went wrong. Please try again.');
       return;
     }
     if (mode === 'FORGOT') {
-      setInfo(result.message || 'Reset link bhej diya gaya hai.');
+      setInfo(result.message || 'A reset link has been sent.');
       return;
     }
     if (result.message) setInfo(result.message);
@@ -69,7 +69,7 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
     const result = await signInWithGoogle();
     setBusy(false);
     if (!result.ok) {
-      setError(result.message || 'Google login nahi ho saka.');
+      setError(result.message || 'Google sign-in failed.');
       return;
     }
     onSuccess?.();
@@ -83,7 +83,7 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
       <div className="space-y-1">
         <h2 className="text-xl font-display text-[#141413]">
           {title ||
-            (mode === 'SIGNUP' ? 'Account banayein' : mode === 'FORGOT' ? 'Password reset' : 'Login karein')}
+            (mode === 'SIGNUP' ? 'Create account' : mode === 'FORGOT' ? 'Password reset' : 'Sign in')}
         </h2>
         {subtitle && <p className="text-xs text-[#575653]">{subtitle}</p>}
       </div>
@@ -102,7 +102,7 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
               <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
               <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
             </svg>
-            Google se {mode === 'SIGNUP' ? 'sign up' : 'login'} karein
+            {mode === 'SIGNUP' ? 'Sign up' : 'Sign in'} with Google
           </button>
           <div className="flex items-center gap-3 text-[11px] text-[#787774]">
             <span className="flex-1 h-px bg-black/10" />
@@ -162,7 +162,7 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
         {mode === 'SIGNUP' && (
           <div>
             <label className="block text-xs text-[#575653] mb-1" htmlFor="auth-password2">
-              Password dobara likhein
+              Confirm password
             </label>
             <input
               id="auth-password2"
@@ -193,8 +193,8 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
             : mode === 'LOGIN'
             ? 'Login'
             : mode === 'SIGNUP'
-            ? 'Account banayein'
-            : 'Reset link bhejein'}
+            ? 'Create account'
+            : 'Send reset link'}
         </button>
       </form>
 
@@ -206,13 +206,13 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
             </button>
             {allowSignup && (
               <button type="button" onClick={() => switchMode('SIGNUP')} className="font-semibold underline cursor-pointer">
-                Naya account banayein
+                Create a new account
               </button>
             )}
           </>
         ) : (
           <button type="button" onClick={() => switchMode('LOGIN')} className="font-semibold underline cursor-pointer">
-            Wapas login par jayein
+            Back to sign in
           </button>
         )}
       </div>
@@ -237,7 +237,7 @@ export const AuthModal: React.FC<{ open: boolean; onClose: () => void }> = ({ op
         >
           ×
         </button>
-        <AuthPanel subtitle="Order history aur tracking ke liye login karein. Order dene ke liye login zaroori nahi." onSuccess={onClose} />
+        <AuthPanel subtitle="Sign in to see your order history and tracking. You do not need to sign in to place an order." onSuccess={onClose} />
       </div>
     </div>
   );

@@ -13,7 +13,7 @@ const ROLE_OPTIONS = [
   { value: 'ORDER_MANAGER', label: 'Order Manager' },
   { value: 'PRODUCT_MANAGER', label: 'Product Manager' },
   { value: 'MANAGER', label: 'Manager' },
-  { value: 'SUPER_ADMIN', label: 'Super Admin (admins bhi bana sakta hai)' },
+  { value: 'SUPER_ADMIN', label: 'Super Admin (can also add admins)' },
 ];
 
 // Owner / admin management. All changes go through the server (SUPER_ADMIN only).
@@ -60,7 +60,7 @@ export const AdminTeamPanel: React.FC = () => {
   if (!isSuperAdmin) {
     return (
       <div className="p-4 bg-[#F9F9F7] border-2 border-black/20 text-xs text-[#141413]">
-        Admins aur owner login sirf Super Admin badal sakta hai.
+        Only a Super Admin can change admins and the owner login.
       </div>
     );
   }
@@ -81,8 +81,8 @@ export const AdminTeamPanel: React.FC = () => {
       <div>
         <h2 className="text-xs font-black uppercase tracking-wider">Admins &amp; Owner Login</h2>
         <p className="font-semibold mt-1">
-          Store owner ko hamesha poora access milta hai. Neeche se doosre logon ko admin bana sakte hain ya hata sakte hain.
-          Admin access sirf verified email (Google, ya email verify kiya hua account) ko milta hai.
+          The store owner always has full access. Below you can make other people admins or remove them.
+          Admin access is only given to verified emails (Google, or an account with a verified email).
         </p>
       </div>
 
@@ -100,7 +100,7 @@ export const AdminTeamPanel: React.FC = () => {
                   type="email"
                   value={ownerEmailInput}
                   onChange={(e) => setOwnerEmailInput(e.target.value)}
-                  placeholder="Naya owner email"
+                  placeholder="New owner email"
                   className="px-3 py-2 bg-white border-2 border-black/20 font-mono flex-1 min-w-[200px]"
                 />
                 <button
@@ -110,11 +110,11 @@ export const AdminTeamPanel: React.FC = () => {
                     if (!email) return;
                     if (
                       !window.confirm(
-                        `Owner login ${team.ownerEmail} se ${email} par badal dein? Aap Super Admin rahenge jab tak naya owner aap ko hata na de.`
+                        `Change the owner login from ${team.ownerEmail} to ${email}? You stay a Super Admin until the new owner removes you.`
                       )
                     )
                       return;
-                    run(() => call('/api/admin/team/transfer-owner', { email }), 'Owner login badal diya gaya.').then(() =>
+                    run(() => call('/api/admin/team/transfer-owner', { email }), 'Owner login changed.').then(() =>
                       setOwnerEmailInput('')
                     );
                   }}
@@ -128,7 +128,7 @@ export const AdminTeamPanel: React.FC = () => {
 
           <div className="space-y-2">
             <div className="font-bold">Admins</div>
-            {team.admins.length === 0 && <div className="text-[#575653]">Abhi koi admin nahi.</div>}
+            {team.admins.length === 0 && <div className="text-[#575653]">No admins yet.</div>}
             {team.admins.map((a) => (
               <div key={a.uid} className="p-2.5 bg-white border border-black/10 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -140,13 +140,13 @@ export const AdminTeamPanel: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      if (window.confirm(`${a.email} ka admin access hata dein?`)) {
-                        run(() => call('/api/admin/team/remove', { email: a.email }), 'Admin access hata diya gaya.');
+                      if (window.confirm(`Remove admin access for ${a.email}?`)) {
+                        run(() => call('/api/admin/team/remove', { email: a.email }), 'Admin access removed.');
                       }
                     }}
                     className="px-2.5 py-1 border border-rose-400 text-rose-700 font-semibold cursor-pointer"
                   >
-                    Hatayein
+                    Remove
                   </button>
                 )}
               </div>
@@ -156,11 +156,11 @@ export const AdminTeamPanel: React.FC = () => {
                 <div>
                   <span className="font-mono">{i.email}</span>
                   <span className="ml-2 px-1.5 py-0.5 bg-black/5 font-mono">{i.role}</span>
-                  <span className="text-[#575653]"> · pehli dafa login par admin ban jayenge</span>
+                  <span className="text-[#575653]"> · becomes an admin on first sign-in</span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => run(() => call('/api/admin/team/remove', { email: i.email }), 'Invite cancel ho gaya.')}
+                  onClick={() => run(() => call('/api/admin/team/remove', { email: i.email }), 'Invite cancelled.')}
                   className="px-2.5 py-1 border border-black/20 font-semibold cursor-pointer"
                 >
                   Cancel
@@ -174,7 +174,7 @@ export const AdminTeamPanel: React.FC = () => {
               type="email"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
-              placeholder="Email jise admin banana hai"
+              placeholder="Email of the new admin"
               className="px-3 py-2 bg-white border-2 border-black/20 font-mono flex-1 min-w-[200px]"
             />
             <select
@@ -193,7 +193,7 @@ export const AdminTeamPanel: React.FC = () => {
               onClick={() => {
                 const email = newEmail.trim().toLowerCase();
                 if (!email) return;
-                run(() => call('/api/admin/team/invite', { email, role: newRole }), 'Admin add ho gaya.').then(() =>
+                run(() => call('/api/admin/team/invite', { email, role: newRole }), 'Admin added.').then(() =>
                   setNewEmail('')
                 );
               }}

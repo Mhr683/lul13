@@ -21,7 +21,7 @@ async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || 'Kuch ghalat ho gaya.');
+  if (!res.ok) throw new Error(data?.error || 'Something went wrong.');
   return data as T;
 }
 
@@ -86,15 +86,15 @@ export const AdminSellersPanel: React.FC = () => {
 
   const payout = async (s: AdminSeller) => {
     const reference = window.prompt(
-      `${s.shopName} ko ${formatPKR(s.summary.available)} bhejein.\n\n` +
+      `Send ${formatPKR(s.summary.available)} to ${s.shopName}.\n\n` +
         `Bank: ${s.privateData?.bankName || '-'} · ${s.privateData?.accountTitle || '-'} · ${s.privateData?.accountNumber || '-'}\n\n` +
-        'Transfer karne ke baad bank ka reference / TID likhein:'
+        'After the transfer, enter the bank reference / TID:'
     );
     if (reference === null || !reference.trim()) return;
     setBusy(s.id);
     try {
       const r = await api('/api/admin/payouts', { method: 'POST', body: JSON.stringify({ sellerId: s.id, reference: reference.trim() }) });
-      showToast(`Payout record ho gaya: ${formatPKR(r.amount)} (${r.orders} orders).`);
+      showToast(`Payout recorded: ${formatPKR(r.amount)} (${r.orders} orders).`);
       await load();
     } catch (err: any) {
       showToast(err.message);
@@ -115,8 +115,8 @@ export const AdminSellersPanel: React.FC = () => {
         <div>
           <h1 className="text-2xl font-display">Sellers &amp; Payouts</h1>
           <p className="text-xs text-[#575653]">
-            Seller Center ka link: <a href="/seller" className="underline font-mono">{window.location.origin}/seller</a> — sellers yahan
-            se apply karte hain.
+            Seller Center link: <a href="/seller" className="underline font-mono">{window.location.origin}/seller</a> — sellers
+            apply here.
           </p>
         </div>
         <button type="button" onClick={load} className="px-3 py-2 border border-black/20 bg-white text-xs cursor-pointer">
@@ -127,7 +127,7 @@ export const AdminSellersPanel: React.FC = () => {
       {/* Default commission */}
       <div className="p-4 bg-white border border-black/10 flex flex-wrap items-end gap-3 text-xs">
         <div>
-          <label className="block font-bold mb-1">Default commission (har seller sale par %)</label>
+          <label className="block font-bold mb-1">Default commission (% of each seller sale)</label>
           <input
             value={commissionDraft}
             onChange={(e) => setCommissionDraft(e.target.value)}
@@ -139,7 +139,7 @@ export const AdminSellersPanel: React.FC = () => {
           type="button"
           onClick={async () => {
             const pct = Number(commissionDraft);
-            if (!(pct >= 0 && pct <= 100)) return showToast('Commission 0 se 100 ke darmiyan likhein.');
+            if (!(pct >= 0 && pct <= 100)) return showToast('Enter a commission between 0 and 100.');
             await updateStoreSettings({ marketplaceCommissionPercent: pct });
             setDefaultCommission(pct);
           }}
@@ -148,8 +148,8 @@ export const AdminSellersPanel: React.FC = () => {
           Save
         </button>
         <span className="text-[#575653]">
-          Abhi: {settings.marketplaceCommissionPercent ?? defaultCommission}%. Kisi seller ka alag commission neeche set karein. Naye
-          orders par lagega.
+          Current: {settings.marketplaceCommissionPercent ?? defaultCommission}%. Set a different commission for a seller below.
+          Applies to new orders.
         </span>
       </div>
 
@@ -157,10 +157,10 @@ export const AdminSellersPanel: React.FC = () => {
       <div className="flex flex-wrap gap-2">
         {(
           [
-            ['PENDING', `Nayi applications (${counts.PENDING})`],
+            ['PENDING', `New applications (${counts.PENDING})`],
             ['APPROVED', `Active sellers (${counts.APPROVED})`],
-            ['OTHER', `Rejected / band (${counts.OTHER})`],
-            ['ALL', 'Sab'],
+            ['OTHER', `Rejected / suspended (${counts.OTHER})`],
+            ['ALL', 'All'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -177,9 +177,9 @@ export const AdminSellersPanel: React.FC = () => {
       </div>
 
       {sellers === null ? (
-        <p className="text-xs text-[#575653]">Load ho raha hai...</p>
+        <p className="text-xs text-[#575653]">Loading...</p>
       ) : visible.length === 0 ? (
-        <p className="p-6 bg-white border border-black/10 text-xs text-center text-[#575653]">Is list mein koi seller nahi.</p>
+        <p className="p-6 bg-white border border-black/10 text-xs text-center text-[#575653]">No sellers in this list.</p>
       ) : (
         <div className="space-y-3">
           {visible.map((s) => (
@@ -194,7 +194,7 @@ export const AdminSellersPanel: React.FC = () => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <div className="font-bold">Malik</div>
+                  <div className="font-bold">Owner</div>
                   <div>{s.ownerName}</div>
                   <div>{s.ownerEmail}</div>
                   <div className="font-mono">{s.phone}</div>
@@ -208,13 +208,13 @@ export const AdminSellersPanel: React.FC = () => {
                   <div className="text-[#454441]">{s.privateData?.address}</div>
                 </div>
                 <div>
-                  <div className="font-bold">Hisaab</div>
+                  <div className="font-bold">Account</div>
                   <div>Products: {s.productCount}</div>
-                  <div>Commission: {typeof s.commissionPercent === 'number' ? `${s.commissionPercent}% (khaas)` : `${defaultCommission}% (default)`}</div>
-                  <div>Store ki kamai: {formatPKR(s.summary.commission)}</div>
-                  <div>Aane wali seller kamai: {formatPKR(s.summary.pending)}</div>
-                  <div className="font-bold text-emerald-800">Payout baqi: {formatPKR(s.summary.available)}</div>
-                  <div>Ab tak payout: {formatPKR(s.summary.paid)}</div>
+                  <div>Commission: {typeof s.commissionPercent === 'number' ? `${s.commissionPercent}% (custom)` : `${defaultCommission}% (default)`}</div>
+                  <div>Store earnings: {formatPKR(s.summary.commission)}</div>
+                  <div>Upcoming seller earnings: {formatPKR(s.summary.pending)}</div>
+                  <div className="font-bold text-emerald-800">Payout due: {formatPKR(s.summary.available)}</div>
+                  <div>Paid out so far: {formatPKR(s.summary.paid)}</div>
                 </div>
               </div>
               {s.statusReason && <div className="text-[#454441]">Note: {s.statusReason}</div>}
@@ -223,7 +223,7 @@ export const AdminSellersPanel: React.FC = () => {
                   <button
                     type="button"
                     disabled={busy === s.id}
-                    onClick={() => update(s, { status: 'APPROVED', statusReason: '' }, `${s.shopName} approve ho gaya.`)}
+                    onClick={() => update(s, { status: 'APPROVED', statusReason: '' }, `${s.shopName} approved.`)}
                     className="px-3 py-1.5 bg-emerald-700 text-white font-semibold cursor-pointer disabled:opacity-50"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" /> Approve
@@ -234,8 +234,8 @@ export const AdminSellersPanel: React.FC = () => {
                     type="button"
                     disabled={busy === s.id}
                     onClick={() => {
-                      const reason = window.prompt('Reject karne ki wajah (seller ko dikhegi):');
-                      if (reason !== null) update(s, { status: 'REJECTED', statusReason: reason.trim() }, 'Application reject ho gayi.');
+                      const reason = window.prompt('Reason for rejecting (shown to the seller):');
+                      if (reason !== null) update(s, { status: 'REJECTED', statusReason: reason.trim() }, 'Application rejected.');
                     }}
                     className="px-3 py-1.5 border border-rose-500 text-rose-800 font-semibold cursor-pointer disabled:opacity-50"
                   >
@@ -247,12 +247,12 @@ export const AdminSellersPanel: React.FC = () => {
                     type="button"
                     disabled={busy === s.id}
                     onClick={() => {
-                      const reason = window.prompt(`${s.shopName} ko band karne ki wajah? (us ke saare products store se hat jayenge)`);
-                      if (reason !== null) update(s, { status: 'SUSPENDED', statusReason: reason.trim() }, `${s.shopName} band ho gaya.`);
+                      const reason = window.prompt(`Reason for suspending ${s.shopName}? (all their products will be removed from the store)`);
+                      if (reason !== null) update(s, { status: 'SUSPENDED', statusReason: reason.trim() }, `${s.shopName} suspended.`);
                     }}
                     className="px-3 py-1.5 border border-slate-500 text-slate-900 font-semibold cursor-pointer disabled:opacity-50"
                   >
-                    <Ban className="w-3.5 h-3.5 inline mr-1" /> Band karein
+                    <Ban className="w-3.5 h-3.5 inline mr-1" /> Suspend
                   </button>
                 )}
                 {(s.status === 'APPROVED' || s.status === 'SUSPENDED') && (
@@ -261,10 +261,10 @@ export const AdminSellersPanel: React.FC = () => {
                     disabled={busy === s.id}
                     onClick={() => {
                       const v = window.prompt(
-                        `${s.shopName} ka commission % (khali chhorein to default ${defaultCommission}% lagega):`,
+                        `Commission % for ${s.shopName} (leave empty to use the default ${defaultCommission}%):`,
                         typeof s.commissionPercent === 'number' ? String(s.commissionPercent) : ''
                       );
-                      if (v !== null) update(s, { commissionPercent: v.trim() === '' ? null : Number(v) }, 'Commission save ho gaya.');
+                      if (v !== null) update(s, { commissionPercent: v.trim() === '' ? null : Number(v) }, 'Commission saved.');
                     }}
                     className="px-3 py-1.5 border border-black/30 font-semibold cursor-pointer disabled:opacity-50"
                   >
@@ -278,7 +278,7 @@ export const AdminSellersPanel: React.FC = () => {
                     onClick={() => payout(s)}
                     className="px-3 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer disabled:opacity-50 ml-auto"
                   >
-                    <Wallet className="w-3.5 h-3.5 inline mr-1" /> Payout record karein ({formatPKR(s.summary.available)})
+                    <Wallet className="w-3.5 h-3.5 inline mr-1" /> Record payout ({formatPKR(s.summary.available)})
                   </button>
                 )}
               </div>
@@ -291,7 +291,7 @@ export const AdminSellersPanel: React.FC = () => {
       <div className="bg-white border border-black/10">
         <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Payout history</div>
         {payouts.length === 0 ? (
-          <p className="p-4 text-xs text-[#575653]">Abhi koi payout nahi hua.</p>
+          <p className="p-4 text-xs text-[#575653]">No payouts yet.</p>
         ) : (
           <ul className="divide-y divide-black/[0.06] text-xs">
             {payouts.map((p) => (

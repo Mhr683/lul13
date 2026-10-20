@@ -139,7 +139,7 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
             </button>
           </div>
           {notices.length === 0 ? (
-            <p className="p-4 text-xs text-[#575653]">Abhi koi update nahi. Order ki har update yahan aayegi.</p>
+            <p className="p-4 text-xs text-[#575653]">No updates yet. Every update about your orders will appear here.</p>
           ) : (
             <ul className="divide-y divide-black/[0.06]">
               {notices.map((n, idx) => {

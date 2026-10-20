@@ -3071,7 +3071,7 @@ app.post('/api/orders/tracking-event', requireAdmin, async (req, res) => {
   const location = String(req.body?.location || '').trim().slice(0, 120);
   const note = String(req.body?.note || '').trim().slice(0, 300);
   if (!orderId && !orderNumber) return res.status(400).json({ error: 'orderId or orderNumber is required.' });
-  if (!location && !note) return res.status(400).json({ error: 'Location ya note likhein.' });
+  if (!location && !note) return res.status(400).json({ error: 'Enter a location or a note.' });
   try {
     let ref = orderId ? adminDb.collection('orders').doc(String(orderId)) : null;
     if (!ref || !(await ref.get()).exists) {
@@ -3092,7 +3092,7 @@ app.post('/api/orders/tracking-event', requireAdmin, async (req, res) => {
     return res.json({ success: true });
   } catch (err) {
     console.error('[tracking-event] failed:', err);
-    return res.status(503).json({ error: 'Tracking update save nahi hui. Dobara try karein.' });
+    return res.status(503).json({ error: 'The tracking update was not saved. Please try again.' });
   }
 });
 
@@ -3301,7 +3301,7 @@ async function applyOrderStatusWithStock(
       const short = products.find((p) => p.stock < p.qty);
       if (short) {
         throw new InsufficientStockError(
-          `"${short.name}" ka stock kaafi nahi (${short.stock} bacha hai, ${short.qty} chahiye). Pehle stock barhayein.`
+          `Not enough stock for "${short.name}" (${short.stock} left, ${short.qty} needed). Please increase the stock first.`
         );
       }
     }
@@ -3545,7 +3545,7 @@ app.post('/api/orders/confirm', requireAdmin, async (req, res) => {
         return res.status(409).json({ error: dbErr.message, code: 'INSUFFICIENT_STOCK' });
       }
       console.error('Failed to confirm order:', dbErr);
-      return res.status(503).json({ error: 'Order confirm nahi ho saka. Dobara try karein.' });
+      return res.status(503).json({ error: 'The order could not be confirmed. Please try again.' });
     }
 
     const mergedOrder: Order = { ...orderData, ...updates };
@@ -3607,7 +3607,7 @@ app.post('/api/orders/cancel-fake', requireAdmin, async (req, res) => {
       await applyOrderStatusWithStock(orderDocRef, updates);
     } catch (dbErr) {
       console.error('Failed to cancel fake order:', dbErr);
-      return res.status(503).json({ error: 'Order cancel nahi ho saka. Dobara try karein.' });
+      return res.status(503).json({ error: 'The order could not be cancelled. Please try again.' });
     }
 
     const mergedOrder: Order = { ...orderData, ...updates };
@@ -4030,9 +4030,9 @@ app.post('/api/email/send-payment-receipt', requireAdmin, async (req, res) => {
     .join(', ') || 'Registered Address';
 
   const textBody = `
-Assalam-o-Alaikum ${safeCustomerName},
+Dear ${safeCustomerName},
 
-Apki payment ba-hifazat receive ho chuki hai! (Payment Received Successfully)
+Your payment has been received successfully.
 
 Store Name: ${safeStoreName}
 Order Reference: ${safeOrderNumber}
@@ -4100,7 +4100,7 @@ Thank you for choosing ${safeStoreName}. Your order is now confirmed and entered
                     <div style="width: 28px; height: 28px; background-color: #10B981; border-radius: 50%; color: #FFFFFF; text-align: center; line-height: 28px; font-weight: bold; font-size: 15px;">✓</div>
                   </td>
                   <td valign="middle" style="padding-left: 10px;">
-                    <strong style="color: #065F46; font-size: 14px; display: block;">Apki Payment Received Ho Chuki Hai!</strong>
+                    <strong style="color: #065F46; font-size: 14px; display: block;">Your Payment Has Been Received!</strong>
                     <span style="color: #047857; font-size: 12px;">Advance payment successfully received & verified for Order #${escapeHtml(safeOrderNumber)}.</span>
                   </td>
                 </tr>
@@ -4495,7 +4495,7 @@ async function generateSupportReply(params: {
   const systemPrompt = `You are the customer support assistant for "${storeName}", an online store in Pakistan (prices in PKR).
 You are replying on ${channel === 'FORM' ? 'an email ticket' : 'the website helpline chat'}.
 
-Language: reply in the customer's language (English, Urdu or Roman Urdu). Be polite, short and clear.
+Language: always reply in English, even when the customer writes in Urdu or Roman Urdu. Be polite, short and clear.
 
 Store facts (only use these, never invent others):
 - Payment: Cash on Delivery, bank transfer${raastDetails ? ', Raast' : ''}${nayapayDetails ? ', NayaPay' : ''}. For transfers the customer enters the Transaction ID (TID) at checkout and the store verifies it.
@@ -4534,8 +4534,8 @@ Rules:
     }
   }
   return whatsapp
-    ? `Shukriya! Aap ka message mil gaya hai. Hamari team jald jawab degi. WhatsApp: ${whatsapp}`
-    : 'Shukriya! Aap ka message mil gaya hai. Hamari team jald jawab degi.';
+    ? `Thank you! We have received your message and our team will reply soon. WhatsApp: ${whatsapp}`
+    : 'Thank you! We have received your message and our team will reply soon.';
 }
 
 function trimThread(messages: ThreadMessage[]): ThreadMessage[] {
@@ -4547,7 +4547,7 @@ app.post('/api/ai/customer-support', async (req, res) => {
   try {
     const clientIp = (req.ip || req.socket.remoteAddress || 'local').toString();
     if (!checkRateLimit(`support:${clientIp}`, 10, 60_000)) {
-      return res.status(429).json({ error: 'Bohat zyada messages. Ek minute baad dobara try karein.' });
+      return res.status(429).json({ error: 'Too many messages. Please try again in a minute.' });
     }
 
     const { message, chatId, chatKey, orderNumber, customerName, customerEmail, customerPhone } = req.body || {};
@@ -4555,7 +4555,7 @@ app.post('/api/ai/customer-support', async (req, res) => {
       return res.status(400).json({ error: 'Message cannot be empty.' });
     }
     if (message.length > 1000) {
-      return res.status(400).json({ error: 'Message 1000 characters se lamba nahi ho sakta.' });
+      return res.status(400).json({ error: 'A message cannot be longer than 1000 characters.' });
     }
 
     const now = new Date().toISOString();
@@ -4636,8 +4636,8 @@ app.post('/api/ai/customer-support', async (req, res) => {
     console.error('[Customer Support Chat Error]:', err);
     res.status(503).json({
       success: false,
-      error: 'Support chat abhi dastiyab nahi.',
-      fallbackReply: 'Maazrat, chat abhi kaam nahi kar rahi. Barah-e-karam WhatsApp ya email se rabta karein.',
+      error: 'Support chat is not available right now.',
+      fallbackReply: 'Sorry, the chat is not working right now. Please contact us on WhatsApp or by email.',
     });
   }
 });
@@ -4675,7 +4675,7 @@ app.get('/api/helpline/chat/:chatId', async (req, res) => {
 app.post('/api/helpline/contact-ticket', async (req, res) => {
   const clientIp = (req.ip || req.socket.remoteAddress || 'local').toString();
   if (!checkRateLimit(`ticket:${clientIp}`, 5, 60_000)) {
-    return res.status(429).json({ error: 'Bohat zyada requests. Thori der baad try karein.' });
+    return res.status(429).json({ error: 'Too many requests. Please try again shortly.' });
   }
   const { name, email, phone, orderNumber, category, subject, message, channel } = req.body || {};
   if (!name || !email || !message) {

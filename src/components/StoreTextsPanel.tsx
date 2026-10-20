@@ -17,30 +17,30 @@ const FIELDS: Array<{ key: TextKey; label: string; placeholder: string; multilin
   { key: 'storeName', label: 'Store ka naam', placeholder: 'My Store' },
   {
     key: 'announcementText',
-    label: 'Sab se upar wali patti (announcement)',
+    label: 'Top announcement bar',
     placeholder: 'Free delivery on orders above PKR 5,000 · Cash on Delivery available',
   },
   { key: 'heroEyebrow', label: 'Banner ki chhoti line', placeholder: 'Cash on Delivery · All over Pakistan' },
   { key: 'heroTitle', label: 'Banner ka bara heading', placeholder: 'Welcome to My Store' },
   {
     key: 'heroSubtitle',
-    label: 'Banner ki tafseel',
+    label: 'Banner description',
     placeholder: 'Quality products at fair prices, delivered to your door.',
     multiline: true,
   },
   {
     key: 'heroImageUrl',
-    label: 'Banner ki tasveer ka link (khali chhorein to pehle product ki tasveer lagegi)',
+    label: 'Banner image link (leave empty to use the first product image)',
     placeholder: 'https://...',
   },
   {
     key: 'heroHighlights',
-    label: 'Banner ke neeche khoobiyan (| se alag karein)',
+    label: 'Highlights below the banner (separate with |)',
     placeholder: 'Cash on Delivery|Nationwide Delivery|Easy Returns',
   },
   {
     key: 'deliveryPromiseText',
-    label: 'Product page par delivery ki line (sach likhein)',
+    label: 'Delivery line on the product page (keep it accurate)',
     placeholder: 'Delivery across Pakistan by courier, usually in 3–6 working days.',
   },
   {
@@ -67,7 +67,7 @@ export const StoreTextsPanel: React.FC = () => {
 
   const save = async () => {
     if (!String(draft.storeName || '').trim()) {
-      showToast('Store ka naam khali nahi ho sakta.');
+      showToast('The store name cannot be empty.');
       return;
     }
     setSaving(true);
@@ -77,7 +77,7 @@ export const StoreTextsPanel: React.FC = () => {
     });
     await updateStoreSettings(cleaned);
     setSaving(false);
-    showToast('Store ki likhai save ho gayi.');
+    showToast('Store texts saved.');
   };
 
   const inputClass =
@@ -88,7 +88,7 @@ export const StoreTextsPanel: React.FC = () => {
       <div>
         <h2 className="text-xs font-black uppercase tracking-wider">Home page &amp; store texts</h2>
         <p className="font-semibold mt-1">
-          Customer ko jo likhai home page, banner aur About Us mein dikhti hai, yahan se badlein.
+          Change the texts customers see on the home page, banner and About Us here.
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

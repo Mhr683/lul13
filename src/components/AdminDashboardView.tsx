@@ -346,7 +346,7 @@ export const AdminDashboardView: React.FC<{
     orderNumber: 'AA-ORD-9021',
     category: 'ORDER_TRACKING',
     subject: 'Order delivery status & Cash on Delivery inquiry',
-    message: 'Assalam o Alaikum, mera order AA-ORD-9021 kab tak deliver hoga? Kya delivery rider ko cash de saktay hain?',
+    message: 'Hello, when will my order AA-ORD-9021 be delivered? Can I pay the delivery rider in cash?',
   });
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulatedResult, setSimulatedResult] = useState<any | null>(null);
@@ -488,11 +488,11 @@ export const AdminDashboardView: React.FC<{
   const buildConfirmMessage = (order: Order) => {
     const itemsText = (order.items || []).map((i) => `• ${i.name} x${i.quantity}`).join('\n');
     return (
-      `Assalam-o-Alaikum ${order.customerName}!\n\n` +
-      `${settings.storeName || 'Our store'} par aap ka order #${order.orderNumber} mila hai:\n${itemsText}\n\n` +
+      `Hello ${order.customerName}!\n\n` +
+      `${settings.storeName || 'Our store'} has received your order #${order.orderNumber}:\n${itemsText}\n\n` +
       `Total: ${formatPKR(order.total)} (${order.paymentMethod === 'COD' ? 'Cash on Delivery' : order.paymentMethod})\n` +
       `Address: ${order.shippingAddressSummary || ''}\n\n` +
-      `Order confirm karne ke liye "YES" reply karein. Shukriya!`
+      `Please reply "YES" to confirm your order. Thank you!`
     );
   };
 
@@ -506,11 +506,11 @@ export const AdminDashboardView: React.FC<{
       ? `• ${order.courierName || 'Courier'}: ${order.trackingNumber}`
       : '';
     return (
-      `Assalam-o-Alaikum ${order.customerName}!\n\n` +
-      `Aap ka order #${order.orderNumber} courier ke hawale kar diya gaya hai.\n${lines}\n\n` +
-      `Aap hamari website par bhi order track kar sakte hain (order number + phone number).\n` +
-      `${order.paymentMethod === 'COD' ? `Delivery par ${formatPKR(order.total)} ada karein.\n` : ''}` +
-      `Shukriya! ${settings.storeName || ''}`
+      `Hello ${order.customerName}!\n\n` +
+      `Your order #${order.orderNumber} has been handed to the courier.\n${lines}\n\n` +
+      `You can also track your order on our website (order number + phone number).\n` +
+      `${order.paymentMethod === 'COD' ? `Please pay ${formatPKR(order.total)} on delivery.\n` : ''}` +
+      `Thank you! ${settings.storeName || ''}`
     );
   };
 
@@ -1160,7 +1160,7 @@ export const AdminDashboardView: React.FC<{
         if (!args.code || args.value === undefined) {
           return {
             status: 'EXECUTED',
-            summary: 'Coupon ka code aur discount (value) dono batayein, masalan: "EID10, 10% off, 3000 se upar".',
+            summary: 'Give both the coupon code and the discount, e.g. "EID10, 10% off, above 3000".',
           };
         }
         const saved = await saveCoupon({
@@ -1471,7 +1471,7 @@ export const AdminDashboardView: React.FC<{
         if (!supplierCost || supplierCost <= 0) {
           return {
             status: 'EXECUTED',
-            summary: 'Supplier cost batayein (ya product mein supplier cost set karein), phir main price suggest karunga.',
+            summary: 'Give the supplier cost (or set it on the product), then I will suggest a price.',
           };
         }
         const margin = Math.min(90, Math.max(1, Number(args.marginPercent ?? 30)));
@@ -2249,12 +2249,12 @@ export const AdminDashboardView: React.FC<{
           if (batchRes.ok) {
             const batchData = await batchRes.json();
             if (batchData.storageUnavailable) {
-              showToast('Firebase Storage band hai (Blaze plan chahiye). Tasveerein abhi supplier ke link se lagi hain.');
+              showToast('Firebase Storage is not enabled (needs the Blaze plan). Images are using the supplier links for now.');
             } else {
               const results: Record<string, string> = batchData.results || {};
               // Keep only images that really moved to our storage
               localImageMap = Object.fromEntries(Object.entries(results).filter(([src, dst]) => dst && dst !== src));
-              showToast(`${Object.keys(localImageMap).length} / ${externalImageUrls.length} tasveerein store storage mein save ho gayin.`);
+              showToast(`${Object.keys(localImageMap).length} / ${externalImageUrls.length} images saved to store storage.`);
             }
           }
         } catch (err) {
@@ -2647,7 +2647,7 @@ export const AdminDashboardView: React.FC<{
               type="button"
               onClick={() => setMobileNavOpen(true)}
               className="lg:hidden p-2 -ml-2 border border-black/15 text-[#141413] cursor-pointer"
-              aria-label="Menu kholein"
+              aria-label="Open menu"
             >
               <Menu className="w-4 h-4" />
             </button>
@@ -3099,7 +3099,7 @@ export const AdminDashboardView: React.FC<{
                       <button
                         onClick={async () => {
                           const input = window.prompt(
-                            `${selectedProductIds.length} products ka stock kitna rakhna hai? (dropshipping ke liye 100 jaisa number rakhein)`,
+                            `Set the stock for ${selectedProductIds.length} products to? (for dropshipping use a number like 100)`,
                             '100'
                           );
                           const qty = input === null ? NaN : Math.round(Number(input));
@@ -3109,13 +3109,13 @@ export const AdminDashboardView: React.FC<{
                           const updated = products
                             .filter((p) => selected.has(p.id))
                             .map((p) => ({ ...p, stock: qty, updatedAt: new Date().toISOString() }));
-                          showToast(`${updated.length} products ka stock save ho raha hai...`);
+                          showToast(`Saving stock for ${updated.length} products...`);
                           try {
                             const result = await importProductsBatch(updated);
                             showToast(`Stock ${qty} set: ${result?.count ?? updated.length} / ${updated.length} products.`);
                             setSelectedProductIds([]);
                           } catch (err: any) {
-                            showToast(`Stock save nahi hua: ${err?.message || err}`);
+                            showToast(`Stock was not saved: ${err?.message || err}`);
                           }
                         }}
                         className="px-3 py-2 bg-[#F5F4F0] text-xs text-[#141413] hover:bg-[#EBEAE5] cursor-pointer"
@@ -3147,7 +3147,7 @@ export const AdminDashboardView: React.FC<{
                       </select>
                       <button
                         onClick={async () => {
-                          if (!window.confirm('Selected products se crossed-out (purani) price hata dein?')) return;
+                          if (!window.confirm('Remove the crossed-out (old) price from the selected products?')) return;
                           for (const id of selectedProductIds) {
                             const p = products.find((item) => item.id === id);
                             if (p) await saveProduct({ ...p, compareAtPrice: 0 }, 'BULK_CLEAR_COMPARE_PRICE');
@@ -3161,7 +3161,7 @@ export const AdminDashboardView: React.FC<{
                       </button>
                       <button
                         onClick={async () => {
-                          if (!window.confirm(`${selectedProductIds.length} products ki price 10% barha dein?`)) return;
+                          if (!window.confirm(`Increase the price of ${selectedProductIds.length} products by 10%?`)) return;
                           for (const id of selectedProductIds) {
                             const p = products.find((item) => item.id === id);
                             if (p) {
@@ -3182,7 +3182,7 @@ export const AdminDashboardView: React.FC<{
                         onClick={async () => {
                           if (
                             !window.confirm(
-                              `${selectedProductIds.length} products ka status badlein? Active products chhup jayenge (Archive) aur archived wapas dikhne lagenge.`
+                              `Change the status of ${selectedProductIds.length} products? Active products will be hidden (archived) and archived ones will be shown again.`
                             )
                           )
                             return;
@@ -3205,22 +3205,22 @@ export const AdminDashboardView: React.FC<{
                       <button
                         onClick={async () => {
                           const count = selectedProductIds.length;
-                          if (!window.confirm(`${count} products hamesha ke liye delete kar dein? Ye wapas nahi aayenge.`)) return;
+                          if (!window.confirm(`Permanently delete ${count} products? This cannot be undone.`)) return;
                           // Large deletes need the count typed back, so a stray click cannot wipe the catalog
                           if (count > 20) {
-                            const typed = window.prompt(`Tasdeeq ke liye ${count} likhein:`);
+                            const typed = window.prompt(`Type ${count} to confirm:`);
                             if (typed === null || typed.trim() !== String(count)) {
-                              showToast('Delete cancel kar diya gaya.');
+                              showToast('Delete cancelled.');
                               return;
                             }
                           }
-                          showToast(`${count} products delete ho rahe hain...`);
+                          showToast(`Deleting ${count} products...`);
                           try {
                             const result = await removeProductsBatch(selectedProductIds);
                             setSelectedProductIds([]);
-                            showToast(`${result.count} products delete ho gaye.`);
+                            showToast(`${result.count} products deleted.`);
                           } catch (err: any) {
-                            showToast(`Delete nahi hua: ${err?.message || err}`);
+                            showToast(`Delete failed: ${err?.message || err}`);
                           }
                         }}
                         className="px-3 py-2 bg-rose-100 border border-rose-400 text-xs font-semibold text-rose-800 hover:bg-rose-200 cursor-pointer"
@@ -3373,7 +3373,7 @@ export const AdminDashboardView: React.FC<{
                             </button>
                             <button
                               onClick={() => {
-                                if (window.confirm(`"${p.name}" delete kar dein?`)) removeProduct(p.id);
+                                if (window.confirm(`Delete "${p.name}"?`)) removeProduct(p.id);
                               }}
                               className="px-2 py-1 text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
                               aria-label="Delete"
@@ -3391,7 +3391,7 @@ export const AdminDashboardView: React.FC<{
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#141413]">
                 <span>
                   {adminFilteredProducts.length === 0
-                    ? 'Koi product nahi mila'
+                    ? 'No products found'
                     : `${adminProductPage * ADMIN_PRODUCTS_PER_PAGE + 1}–${Math.min(
                         (adminProductPage + 1) * ADMIN_PRODUCTS_PER_PAGE,
                         adminFilteredProducts.length
@@ -4290,10 +4290,10 @@ export const AdminDashboardView: React.FC<{
                         className="mt-0.5"
                       />
                       <span>
-                        <strong>Tasveerein apne store ki Firebase Storage mein copy karein</strong> taake supplier apna link
-                        delete kar de tab bhi tasveer na jaye. Har tasveer download ho kar copy hoti hai, is liye bari file
-                        mein kuch minute lag sakte hain. Firebase Storage ke liye Blaze plan zaroori hai; us ke baghair
-                        tasveerein supplier ke link se lagti hain aur import foran ho jata hai.
+                        <strong>Copy images into the store's Firebase Storage</strong> so they stay even if the supplier removes
+                        their link. Every image is downloaded and copied, so a large file can take a few minutes. Firebase
+                        Storage needs the Blaze plan; without it images use the supplier links and the import finishes
+                        immediately.
                       </span>
                     </label>
                   )}
@@ -4467,10 +4467,10 @@ export const AdminDashboardView: React.FC<{
                     <span className="text-amber-700 font-bold text-base">⚠️</span>
                     <div>
                       <strong className="text-amber-200 block text-sm">
-                        {pendingVerificationOrders.length} Order(s) Awaiting Payment Verification (ادائیگی کی تصدیق درکار ہے)
+                        {pendingVerificationOrders.length} Order(s) Awaiting Payment Verification
                       </strong>
                       <span className="text-amber-300/80 text-[11px]">
-                        Customer account se paise khud-bakhud deduct nahi hue. Barah-e-karam apna Easypaisa / JazzCash / Bank account check karke raqam tasdeeq karain, phir &apos;Confirm Received (Mark Paid)&apos; click karain.
+                        The money is not deducted from the customer's account automatically. Please check your Easypaisa / JazzCash / bank account to confirm the amount, then click &apos;Confirm Received (Mark Paid)&apos;.
                       </span>
                     </div>
                   </div>
@@ -4582,7 +4582,7 @@ export const AdminDashboardView: React.FC<{
                             {ord.createdAt.slice(0, 10)}
                           </div>
                           {ord.sellerId && ord.sellerId !== 'house' && (
-                            <div className="mt-1 text-[10px] font-semibold text-violet-800" title="Ye order seller khud bhejega">
+                            <div className="mt-1 text-[10px] font-semibold text-violet-800" title="The seller ships this order">
                               Seller: {ord.sellerName || ord.sellerId}
                             </div>
                           )}
@@ -4712,20 +4712,20 @@ export const AdminDashboardView: React.FC<{
                             return (
                               <div
                                 className={`mt-1.5 text-[10px] font-semibold ${released ? 'text-sky-800' : 'text-emerald-800'}`}
-                                title="Order ka maal stock mein kahan hai"
+                                title="Where this order's items are in stock"
                               >
                                 {released
-                                  ? `↩ Stock mein wapas (${pieces} pc)`
-                                  : `✓ Stock se nikla (${pieces} pc)`}
-                                {left.length === 1 ? ` · ab ${left[0]} bache` : ''}
+                                  ? `↩ Back in stock (${pieces} pc)`
+                                  : `✓ Taken from stock (${pieces} pc)`}
+                                {left.length === 1 ? ` · ${left[0]} left` : ''}
                               </div>
                             );
                           })()}
                           {!['CANCELLED', 'RETURNED', 'REFUNDED', 'DELIVERED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'].includes(ord.status) && (
                             <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                               {Array.isArray(ord.trackingEvents) && ord.trackingEvents.length > 0 && (
-                                <div className="text-[10px] text-[#454441] mb-1 max-w-[220px] truncate" title="Customer ko dikhne wali aakhri update">
-                                  Aakhri update: {(() => {
+                                <div className="text-[10px] text-[#454441] mb-1 max-w-[220px] truncate" title="Latest update the customer sees">
+                                  Latest update: {(() => {
                                     const last = ord.trackingEvents[ord.trackingEvents.length - 1];
                                     return `${last.location ? last.location + ' · ' : ''}${last.note}`;
                                   })()}
@@ -4735,15 +4735,15 @@ export const AdminDashboardView: React.FC<{
                                 type="button"
                                 onClick={async () => {
                                   const location = window.prompt(
-                                    `Order ${ord.orderNumber}: parcel abhi kahan hai? (misal: "Lahore hub", "Bahawalpur pohanch gaya")`
+                                    `Order ${ord.orderNumber}: where is the parcel now? (e.g. "Lahore hub", "Reached Bahawalpur")`
                                   );
                                   if (location === null || !location.trim()) return;
-                                  const note = window.prompt('Customer ke liye chhota sa note (khali chhor sakte hain):') || '';
+                                  const note = window.prompt('Short note for the customer (optional):') || '';
                                   await addOrderTrackingEvent(ord.id, location.trim(), note.trim() || undefined);
                                 }}
                                 className="px-2 py-1 border border-sky-500 bg-sky-50 text-sky-900 text-[10px] font-semibold cursor-pointer hover:bg-sky-100"
                               >
-                                📍 Parcel ki location update
+                                📍 Update parcel location
                               </button>
                             </div>
                           )}
@@ -4752,14 +4752,14 @@ export const AdminDashboardView: React.FC<{
                               type="button"
                               onClick={async () => {
                                 const message = window.prompt(
-                                  `Order ${ord.orderNumber}: customer ko kya message bhejna hai? (customer ki notification bell aur tracking mein dikhega)`
+                                  `Order ${ord.orderNumber}: message to the customer? (shown in their notification bell and tracking)`
                                 );
                                 if (message === null || !message.trim()) return;
                                 await addOrderTrackingEvent(ord.id, '', message.trim());
                               }}
                               className="px-2 py-1 border border-violet-500 bg-violet-50 text-violet-900 text-[10px] font-semibold cursor-pointer hover:bg-violet-100"
                             >
-                              💬 Customer ko message
+                              💬 Message customer
                             </button>
                           </div>
                           {ord.status === 'PENDING_CONFIRMATION' && (
@@ -4804,7 +4804,7 @@ export const AdminDashboardView: React.FC<{
                               const trackNum = String(formData.get('tracking') || '').trim();
                               // Only the real consignment number from the supplier/courier; never an invented one
                               if (trackNum.length < 4) {
-                                showToast('Supplier/courier se mila asal tracking number likhein.');
+                                showToast('Enter the real tracking number from the supplier / courier.');
                                 return;
                               }
                               // Saving tracking for an order that has not shipped yet marks it as shipped
@@ -4837,7 +4837,7 @@ export const AdminDashboardView: React.FC<{
                                 type="text"
                                 name="tracking"
                                 defaultValue={ord.trackingNumber || ''}
-                                placeholder="Supplier ka tracking #"
+                                placeholder="Supplier tracking #"
                                 className="w-32 px-2 py-1 bg-[#FBFBF9] border border-black/[0.12] text-[11px] font-mono text-[#141413]"
                               />
                               <button
@@ -4970,7 +4970,7 @@ export const AdminDashboardView: React.FC<{
                       {fOrder.status === 'PENDING_CONFIRMATION' && (
                         <div className="p-3 bg-violet-50 border border-violet-300 space-y-2">
                           <div className="font-semibold text-violet-900">
-                            Step 1: Customer se confirm karein (fake orders se bachne ke liye)
+                            Step 1: Confirm with the customer (to avoid fake orders)
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <a
@@ -4979,7 +4979,7 @@ export const AdminDashboardView: React.FC<{
                               rel="noopener noreferrer"
                               className="px-3 py-1.5 bg-[#128C4A] text-white font-semibold rounded"
                             >
-                              WhatsApp par confirm karwayein
+                              Confirm on WhatsApp
                             </a>
                             <a
                               href={`tel:${fOrder.customerPhone || ''}`}
@@ -4992,7 +4992,7 @@ export const AdminDashboardView: React.FC<{
                               onClick={() => confirmOrder(fOrder.id)}
                               className="px-3 py-1.5 bg-emerald-600 text-white font-semibold rounded cursor-pointer"
                             >
-                              ✓ Customer ne confirm kar diya
+                              ✓ Customer confirmed
                             </button>
                             <button
                               type="button"
@@ -5003,7 +5003,7 @@ export const AdminDashboardView: React.FC<{
                               }}
                               className="px-3 py-1.5 bg-rose-600 text-white font-semibold rounded cursor-pointer"
                             >
-                              ✕ Fake / jawab nahi
+                              ✕ Fake / no answer
                             </button>
                           </div>
                         </div>
@@ -5013,7 +5013,7 @@ export const AdminDashboardView: React.FC<{
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="font-semibold text-[#141413]">
-                            Step 2: Supplier ke portal par order lagayein
+                            Step 2: Place the order on the supplier's portal
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             {suppliersInOrder.map((s) => (
@@ -5099,7 +5099,7 @@ export const AdminDashboardView: React.FC<{
                             Profit: <strong>{formatPKR(profitStats.profit)}</strong>
                           </span>
                           {'missingCost' in profitStats && profitStats.missingCost && (
-                            <span className="text-rose-700">(kuch items ki cost set nahi — product mein supplier cost daalein)</span>
+                            <span className="text-rose-700">(some items have no cost set — add the supplier cost on the product)</span>
                           )}
                         </div>
                         {['CONFIRMED', 'PENDING'].includes(fOrder.status) && (
@@ -5108,7 +5108,7 @@ export const AdminDashboardView: React.FC<{
                             onClick={() => updateOrderState(fOrder.id, 'PROCESSING')}
                             className="px-3 py-1.5 border border-black/20 font-semibold cursor-pointer"
                           >
-                            Mark "Supplier ko bhej diya" (PROCESSING)
+                            Mark "Sent to supplier" (PROCESSING)
                           </button>
                         )}
                       </div>
@@ -5117,7 +5117,7 @@ export const AdminDashboardView: React.FC<{
                       <div className="space-y-2 border-t border-black/[0.08] pt-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="font-semibold text-[#141413]">
-                            Step 3: Supplier se mili tracking ID yahan daalein
+                            Step 3: Enter the tracking ID from the supplier here
                           </div>
                           <button
                             type="button"
@@ -5144,7 +5144,7 @@ export const AdminDashboardView: React.FC<{
                         </div>
 
                         {(fOrder.shipments || []).length === 0 && !shipmentDraft && (
-                          <div className="text-[#575653]">Abhi koi shipment nahi. Tracking ID milne par "Add shipment" dabayein.</div>
+                          <div className="text-[#575653]">No shipments yet. Press "Add shipment" when you get a tracking ID.</div>
                         )}
 
                         {(fOrder.shipments || []).map((s) => (
@@ -5270,7 +5270,7 @@ export const AdminDashboardView: React.FC<{
                                   checked={customTrackingUrlOverride}
                                   onChange={(e) => setCustomTrackingUrlOverride(e.target.checked)}
                                 />
-                                Apna tracking link likhein (warna courier ka link khud ban jayega)
+                                Your own tracking link (otherwise the courier link is created automatically)
                               </label>
                               {customTrackingUrlOverride ? (
                                 <input
@@ -5282,7 +5282,7 @@ export const AdminDashboardView: React.FC<{
                                 />
                               ) : (
                                 <div className="font-mono text-[10px] text-[#575653] break-all">
-                                  {draftAutoUrl || 'Tracking ID likhne par link yahan dikhega'}
+                                  {draftAutoUrl || 'The link appears here once you enter a tracking ID'}
                                 </div>
                               )}
                             </div>
@@ -5299,7 +5299,7 @@ export const AdminDashboardView: React.FC<{
                                 onClick={async () => {
                                   const trackingNumber = (shipmentDraft.trackingNumber || '').trim();
                                   if (!trackingNumber) {
-                                    showToast('Tracking ID likhein.');
+                                    showToast('Enter a tracking ID.');
                                     return;
                                   }
                                   await addOrUpdateOrderShipment(fOrder.id, {
@@ -5325,7 +5325,7 @@ export const AdminDashboardView: React.FC<{
                             rel="noopener noreferrer"
                             className="inline-block px-3 py-1.5 bg-[#128C4A] text-white font-semibold rounded"
                           >
-                            WhatsApp par customer ko tracking bhejein
+                            Send tracking to the customer on WhatsApp
                           </a>
                         )}
                       </div>
@@ -5859,7 +5859,7 @@ export const AdminDashboardView: React.FC<{
                     </span>
                   </div>
                   <p className="text-xs text-[#575653] mt-1">
-                    Live customer inquiries, instant AI Autonomous Auto-Replies (Urdu / Roman Urdu / English), and store operational alerts.
+                    Live customer inquiries, instant AI Autonomous Auto-Replies, and store operational alerts.
                   </p>
                 </div>
 
@@ -6340,7 +6340,7 @@ export const AdminDashboardView: React.FC<{
                             type="button"
                             onClick={() => {
                               const count = notifications.length - unreadAlertsCount;
-                              if (window.confirm(`${count} read alerts delete kar dein?`)) deleteNotifications();
+                              if (window.confirm(`Delete ${count} read alerts?`)) deleteNotifications();
                             }}
                             className="px-3 py-1.5 bg-rose-50 border border-rose-400 text-rose-800 text-xs font-semibold cursor-pointer hover:bg-rose-100"
                           >
@@ -6418,7 +6418,7 @@ export const AdminDashboardView: React.FC<{
                     </div>
 
                     <p className="text-xs text-[#575653]">
-                      Simulate a customer sending a message in Roman Urdu, Urdu, or English. As soon as received, Gemini AI will autonomously generate a luxury personalized reply in real time and deliver it to this Inbox!
+                      Simulate a customer sending a message. As soon as received, Gemini AI will autonomously generate a luxury personalized reply in real time and deliver it to this Inbox!
                     </p>
 
                     {/* Quick Fill Templates */}
@@ -6436,12 +6436,12 @@ export const AdminDashboardView: React.FC<{
                               category: 'ORDER_TRACKING',
                               subject: 'Delivery time in Lahore DHA & TCS tracking',
                               message:
-                                'Assalam o Alaikum, mera order AA-ORD-9021 Lahore DHA Phase 5 kab tak pohnchay ga? TCS tracking details SMS kab aayengi?',
+                                'Hello, when will my order AA-ORD-9021 reach Lahore DHA Phase 5? When will I get the TCS tracking SMS?',
                             })
                           }
                           className="px-2 py-1 text-[11px] bg-black/5 hover:bg-black/10 rounded cursor-pointer text-[#141413]"
                         >
-                          📦 Lahore Delivery (Roman Urdu)
+                          📦 Lahore Delivery
                         </button>
                         <button
                           type="button"
@@ -6472,12 +6472,12 @@ export const AdminDashboardView: React.FC<{
                               category: 'BESPOKE_REQUEST',
                               subject: 'Watch dial custom engraving request',
                               message:
-                                'Kia Swiss Chronographe watch ke back case par initials Z.A gold foil mein likh saktay hain?',
+                                'Can you engrave the initials Z.A in gold foil on the back case of the Swiss Chronographe watch?',
                             })
                           }
                           className="px-2 py-1 text-[11px] bg-black/5 hover:bg-black/10 rounded cursor-pointer text-[#141413]"
                         >
-                          ✨ Bespoke Engraving (Roman Urdu)
+                          ✨ Bespoke Engraving
                         </button>
                       </div>
                     </div>
@@ -6791,12 +6791,12 @@ export const AdminDashboardView: React.FC<{
                 <div className="p-4 sm:p-5 bg-amber-50 border-2 border-amber-300 space-y-2 rounded-xs text-xs text-[#141413]">
                   <div className="font-bold">Online payments (JazzCash / Easypaisa / cards)</div>
                   <p className="font-semibold">
-                    Abhi store par Cash on Delivery aur bank / NayaPay / Raast transfer (TID ke saath) chalte hain.
-                    Online gateway lagane ke liye pehle merchant account (Safepay, PayFast, JazzCash ya Easypaisa) banwayein.
+                    The store currently accepts Cash on Delivery and bank / NayaPay / Raast transfers (with TID).
+                    To add an online gateway, first open a merchant account (Safepay, PayFast, JazzCash or Easypaisa).
                   </p>
                   <p>
-                    Gateway ki secret keys (password, integrity salt, hash key) yahan kabhi na likhein. Ye settings har visitor
-                    parh sakta hai. Keys sirf AI Studio ke <strong>Secrets</strong> panel mein daalein, phir gateway ka integration karwayein.
+                    Never enter gateway secret keys (password, integrity salt, hash key) here. Every visitor can read these
+                    settings. Put keys only in the AI Studio <strong>Secrets</strong> panel, then have the gateway integrated.
                   </p>
                 </div>
 
@@ -7194,7 +7194,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-[#141413] font-bold text-xs uppercase tracking-wider">
-                      Refund & Return Policy (وارنٹی اور واپسی کی پالیسی)
+                      Refund & Return Policy
                     </label>
                     <span className="text-[11px] text-[#787774]">Markdown headings (###) and bullet lists supported</span>
                   </div>
@@ -7211,7 +7211,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-[#141413] font-bold text-xs uppercase tracking-wider">
-                      Shipping & Delivery Policy (ڈلیوری اور پارسل پالیسی)
+                      Shipping & Delivery Policy
                     </label>
                     <span className="text-[11px] text-[#787774]">Courier partners: TCS, Leopards, PostEx, Trax, M&P</span>
                   </div>
@@ -7228,7 +7228,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-[#141413] font-bold text-xs uppercase tracking-wider">
-                      Terms & Conditions (شرائط و ضوابط)
+                      Terms & Conditions
                     </label>
                     <span className="text-[11px] text-[#787774]">Customer contract & store purchase terms</span>
                   </div>
@@ -7245,7 +7245,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-[#141413] font-bold text-xs uppercase tracking-wider">
-                      Privacy Policy (پرائیویسی پالیسی)
+                      Privacy Policy
                     </label>
                     <span className="text-[11px] text-[#787774]">Data protection & confidentiality disclosure</span>
                   </div>

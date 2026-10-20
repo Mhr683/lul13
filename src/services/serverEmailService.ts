@@ -510,7 +510,7 @@ export async function sendOrderPlacedCustomerEmail(
   `;
 
   const text = `
-Assalam-o-Alaikum ${customerName},
+Dear ${customerName},
 
 Thank you for your order #${orderNumber} at ${storeName}.
 
@@ -734,9 +734,9 @@ export async function sendPaymentVerifiedEmail(
   `;
 
   const text = `
-Assalam-o-Alaikum ${customerName},
+Dear ${customerName},
 
-Apki payment ba-hifazat receive ho chuki hai! (Payment Received & Verified Successfully)
+Your payment has been received and verified successfully.
 
 Store: ${storeName}
 Order Reference: #${orderNumber}
@@ -751,7 +751,7 @@ Your order is now being packaged for express delivery.
     subject,
     html: wrapEmailHtml({
       storeName,
-      bannerTitle: 'Apki Payment Received Ho Chuki Hai!',
+      bannerTitle: 'Your Payment Has Been Received!',
       bannerSubtitle: `Payment verified & approved for Order #${orderNumber}`,
       bannerColor: 'emerald',
       contentHtml,
@@ -904,7 +904,7 @@ export async function sendOrderShippedEmail(
     : `Courier: ${safeCourier}\nTracking Number: ${safeTracking}`;
 
   const text = `
-Assalam-o-Alaikum ${customerName},
+Dear ${customerName},
 
 Your order #${orderNumber} from ${storeName} has shipped!
 
@@ -1008,7 +1008,7 @@ export async function sendOrderCancelledEmail(
   `;
 
   const text = `
-Assalam-o-Alaikum ${customerName},
+Dear ${customerName},
 
 Your order #${orderNumber} at ${storeName} has been cancelled.
 

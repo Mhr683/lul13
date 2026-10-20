@@ -271,8 +271,8 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                           <span>Android Mobile &amp; Tablet (WebAPK)</span>
                         </h4>
                         <p className="text-xs text-black/60 mt-1">
-                          Samsung Galaxy, Xiaomi, Oppo, Vivo, OnePlus, Google Pixel aur tamam Android devices par
-                          native app ki tarah install hoti hai.
+                          Installs like a native app on Samsung Galaxy, Xiaomi, Oppo, Vivo, OnePlus, Google Pixel and all
+                          other Android devices.
                         </p>
                       </div>
                     </div>
@@ -296,13 +296,13 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                         </div>
                         <ol className="list-decimal list-inside space-y-1.5 text-[11px] leading-relaxed">
                           <li>
-                            Chrome browser me top-right par <strong>3 dots (⋮)</strong> tap karein.
+                            In Chrome, tap the <strong>3 dots (⋮)</strong> at the top right.
                           </li>
                           <li>
-                            Menu me <strong>&quot;Install app&quot;</strong> ya <strong>&quot;Add to Home screen&quot;</strong> select karein.
+                            Choose <strong>&quot;Install app&quot;</strong> or <strong>&quot;Add to Home screen&quot;</strong> in the menu.
                           </li>
                           <li>
-                            <strong>&quot;Install&quot;</strong> par tap karein. App aapke mobile app drawer me add ho jayegi!
+                            Tap <strong>&quot;Install&quot;</strong>. The app is added to your app drawer!
                           </li>
                         </ol>
                       </div>
@@ -351,7 +351,7 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                           1
                         </div>
                         <div className="text-xs text-black/80 flex-1">
-                          Safari toolbar ke bottom (ya top) par <strong>Share button</strong> tap karein:
+                          Tap the <strong>Share button</strong> in the Safari toolbar at the bottom (or top):
                           <span className="inline-flex items-center gap-1 ml-1 px-1.5 py-0.5 rounded bg-black/5 border border-black/10 font-mono text-[10px]">
                             <Share className="w-3 h-3 text-[#141413] inline" /> Share
                           </span>
@@ -363,7 +363,7 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                           2
                         </div>
                         <div className="text-xs text-black/80 flex-1">
-                          Scroll down karein aur <strong>&quot;Add to Home Screen&quot;</strong> select karein:
+                          Scroll down and choose <strong>&quot;Add to Home Screen&quot;</strong>:
                           <span className="inline-flex items-center gap-1 ml-1 px-1.5 py-0.5 rounded bg-black/5 border border-black/10 font-mono text-[10px]">
                             <PlusSquare className="w-3 h-3 text-[#141413] inline" /> Add to Home Screen
                           </span>
@@ -375,7 +375,7 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                           3
                         </div>
                         <div className="text-xs text-black/80 flex-1">
-                          Top right corner par <strong>&quot;Add&quot;</strong> tap karein. App icon aapke iPhone screen par app ki tarah appear ho jayega!
+                          Tap <strong>&quot;Add&quot;</strong> at the top right. The app icon appears on your iPhone home screen like any other app!
                         </div>
                       </div>
                     </div>

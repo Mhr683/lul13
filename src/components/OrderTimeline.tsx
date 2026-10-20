@@ -83,7 +83,7 @@ export const OrderTimeline: React.FC<{ order: Order; compact?: boolean }> = ({ o
         <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-400 text-amber-950 text-xs">
           <Truck className="w-4 h-4 shrink-0 mt-0.5" />
           <div>
-            <strong className="block">Aaj ya kal tak deliver ho jayega. / Arriving today or tomorrow.</strong>
+            <strong className="block">Arriving today or tomorrow.</strong>
             {isCod && !paid ? (
               <span className="flex items-center gap-1 mt-1">
                 <Banknote className="w-3.5 h-3.5" /> Please keep <strong>{formatAmount(order)}</strong> cash ready for the rider.
@@ -109,7 +109,7 @@ export const OrderTimeline: React.FC<{ order: Order; compact?: boolean }> = ({ o
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-800 underline"
         >
           <ExternalLink className="w-3.5 h-3.5" />
-          {order.courierName || 'Courier'} par track karein ({order.trackingNumber})
+          Track on {order.courierName || 'the courier website'} ({order.trackingNumber})
         </a>
       )}
 

@@ -622,7 +622,7 @@ export function GoogleMapsAddressDetector({
           <div>
             <h3 className="text-xs font-semibold text-[#141413] uppercase tracking-wider flex items-center gap-1.5">
               <span>Google Maps Live Address Pinpoint</span>
-              <span className="text-[10px] font-normal text-[#747775]">· نقشے سے پتہ خودکار درج کریں</span>
+              <span className="text-[10px] font-normal text-[#747775]">· fill the address from the map</span>
             </h3>
             <p className="text-[11px] text-[#575653]">
               Click on the map or tap the GPS button to auto-detect your exact doorstep delivery location.
@@ -641,12 +641,12 @@ export function GoogleMapsAddressDetector({
             {isDetecting ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C5A880]" />
-                <span>Detecting Location (تلاش جاری)...</span>
+                <span>Detecting Location...</span>
               </>
             ) : (
               <>
                 <Navigation className="w-3.5 h-3.5 text-[#C5A880]" />
-                <span>Auto-Detect My Location (خودکار لوکیشن)</span>
+                <span>Auto-Detect My Location</span>
               </>
             )}
           </button>
@@ -767,7 +767,7 @@ export function GoogleMapsAddressDetector({
 
             <div className="absolute bottom-2 left-2 pointer-events-none bg-black/75 text-white text-[10px] px-2 py-1 rounded backdrop-blur-sm flex items-center gap-1.5 font-mono">
               <Crosshair className="w-3 h-3 text-[#C5A880]" />
-              <span>Click anywhere to adjust delivery pin (پن کو ایڈجسٹ کریں)</span>
+              <span>Click anywhere to adjust the delivery pin</span>
             </div>
           </div>
         ) : (

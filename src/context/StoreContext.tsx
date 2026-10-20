@@ -22,34 +22,34 @@ export interface AuthResult {
 function friendlyAuthError(error: any): string {
   switch (error?.code) {
     case 'auth/invalid-email':
-      return 'Email ghalat hai. Sahi email likhein.';
+      return 'This email address is not valid.';
     case 'auth/missing-password':
-      return 'Password likhein.';
+      return 'Please enter your password.';
     case 'auth/weak-password':
-      return 'Password kam az kam 6 characters ka hona chahiye.';
+      return 'The password must be at least 6 characters.';
     case 'auth/email-already-in-use':
-      return 'Is email se account pehle se bana hua hai. Login karein ya "Password bhool gaye" dabayein.';
+      return 'An account with this email already exists. Sign in, or use "Forgot password".';
     case 'auth/invalid-credential':
     case 'auth/wrong-password':
     case 'auth/user-not-found':
     case 'auth/invalid-login-credentials':
-      return 'Email ya password ghalat hai.';
+      return 'Incorrect email or password.';
     case 'auth/too-many-requests':
-      return 'Bohat zyada koshishein ho gayi hain. Thori der baad dobara try karein.';
+      return 'Too many attempts. Please wait a moment and try again.';
     case 'auth/user-disabled':
-      return 'Ye account band kar diya gaya hai.';
+      return 'This account has been disabled.';
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
-      return 'Login window band kar di gayi.';
+      return 'The sign-in window was closed.';
     case 'auth/network-request-failed':
-      return 'Internet connection check karein aur dobara try karein.';
+      return 'Please check your internet connection and try again.';
     case 'auth/operation-not-allowed':
     case 'auth/configuration-not-found':
-      return 'Ye login tareeqa abhi store mein chalu nahi hai. Store owner Firebase Authentication mein ise enable karein.';
+      return 'This sign-in method is not enabled for the store yet. The store owner needs to enable it in Firebase Authentication.';
     case 'auth/unauthorized-domain':
-      return 'Ye website ka domain Firebase mein authorized nahi hai. Store owner ise Authorized domains mein add karein.';
+      return 'This website domain is not authorized in Firebase. The store owner needs to add it to Authorized domains.';
     default:
-      return error?.message || 'Login nahi ho saka. Dobara try karein.';
+      return error?.message || 'Could not sign in. Please try again.';
   }
 }
 
@@ -768,7 +768,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       await sendEmailVerification(cred.user).catch(() => {});
       showToast('Account created. Please check your email to verify it.');
-      return { ok: true, message: 'Account ban gaya. Email mein aaya hua link khol kar email verify karein.' };
+      return { ok: true, message: 'Account created. Please open the link we emailed you to verify your email.' };
     } catch (error: any) {
       return { ok: false, message: friendlyAuthError(error) };
     }
@@ -787,7 +787,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const resetPassword = async (email: string): Promise<AuthResult> => {
     try {
       await sendPasswordResetEmail(auth, email.trim());
-      return { ok: true, message: 'Password reset ka link aapki email par bhej diya gaya hai.' };
+      return { ok: true, message: 'A password reset link has been sent to your email.' };
     } catch (error: any) {
       return { ok: false, message: friendlyAuthError(error) };
     }
@@ -797,7 +797,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!auth.currentUser) return { ok: false, message: 'Please sign in first.' };
     try {
       await sendEmailVerification(auth.currentUser);
-      return { ok: true, message: 'Verification email dobara bhej di gayi hai.' };
+      return { ok: true, message: 'The verification email has been sent again.' };
     } catch (error: any) {
       return { ok: false, message: friendlyAuthError(error) };
     }
@@ -1600,7 +1600,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       }
       if (failed === splitItems.length && splitItems.length > 0) {
-        throw new Error(`Koi product save nahi hua (${(lastError as any)?.message || 'permission error'}).`);
+        throw new Error(`No products were saved (${(lastError as any)?.message || 'permission error'}).`);
       }
     }
 
@@ -1648,7 +1648,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const removeProductsBatch = async (productIds: string[]) => {
     const ids = Array.from(new Set(productIds.filter(Boolean)));
     if (ids.length === 0) return { count: 0 };
-    if (!firebaseUser || !isAdmin) throw new Error('Products delete karne ke liye admin login zaroori hai.');
+    if (!firebaseUser || !isAdmin) throw new Error('Deleting products requires an admin sign-in.');
     let deleted = 0;
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
@@ -1775,18 +1775,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
     } catch (err) {
       console.warn('Server order update status error:', err);
-      showToast('Server se rabta nahi ho saka. Status nahi badla, dobara try karein.');
+      showToast('Could not reach the server. The status was not changed, please try again.');
       return;
     }
     if (!statusRes.ok) {
       const data = await statusRes.json().catch(() => ({}));
-      showToast(data?.error || 'Status nahi badla. Dobara try karein.');
+      showToast(data?.error || 'The status was not changed. Please try again.');
       return;
     }
     showToast(
       trackingNumber && trackingNumber !== target.trackingNumber
         ? `${target.orderNumber}: ${courierName || ''} tracking ${trackingNumber} save, status ${status}.`
-        : `${target.orderNumber}: status ${status} save ho gaya.`
+        : `${target.orderNumber}: status ${status} saved.`
     );
 
     // Admins see the saved order through the live listener; a local copy here could overwrite it
@@ -1834,12 +1834,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
       if (!confirmRes.ok) {
         const data = await confirmRes.json().catch(() => ({}));
-        showToast(data?.error || 'Order confirm nahi hua. Dobara try karein.');
+        showToast(data?.error || 'The order was not confirmed. Please try again.');
         return;
       }
     } catch (e) {
       console.warn('Confirm order server request error:', e);
-      showToast('Server se rabta nahi ho saka. Order confirm nahi hua.');
+      showToast('Could not reach the server. The order was not confirmed.');
       return;
     }
 
@@ -1867,13 +1867,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        showToast(data?.error || 'Tracking update save nahi hui.');
+        showToast(data?.error || 'The tracking update was not saved.');
         return false;
       }
-      showToast(`Order #${target.orderNumber}: customer ko update dikh rahi hai.`);
+      showToast(`Order #${target.orderNumber}: the customer can now see this update.`);
       return true;
     } catch {
-      showToast('Server se rabta nahi ho saka. Tracking update save nahi hui.');
+      showToast('Could not reach the server. The tracking update was not saved.');
       return false;
     }
   };
@@ -1905,12 +1905,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
       if (!cancelRes.ok) {
         const data = await cancelRes.json().catch(() => ({}));
-        showToast(data?.error || 'Order cancel nahi hua. Dobara try karein.');
+        showToast(data?.error || 'The order was not cancelled. Please try again.');
         return;
       }
     } catch (e) {
       console.warn('Cancel fake order server request error:', e);
-      showToast('Server se rabta nahi ho saka. Order cancel nahi hua.');
+      showToast('Could not reach the server. The order was not cancelled.');
       return;
     }
 
@@ -2094,7 +2094,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // ignore quota errors
     }
     if (!firebaseUser || !isAdmin) {
-      showToast('Settings sirf is browser mein badli hain. Save karne ke liye admin login karein.');
+      showToast('Settings changed in this browser only. Sign in as admin to save them.');
       return;
     }
     try {
@@ -2109,7 +2109,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       recordAuditLog('SETTINGS_UPDATED', 'StoreSettings', JSON.stringify(updated).slice(0, 1900)).catch(() => {});
     } catch (error: any) {
       console.error('Settings save failed:', error);
-      showToast(`Settings save nahi huin: ${error?.message || error}`);
+      showToast(`Settings were not saved: ${error?.message || error}`);
     }
   };
 
@@ -2200,7 +2200,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       showToast(`${targets.length} alert${targets.length === 1 ? '' : 's'} delete ho gaye.`);
     } catch (error: any) {
-      showToast(`Alerts delete nahi huay: ${error?.message || error}`);
+      showToast(`Alerts were not deleted: ${error?.message || error}`);
     }
   };
 
@@ -2218,7 +2218,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       showToast(`${unread.length} alerts read mark ho gaye.`);
     } catch (error: any) {
-      showToast(`Alerts update nahi huay: ${error?.message || error}`);
+      showToast(`Alerts were not updated: ${error?.message || error}`);
     }
   };
 
