@@ -534,44 +534,53 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         (err) => console.warn('Products listener error:', err.message)
       );
 
-    // Admins edit the catalog, so they get the live Firestore listener. Customers read the server's
-    // cached catalog (no Firestore reads per visit) and refresh it every 2 minutes; a direct
-    // Firestore listener is only the fallback when the server cannot serve it.
+    // Everyone reads the catalog from the server's in-memory copy (no Firestore reads per visit; the
+    // free database allows 50,000 reads a day). Admins get every product with its supplier data,
+    // refreshed every minute and whenever the app comes back to the foreground. A direct Firestore
+    // listener is only the fallback when the server cannot serve it.
     let unsubProducts: () => void = () => {};
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
-    if (isAdmin) {
-      unsubProducts = listenToFirestoreProducts();
-    } else {
-      const refresh = async () => {
-        try {
-          const res = await fetch('/api/catalog/products');
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json();
-          if (!cancelled && Array.isArray(data.products)) applyProducts(data.products as Product[]);
-        } catch (err) {
-          if (cancelled || refreshTimer === null) return;
-          console.warn('Server catalog unavailable, using Firestore listener:', err);
-          clearInterval(refreshTimer);
-          refreshTimer = null;
-          unsubProducts = listenToFirestoreProducts();
+    const refresh = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (isAdmin) {
+          await auth.authStateReady();
+          if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
         }
-      };
-      refreshTimer = setInterval(refresh, 120_000);
-      refresh();
-    }
+        const res = await fetch('/api/catalog/products', { headers, cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.products)) applyProducts(data.products as Product[]);
+      } catch (err) {
+        if (cancelled || refreshTimer === null) return;
+        console.warn('Server catalog unavailable, using Firestore listener:', err);
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+        unsubProducts = listenToFirestoreProducts();
+      }
+    };
+    refreshTimer = setInterval(refresh, isAdmin ? 60_000 : 120_000);
+    refresh();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && refreshTimer) refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
-    const unsubCategories = onSnapshot(
-       query(collection(db, 'categories'), where('slug', '>=', '')),
-      (snap) => {
-        const list = snap.docs.map((d) => d.data() as Category);
-        setCategories(list);
-        try {
-          localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(list));
-        } catch {}
-      },
-      () => {}
-    );
+    // Admins edit categories and see them live; customers use the server's copy loaded at startup
+    const unsubCategories = isAdmin
+      ? onSnapshot(
+          query(collection(db, 'categories'), where('slug', '>=', '')),
+          (snap) => {
+            const list = snap.docs.map((d) => d.data() as Category);
+            setCategories(list);
+            try {
+              localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(list));
+            } catch {}
+          },
+          () => {}
+        )
+      : () => {};
 
     const coupQuery = isAdmin
       ? collection(db, 'coupons')
@@ -614,6 +623,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => {
       cancelled = true;
       if (refreshTimer) clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', onVisible);
       unsubProducts();
       unsubCategories();
       unsubCoupons();
@@ -633,7 +643,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     const ordersQ = isAdmin
-      ? query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(1000))
+      ? query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(300))
       : query(collection(db, 'orders'), where('userId', '==', firebaseUser.uid));
 
     const unsubOrders = onSnapshot(
@@ -647,7 +657,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     const notifQ = isAdmin
-      ? query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(200))
+      ? query(collection(db, 'notifications'), orderBy('createdAt', 'desc'), limit(100))
       : query(collection(db, 'notifications'), where('userId', '==', firebaseUser.uid));
 
     const unsubNotifs = onSnapshot(
@@ -671,20 +681,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     if (isAdmin) {
-      unsubProductPrivate = onSnapshot(
-        collection(db, 'product_private'),
-        (snap) => {
-          const map: Record<string, ProductPrivate> = {};
-          snap.docs.forEach((d) => {
-            map[d.id] = d.data() as ProductPrivate;
-          });
-          setProductPrivate(map);
-        },
-        (err) => console.warn('product_private listener error:', err.message)
-      );
+      // Supplier data of products comes merged into the admin catalog from the server (no reads here)
+      setProductPrivate({});
 
       unsubOrderPrivate = onSnapshot(
-        collection(db, 'order_private'),
+        query(collection(db, 'order_private'), limit(300)),
         (snap) => {
           const map: Record<string, OrderPrivate> = {};
           snap.docs.forEach((d) => {
@@ -697,7 +698,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       // Only the latest entries: the log grows with every product save and would otherwise slow the admin down
       unsubAudit = onSnapshot(
-        query(collection(db, 'audit_logs'), orderBy('createdAt', 'desc'), limit(200)),
+        query(collection(db, 'audit_logs'), orderBy('createdAt', 'desc'), limit(50)),
         (snap) => {
           const list = snap.docs.map((d) => d.data() as AuditLog);
           list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));

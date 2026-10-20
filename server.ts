@@ -1069,41 +1069,93 @@ const publicCatalog = {
   json: null as string | null,
   gzip: null as Buffer | null,
 };
+// The same listener also keeps every product (drafts too) and the admin-only supplier data, so the
+// admin console reads the catalog from here instead of from Firestore on every visit.
+const fullCatalog = {
+  byId: new Map<string, any>(),
+  privateById: new Map<string, any>(),
+  ready: false,
+  privateReady: false,
+};
+const categoryMirror = { list: [] as any[], ready: false };
 
 function startPublicCatalogMirror() {
   try {
-    adminDb
-      .collection('products')
-      .where('status', '==', 'ACTIVE')
-      .onSnapshot(
-        (snap) => {
-          for (const change of snap.docChanges()) {
-            if (change.type === 'removed') {
-              publicCatalog.byId.delete(change.doc.id);
-            } else {
-              publicCatalog.byId.set(
-                change.doc.id,
-                splitProductPrivate({ id: change.doc.id, ...(change.doc.data() as any) }).publicData
-              );
-            }
+    adminDb.collection('products').onSnapshot(
+      (snap) => {
+        for (const change of snap.docChanges()) {
+          if (change.type === 'removed') {
+            publicCatalog.byId.delete(change.doc.id);
+            fullCatalog.byId.delete(change.doc.id);
+            continue;
           }
-          publicCatalog.json = null;
-          publicCatalog.gzip = null;
-          if (!publicCatalog.ready) console.log(`[Catalog Mirror] Loaded ${publicCatalog.byId.size} active products.`);
-          publicCatalog.ready = true;
-        },
-        (err) => {
-          console.warn('[Catalog Mirror] Listener stopped, retrying in 60s:', err?.message);
-          publicCatalog.ready = false;
-          publicCatalog.byId.clear();
-          setTimeout(startPublicCatalogMirror, 60_000);
+          const full = { id: change.doc.id, ...(change.doc.data() as any) };
+          fullCatalog.byId.set(change.doc.id, full);
+          if (full.status === 'ACTIVE') publicCatalog.byId.set(change.doc.id, splitProductPrivate(full).publicData);
+          else publicCatalog.byId.delete(change.doc.id);
         }
-      );
+        publicCatalog.json = null;
+        publicCatalog.gzip = null;
+        if (!publicCatalog.ready) console.log(`[Catalog Mirror] Loaded ${fullCatalog.byId.size} products (${publicCatalog.byId.size} live).`);
+        publicCatalog.ready = true;
+        fullCatalog.ready = true;
+      },
+      (err) => {
+        console.warn('[Catalog Mirror] Listener stopped, retrying in 60s:', err?.message);
+        publicCatalog.ready = false;
+        fullCatalog.ready = false;
+        publicCatalog.byId.clear();
+        fullCatalog.byId.clear();
+        setTimeout(startPublicCatalogMirror, 60_000);
+      }
+    );
   } catch (err: any) {
     console.warn('[Catalog Mirror] Could not start:', err?.message);
   }
 }
 startPublicCatalogMirror();
+
+function startPrivateCatalogMirror() {
+  try {
+    adminDb.collection('product_private').onSnapshot(
+      (snap) => {
+        for (const change of snap.docChanges()) {
+          if (change.type === 'removed') fullCatalog.privateById.delete(change.doc.id);
+          else fullCatalog.privateById.set(change.doc.id, change.doc.data());
+        }
+        fullCatalog.privateReady = true;
+      },
+      (err) => {
+        console.warn('[Supplier Mirror] Listener stopped, retrying in 60s:', err?.message);
+        fullCatalog.privateReady = false;
+        fullCatalog.privateById.clear();
+        setTimeout(startPrivateCatalogMirror, 60_000);
+      }
+    );
+  } catch (err: any) {
+    console.warn('[Supplier Mirror] Could not start:', err?.message);
+  }
+}
+startPrivateCatalogMirror();
+
+function startCategoryMirror() {
+  try {
+    adminDb.collection('categories').onSnapshot(
+      (snap) => {
+        categoryMirror.list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        categoryMirror.ready = true;
+      },
+      (err) => {
+        console.warn('[Category Mirror] Listener stopped, retrying in 60s:', err?.message);
+        categoryMirror.ready = false;
+        setTimeout(startCategoryMirror, 60_000);
+      }
+    );
+  } catch (err: any) {
+    console.warn('[Category Mirror] Could not start:', err?.message);
+  }
+}
+startCategoryMirror();
 
 // Optional filtering / paging for large catalogs: ?q=&category=&offset=&limit=
 function filterCatalog(all: any[], query: any) {
@@ -1172,6 +1224,18 @@ app.get('/api/catalog/products', async (req, res) => {
     }
 
     let products: any[] = [];
+    if (isAdminUser && fullCatalog.ready && fullCatalog.privateReady) {
+      // Every product with its supplier data, straight from memory (no Firestore reads)
+      const all = Array.from(fullCatalog.byId.values()).map((p) => mergeProductPrivate(p, fullCatalog.privateById.get(p.id)));
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      const json = JSON.stringify({ success: true, total: all.length, products: all });
+      if (String(req.headers['accept-encoding'] || '').includes('gzip')) {
+        res.setHeader('Content-Encoding', 'gzip');
+        return res.end(zlib.gzipSync(json));
+      }
+      return res.end(json);
+    }
     if (isAdminUser) {
       try {
         const [snap, privateSnap] = await Promise.all([
@@ -1323,6 +1387,10 @@ app.delete('/api/catalog/products/:id', requireAdmin, async (req, res) => {
 
 app.get('/api/catalog/categories', async (_req, res) => {
   try {
+    if (categoryMirror.ready) {
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      return res.json({ success: true, categories: categoryMirror.list });
+    }
     let categories: any[] = [];
     try {
       const snap = await clientGetDocs(clientCollection(clientDb, 'categories'));
@@ -3356,6 +3424,13 @@ registerMarketplaceRoutes(app, {
     for (const p of publicCatalog.byId.values()) if (p.sellerId === sellerId) list.push(p);
     return list;
   },
+  allProductsOfSeller: (sellerId) => {
+    if (!fullCatalog.ready) return null;
+    const list: any[] = [];
+    for (const p of fullCatalog.byId.values()) if (p.sellerId === sellerId) list.push(p);
+    return list;
+  },
+  supplierOf: (productId) => (fullCatalog.privateReady ? fullCatalog.privateById.get(productId) || null : undefined),
   HOUSE_SELLER_ID,
   DEFAULT_COMMISSION_PERCENT,
 });

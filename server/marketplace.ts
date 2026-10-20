@@ -27,6 +27,10 @@ export interface MarketplaceDeps {
   isInsufficientStockError: (err: unknown) => boolean;
   /** Live (ACTIVE) products of one seller from the server's in-memory catalog mirror, or null while it loads */
   activeProductsOfSeller: (sellerId: string) => any[] | null;
+  /** Every product of one seller (any status) from the mirror, or null while it loads */
+  allProductsOfSeller: (sellerId: string) => any[] | null;
+  /** Supplier data of a product from the mirror; undefined while it loads */
+  supplierOf: (productId: string) => any | null | undefined;
   /** Copies remote images into the store's Firebase Storage (old URL -> stored URL) */
   archiveImageUrls: (urls: unknown[]) => Promise<{ storageUnavailable: boolean; results: Record<string, string> }>;
   HOUSE_SELLER_ID: string;
@@ -89,14 +93,19 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
     });
 
+  // The store's default commission, re-read at most once a minute
+  let defaultCommissionCache: { at: number; pct: number } | null = null;
   const commissionFor = async (seller: any) => {
     if (typeof seller?.commissionPercent === 'number') return seller.commissionPercent;
+    if (defaultCommissionCache && Date.now() - defaultCommissionCache.at < 60_000) return defaultCommissionCache.pct;
+    let pct = d.DEFAULT_COMMISSION_PERCENT;
     try {
       const cfg = await adminDb.collection('settings').doc('store_config').get();
-      const pct = cfg.data()?.marketplaceCommissionPercent;
-      if (typeof pct === 'number') return pct;
+      const v = cfg.data()?.marketplaceCommissionPercent;
+      if (typeof v === 'number') pct = v;
     } catch {}
-    return d.DEFAULT_COMMISSION_PERCENT;
+    defaultCommissionCache = { at: Date.now(), pct };
+    return pct;
   };
 
   // Orders of one seller with their money details (from order_private)
@@ -129,6 +138,18 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       })
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   };
+
+  // A seller's orders are read once and kept for 30 seconds (every order costs two reads); the
+  // seller's own updates and payouts drop the copy at once
+  const ordersCache = new Map<string, { at: number; orders: any[] }>();
+  const sellerOrdersCached = async (sellerId: string) => {
+    const hit = ordersCache.get(sellerId);
+    if (hit && Date.now() - hit.at < 30_000) return hit.orders;
+    const orders = await loadSellerOrders(sellerId, 1000);
+    ordersCache.set(sellerId, { at: Date.now(), orders });
+    return orders;
+  };
+  const forgetOrders = (sellerId: string) => ordersCache.delete(sellerId);
 
   const summarizeEarnings = (orders: any[]) => {
     let pending = 0;
@@ -311,8 +332,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     try {
       const uid = (req as any).user.uid as string;
       let products: any[];
-      const live = d.activeProductsOfSeller(uid);
-      if (live) {
+      const mirrored = d.allProductsOfSeller(uid);
+      const live = mirrored ? null : d.activeProductsOfSeller(uid);
+      if (mirrored) {
+        products = mirrored;
+      } else if (live) {
         let hidden: any[];
         try {
           const snap = await adminDb
@@ -344,17 +368,28 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const uid = (req as any).user.uid as string;
     try {
       const id = String(req.params.id);
-      const [snap, privSnap] = await Promise.all([
-        adminDb.collection('products').doc(id).get(),
-        adminDb.collection('product_private').doc(id).get(),
+      const fromMirror = (d.allProductsOfSeller(uid) || []).find((p) => p.id === id);
+      const mirroredSupplier = d.supplierOf(id);
+      const [product, p] = await Promise.all([
+        fromMirror ||
+          adminDb
+            .collection('products')
+            .doc(id)
+            .get()
+            .then((s) => (s.exists ? { ...(s.data() as any), id: s.id } : null)),
+        mirroredSupplier !== undefined
+          ? mirroredSupplier || {}
+          : adminDb
+              .collection('product_private')
+              .doc(id)
+              .get()
+              .then((s) => (s.data() as any) || {}),
       ]);
-      const product = snap.exists ? (snap.data() as any) : null;
       if (!product || product.sellerId !== uid) return res.status(404).json({ error: 'Product not found.' });
-      const p = (privSnap.data() as any) || {};
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         success: true,
-        product: { ...product, id: snap.id },
+        product,
         supplier: {
           supplierName: p.supplierName || '',
           supplierCostPrice: p.supplierCostPrice ?? p.costPrice ?? 0,
@@ -475,11 +510,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const rows = Array.isArray(req.body?.products) ? req.body.products.slice(0, 500) : [];
     if (!rows.length) return res.status(400).json({ error: 'No products found in the file.' });
     try {
-      const existingSnap = await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get();
+      const existing =
+        d.allProductsOfSeller(uid) ||
+        (await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get()).docs.map((doc) => ({
+          ...(doc.data() as any),
+          id: doc.id,
+        }));
       const bySku = new Map<string, { id: string; data: any }>();
-      for (const doc of existingSnap.docs) {
-        const data = doc.data() as any;
-        if (data.sku) bySku.set(String(data.sku).toLowerCase(), { id: doc.id, data });
+      for (const data of existing) {
+        if (data.sku) bySku.set(String(data.sku).toLowerCase(), { id: data.id, data });
       }
       const errors: { row: number; error: string }[] = [];
       let created = 0;
@@ -530,8 +569,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       let id = str(b.id, 128);
       let existing: any = null;
       if (id) {
-        const snap = await adminDb.collection('products').doc(id).get();
-        existing = snap.exists ? snap.data() : null;
+        existing =
+          (d.allProductsOfSeller(uid) || []).find((p) => p.id === id) ||
+          (await adminDb
+            .collection('products')
+            .doc(id)
+            .get()
+            .then((s) => (s.exists ? s.data() : null)));
         if (!existing || existing.sellerId !== uid) return res.status(403).json({ error: 'This product does not belong to your shop.' });
       } else {
         id = `prod-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
@@ -569,12 +613,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   app.post('/api/seller/media/archive', requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     try {
-      const snap = await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get();
+      const mine =
+        d.allProductsOfSeller(uid) ||
+        (await adminDb.collection('products').where('sellerId', '==', uid).limit(5000).get()).docs.map((doc) => ({
+          ...(doc.data() as any),
+          id: doc.id,
+        }));
       const isStored = (u: string) => /^https:\/\/(firebasestorage|storage)\.googleapis\.com\//.test(u);
-      const todo = snap.docs
-        .map((doc) => ({ ref: doc.ref, data: doc.data() as any }))
-        .filter((p) => p.data.status !== 'ARCHIVED' && p.data.primaryImage && !isStored(p.data.primaryImage))
-        .slice(0, 150);
+      const pending = mine.filter((p) => p.status !== 'ARCHIVED' && p.primaryImage && !isStored(p.primaryImage));
+      const todo = pending.slice(0, 150).map((p) => ({ ref: adminDb.collection('products').doc(p.id), data: p }));
       if (!todo.length) return res.json({ success: true, archived: 0, remaining: 0 });
       const result = await d.archiveImageUrls(todo.map((p) => p.data.primaryImage));
       if (result.storageUnavailable) {
@@ -593,10 +640,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         }
       }
       if (archived) await batch.commit();
-      const remaining = snap.docs.filter((doc) => {
-        const data = doc.data() as any;
-        return data.status !== 'ARCHIVED' && data.primaryImage && !isStored(data.primaryImage);
-      }).length - archived;
+      const remaining = pending.length - archived;
       res.json({ success: true, archived, remaining: Math.max(0, remaining) });
     } catch (err) {
       console.error('[seller/media/archive] failed:', err);
@@ -633,7 +677,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   app.get('/api/seller/orders', requireSeller, async (req, res) => {
     try {
       const uid = (req as any).user.uid as string;
-      const orders = await loadSellerOrders(uid);
+      const orders = await sellerOrdersCached(uid);
       res.setHeader('Cache-Control', 'no-store');
       res.json({ success: true, orders: orders.map(sellerSafeOrder) });
     } catch (err) {
@@ -678,6 +722,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         updates.cancelledAt = updates.updatedAt;
       }
       await d.applyOrderStatusWithStock(ref, updates);
+      forgetOrders(uid);
       res.json({ success: true });
     } catch (err) {
       if (d.isInsufficientStockError(err)) return res.status(409).json({ error: (err as Error).message });
@@ -706,6 +751,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           updatedAt: now,
         });
       });
+      forgetOrders(uid);
       res.json({ success: true });
     } catch (err) {
       console.error('[seller/orders/event] failed:', err);
@@ -719,7 +765,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     try {
       const uid = (req as any).user.uid as string;
       const [orders, payoutsSnap] = await Promise.all([
-        loadSellerOrders(uid, 1000),
+        sellerOrdersCached(uid),
         adminDb.collection('payouts').where('sellerId', '==', uid).limit(200).get(),
       ]);
       const payouts = payoutsSnap.docs
@@ -751,7 +797,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           let productCount = 0;
           if (s.status === 'APPROVED' || s.status === 'SUSPENDED') {
             const [orders, count] = await Promise.all([
-              loadSellerOrders(doc.id, 1000),
+              sellerOrdersCached(doc.id),
               adminDb.collection('products').where('sellerId', '==', doc.id).count().get(),
             ]);
             summary = summarizeEarnings(orders);
@@ -857,6 +903,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     if (!sellerId || sellerId === d.HOUSE_SELLER_ID) return res.status(400).json({ error: 'Choose a seller.' });
     if (reference.length < 3) return res.status(400).json({ error: 'Enter the bank transfer reference / TID.' });
     try {
+      forgetOrders(sellerId);
       const orders = await loadSellerOrders(sellerId, 1000);
       const due = orders.filter((o) => o.status === 'DELIVERED' && !o.payoutId && Number(o.sellerEarning) > 0);
       if (due.length === 0) return res.status(409).json({ error: 'This seller has no payout due.' });
@@ -881,6 +928,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         });
         for (const r of privRefs) tx.set(r, { payoutId: payoutRef.id, paidOutAt: paidAt }, { merge: true });
       });
+      forgetOrders(sellerId);
       res.json({ success: true, payoutId: payoutRef.id, amount, orders: due.length });
     } catch (err: any) {
       if (err?.message === 'ALREADY_PAID') return res.status(409).json({ error: 'Some of these orders have already been paid out. Please refresh the page.' });

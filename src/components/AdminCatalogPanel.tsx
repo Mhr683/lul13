@@ -18,8 +18,19 @@ export const AdminCatalogPanel: React.FC = () => {
   const [filter, setFilter] = useState<Filter>('LIVE');
   const [shown, setShown] = useState(PAGE);
   const [busy, setBusy] = useState<string | null>(null);
+  // Changes made here show at once; the catalog itself refreshes from the server every minute
+  const [overrides, setOverrides] = useState<Record<string, { hidden: boolean; reason: string }>>({});
 
-  const all = products as (Product & { adminHidden?: boolean; adminHiddenReason?: string })[];
+  type ListedProduct = Product & { adminHidden?: boolean; adminHiddenReason?: string };
+  const all = useMemo(
+    () =>
+      (products as ListedProduct[]).map((p) => {
+        const o = overrides[p.id];
+        if (!o || Boolean(p.adminHidden) === o.hidden) return p;
+        return { ...p, adminHidden: o.hidden, adminHiddenReason: o.reason, status: o.hidden ? 'DRAFT' : 'ACTIVE' } as ListedProduct;
+      }),
+    [products, overrides]
+  );
   const sellers = useMemo(() => Array.from(new Set(all.map((p) => p.sellerName || 'Store'))).sort((a, b) => a.localeCompare(b)), [all]);
 
   const inFilter = (p: (typeof all)[number], f: Filter) =>
@@ -59,6 +70,7 @@ export const AdminCatalogPanel: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Something went wrong.');
+      setOverrides((o) => ({ ...o, [p.id]: { hidden, reason: reason || 'Hidden by the store' } }));
       showToast(hidden ? 'Product taken off the store.' : 'Product is live again.');
     } catch (err: any) {
       showToast(err.message);
