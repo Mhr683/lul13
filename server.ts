@@ -408,7 +408,17 @@ app.use(express.json({ limit: '10mb' }));
 // generic "could not load" (it resets at midnight US Pacific time, 12:00 noon in Pakistan)
 app.use('/api', (_req, res, next) => {
   const json = res.json.bind(res);
+  // While the limit is reached Firestore keeps retrying for a long time; answer within 6 seconds
+  // so the apps show their saved data instead of "Loading..." (a late answer is then dropped)
+  if (firestoreQuotaHit()) {
+    const timer = setTimeout(() => {
+      if (!res.headersSent) res.status(503).json({ error: 'quota' });
+    }, 6000);
+    res.on('finish', () => clearTimeout(timer));
+    res.on('close', () => clearTimeout(timer));
+  }
   res.json = (body: any) => {
+    if (res.headersSent) return res;
     if (res.statusCode === 503 && firestoreQuotaHit() && body && typeof body === 'object') {
       body = {
         ...body,
