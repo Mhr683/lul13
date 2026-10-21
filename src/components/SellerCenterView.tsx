@@ -16,6 +16,7 @@ import {
   Download,
   Camera,
   Search,
+  Star,
 } from 'lucide-react';
 import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
 import { useStore } from '../context/StoreContext';
@@ -33,7 +34,7 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 // It opens instantly: the shop and product list from the last visit are shown at once (Firebase can
 // take many seconds to restore a sign-in) and refreshed in the background.
 
-type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'EARNINGS' | 'MESSAGES' | 'PROFILE';
+type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'EARNINGS' | 'REVIEWS' | 'MESSAGES' | 'PROFILE';
 
 type ThreadMessage = { id: string; from: 'SELLER' | 'ADMIN'; author: string; text: string; at: string };
 type SellerThread = {
@@ -220,7 +221,13 @@ export const SellerCenterView: React.FC = () => {
     } catch {
       // keep what is shown; the next check will try again
     }
+    // New reviews / likes (served from the cached seller record, no extra database read)
+    api('/api/seller/activity')
+      .then((d) => setActivityUnread(Number(d.activityUnread) || 0))
+      .catch(() => {});
   }, []);
+  const [activityUnread, setActivityUnread] = useState(0);
+  const clearActivity = useCallback(() => setActivityUnread(0), []);
   const approved = seller?.status === 'APPROVED';
   useEffect(() => {
     if (!authReady || !approved) return;
@@ -348,6 +355,7 @@ export const SellerCenterView: React.FC = () => {
     { id: 'ORDERS', label: 'Orders', icon: ShoppingCart },
     { id: 'PRODUCTS', label: 'Products', icon: Package },
     { id: 'EARNINGS', label: 'Earnings', icon: Wallet },
+    { id: 'REVIEWS', label: 'Reviews', icon: Star, badge: activityUnread },
     { id: 'MESSAGES', label: 'Messages', icon: MessageSquare, badge: unreadTotal },
     { id: 'PROFILE', label: 'Profile', icon: UserCog },
   ];
@@ -415,6 +423,7 @@ export const SellerCenterView: React.FC = () => {
       {tab === 'ORDERS' && <OrdersTab />}
       {tab === 'PRODUCTS' && <ProductsTab uid={uid} categoryNames={categories.map((c) => c.name)} />}
       {tab === 'EARNINGS' && <EarningsTab />}
+      {tab === 'REVIEWS' && <ReviewsTab onSeen={clearActivity} />}
       {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} />}
       {tab === 'PROFILE' &&
         (sellerPrivate ? (
@@ -422,6 +431,222 @@ export const SellerCenterView: React.FC = () => {
         ) : (
           <p className="text-xs text-[#575653]">Loading your profile...</p>
         ))}
+    </div>
+  );
+};
+
+// ------------------------------------------------------------------ reviews & likes
+
+type ActivityItem = { id: string; type: string; text: string; at: string };
+type SellerFeedback = {
+  id: string;
+  orderNumber: string;
+  rating: number;
+  comment: string;
+  customerName: string;
+  productNames: string[];
+  status: string;
+  createdAt: string;
+  sellerReply?: string;
+};
+type RatingSummary = { ratingAvg: number; ratingCount: number; positivePercent: number; likes: number; dislikes: number };
+
+const starText = (n: number) => '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
+
+const ReviewsTab: React.FC<{ onSeen: () => void }> = ({ onSeen }) => {
+  const { showToast } = useStore();
+  const [data, setData] = useState<{ summary: RatingSummary; feedback: SellerFeedback[]; activity: ActivityItem[] } | null>(null);
+  const [products, setProducts] = useState<Product[] | null>(null);
+  const [error, setError] = useState('');
+  const [replyFor, setReplyFor] = useState('');
+  const [replyText, setReplyText] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const d = await api('/api/seller/feedback');
+      setData(d);
+      if (d.activityUnread > 0) {
+        api('/api/seller/activity/read', { method: 'POST' }).then(onSeen).catch(() => {});
+      }
+    } catch (err: any) {
+      setError(err.message || 'Could not load your reviews.');
+    }
+    api('/api/seller/products')
+      .then((d) => setProducts(Array.isArray(d.products) ? d.products : []))
+      .catch(() => setProducts([]));
+  }, [onSeen]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const saveReply = async (id: string) => {
+    setSaving(true);
+    try {
+      await api(`/api/seller/feedback/${encodeURIComponent(id)}/reply`, { method: 'POST', body: JSON.stringify({ reply: replyText }) });
+      setData((d) => d && { ...d, feedback: d.feedback.map((f) => (f.id === id ? { ...f, sellerReply: replyText.trim() } : f)) });
+      setReplyFor('');
+      showToast('Reply saved. Customers can see it on your shop page.');
+    } catch (err: any) {
+      showToast(err.message || 'Could not save your reply.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="p-4 bg-rose-50 border border-rose-300 text-xs text-rose-950 space-y-2">
+        <p>{error}</p>
+        <button type="button" onClick={load} className="px-3 py-1.5 border border-rose-400 font-semibold cursor-pointer">
+          Try again
+        </button>
+      </div>
+    );
+  }
+  if (!data) return <p className="text-xs text-[#575653]">Loading your reviews...</p>;
+
+  const s = data.summary;
+  const reacted = (products || [])
+    .filter((p) => (p.likes || 0) + (p.dislikes || 0) > 0)
+    .sort((a, b) => (b.likes || 0) + (b.dislikes || 0) - ((a.likes || 0) + (a.dislikes || 0)));
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="p-4 bg-white border border-black/10">
+          <p className="text-[10px] uppercase tracking-wider text-[#575653] font-bold">Customer rating</p>
+          <p className="text-2xl font-display">{s.ratingCount ? s.ratingAvg.toFixed(1) : '—'}</p>
+          <p className="text-xs text-[#F5A524]">{s.ratingCount ? starText(s.ratingAvg) : 'No ratings yet'}</p>
+        </div>
+        <div className="p-4 bg-white border border-black/10">
+          <p className="text-[10px] uppercase tracking-wider text-[#575653] font-bold">Reviews</p>
+          <p className="text-2xl font-display">{s.ratingCount}</p>
+          <p className="text-xs text-[#575653]">{s.ratingCount ? `${s.positivePercent}% positive` : 'From delivered orders'}</p>
+        </div>
+        <div className="p-4 bg-white border border-black/10">
+          <p className="text-[10px] uppercase tracking-wider text-[#575653] font-bold">Product likes</p>
+          <p className="text-2xl font-display text-emerald-700">👍 {s.likes}</p>
+        </div>
+        <div className="p-4 bg-white border border-black/10">
+          <p className="text-[10px] uppercase tracking-wider text-[#575653] font-bold">Product dislikes</p>
+          <p className="text-2xl font-display text-rose-700">👎 {s.dislikes}</p>
+        </div>
+      </div>
+
+      <section className="p-4 bg-white border border-black/10 space-y-2">
+        <h2 className="text-sm font-bold">Notifications</h2>
+        {data.activity.length === 0 ? (
+          <p className="text-xs text-[#575653]">New reviews, likes and dislikes on your products will show here.</p>
+        ) : (
+          <ul className="divide-y divide-black/[0.06] max-h-72 overflow-y-auto">
+            {data.activity.map((a) => (
+              <li key={a.id} className="py-2 text-xs flex justify-between gap-3">
+                <span>{a.text}</span>
+                <span className="text-[#575653] whitespace-nowrap">
+                  {new Date(a.at).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="p-4 bg-white border border-black/10 space-y-2">
+        <h2 className="text-sm font-bold">Likes & dislikes per product</h2>
+        {products === null ? (
+          <p className="text-xs text-[#575653]">Loading...</p>
+        ) : reacted.length === 0 ? (
+          <p className="text-xs text-[#575653]">No customer has liked or disliked your products yet.</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-[#575653]">
+                <th className="py-1 font-semibold">Product</th>
+                <th className="py-1 font-semibold text-right">👍 Likes</th>
+                <th className="py-1 font-semibold text-right">👎 Dislikes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black/[0.06]">
+              {reacted.map((p) => (
+                <tr key={p.id}>
+                  <td className="py-1.5 pr-2 truncate max-w-[220px]">{p.name}</td>
+                  <td className="py-1.5 text-right text-emerald-700 font-bold">{p.likes || 0}</td>
+                  <td className="py-1.5 text-right text-rose-700 font-bold">{p.dislikes || 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="p-4 bg-white border border-black/10 space-y-2">
+        <h2 className="text-sm font-bold">Customer reviews</h2>
+        {data.feedback.length === 0 ? (
+          <p className="text-xs text-[#575653]">No reviews yet. Customers can rate you after their order is delivered.</p>
+        ) : (
+          <ul className="divide-y divide-black/[0.06]">
+            {data.feedback.map((f) => (
+              <li key={f.id} className="py-3 space-y-1 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[#F5A524] text-sm">{starText(f.rating)}</span>
+                  <strong>{f.customerName}</strong>
+                  <span className="text-[#575653]">Order {f.orderNumber} · {new Date(f.createdAt).toLocaleDateString('en-PK')}</span>
+                  {f.status === 'HIDDEN' && (
+                    <span className="px-1.5 py-0.5 bg-black/5 text-[10px] font-bold">Hidden by the store</span>
+                  )}
+                </div>
+                {f.comment && <p className="whitespace-pre-line">{f.comment}</p>}
+                {f.productNames?.length > 0 && <p className="text-[#575653] truncate">Bought: {f.productNames.join(', ')}</p>}
+                {replyFor === f.id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      maxLength={600}
+                      rows={2}
+                      className={inputCls}
+                      placeholder="Your public reply"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => saveReply(f.id)}
+                        className="px-3 py-1.5 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer"
+                      >
+                        {saving ? 'Saving...' : 'Save reply'}
+                      </button>
+                      <button type="button" onClick={() => setReplyFor('')} className="px-3 py-1.5 border border-black/20 cursor-pointer">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {f.sellerReply && (
+                      <p className="pl-3 border-l-2 border-[#0E7A43] text-[#454441]">
+                        <strong>Your reply:</strong> {f.sellerReply}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReplyFor(f.id);
+                        setReplyText(f.sellerReply || '');
+                      }}
+                      className="text-[#0E7A43] font-semibold underline cursor-pointer"
+                    >
+                      {f.sellerReply ? 'Edit reply' : 'Reply'}
+                    </button>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 };

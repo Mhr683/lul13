@@ -74,8 +74,10 @@ service cloud.firestore {
           'featured', 'bestSeller', 'newArrival', 'seoTitle', 'seoDescription',
           'seoKeywords', 'primaryImage', 'rating', 'reviewCount', 'weightKg',
           'dimensions', 'createdAt', 'updatedAt', 'sellerId', 'sellerName', 'suspendedHidden',
-          'adminHidden', 'adminHiddenReason'
+          'adminHidden', 'adminHiddenReason', 'likes', 'dislikes'
         ]) &&
+        (!('likes' in data) || (data.likes is int && data.likes >= 0)) &&
+        (!('dislikes' in data) || (data.dislikes is int && data.dislikes >= 0)) &&
         (!('adminHidden' in data) || data.adminHidden is bool) &&
         (!('adminHiddenReason' in data) || (data.adminHiddenReason is string && data.adminHiddenReason.size() <= 300)) &&
         (!('sellerId' in data) || (data.sellerId is string && data.sellerId.size() <= 128)) &&

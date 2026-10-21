@@ -114,6 +114,9 @@ export interface Product {
   primaryImage?: string;
   rating?: number;
   reviewCount?: number;
+  /** Customer likes / dislikes (totals kept by the server) */
+  likes?: number;
+  dislikes?: number;
   weightKg?: number;
   dimensions?: string;
   createdAt: string;

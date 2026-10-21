@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { StoreSettings, Order } from '../types/store';
 import { OrderTimeline } from './OrderTimeline';
+import { RateSellerCard } from './RateSellerCard';
 import { getSavedOrders, tokenForOrder } from '../services/myOrders';
 
 export type PolicyPageType =
@@ -771,6 +772,16 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
 
                       {/* Live order progress, delivery reminder and tracking history */}
                       <OrderTimeline order={trackedOrder} />
+
+                      {/* Delivered: let the buyer rate the seller */}
+                      {trackedOrder.status === 'DELIVERED' && (
+                        <RateSellerCard
+                          orderNumber={trackedOrder.orderNumber}
+                          token={(trackedOrder as any).reviewToken || lastTrackRef.current?.token || tokenForOrder(trackedOrder.orderNumber) || ''}
+                          sellerId={(trackedOrder as any).sellerId}
+                          sellerName={(trackedOrder as any).sellerName}
+                        />
+                      )}
 
                       {/* Courier Name & Tracking Number Dossier (High Priority User Request) */}
                       <div className="p-4 bg-blue-50/80 border border-blue-200 rounded space-y-3">

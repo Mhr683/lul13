@@ -32,6 +32,7 @@ import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners'
 import { registerMarketplaceRoutes } from './server/marketplace';
 import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
+import { registerFeedbackRoutes } from './server/feedback';
 import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
@@ -3093,6 +3094,12 @@ app.get('/api/orders/track', async (req, res) => {
         shippingAddressSummary: orderData.shippingAddressSummary,
         createdAt: orderData.createdAt,
         updatedAt: orderData.updatedAt,
+        sellerId: (orderData as any).sellerId || '',
+        sellerName: (orderData as any).sellerName || '',
+        // Lets the (already verified) buyer rate the seller once the order is delivered
+        ...(orderData.status === 'DELIVERED' && orderData.orderAccessToken && (isOwner || hasValidGuestToken || hasValidPhone)
+          ? { reviewToken: orderData.orderAccessToken }
+          : {}),
       },
     });
   } catch (err: any) {
@@ -3417,6 +3424,25 @@ registerSellerInboxRoutes(app, {
   requireSeller: marketplace.requireSeller,
   requireAdmin,
   forgetSeller: marketplace.forgetSeller,
+});
+
+// Customer ratings of sellers, product likes / dislikes and the sellers' notifications about them
+registerFeedbackRoutes(app, {
+  adminDb,
+  requireSeller: marketplace.requireSeller,
+  requireAdmin,
+  forgetSeller: marketplace.forgetSeller,
+  forgetShop: marketplace.forgetShop,
+  limitPerIp,
+  callerUid: async (req) => {
+    const header = req.headers.authorization || req.headers.Authorization;
+    if (typeof header !== 'string' || !header.startsWith('Bearer ')) return null;
+    try {
+      return (await admin.auth().verifyIdToken(header.slice(7).trim())).uid;
+    } catch {
+      return null;
+    }
+  },
 });
 
 app.post('/api/orders/update-status', requireAdmin, async (req, res) => {

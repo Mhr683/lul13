@@ -1,5 +1,6 @@
 import type express from 'express';
 import crypto from 'crypto';
+import { ratingSummary } from './feedback';
 
 // Marketplace: seller applications, the Seller Center API (own shop, products, orders, earnings)
 // and the admin side (approve/suspend sellers, commission, payouts).
@@ -320,6 +321,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     category: p.category,
     status: p.status,
     primaryImage: p.primaryImage || '',
+    likes: Number(p.likes) || 0,
+    dislikes: Number(p.dislikes) || 0,
     adminHidden: p.adminHidden === true,
     adminHiddenReason: p.adminHiddenReason || '',
     createdAt: p.createdAt,
@@ -898,7 +901,20 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     rule(late.length >= 1, late.length >= 3, `${late.length} order not shipped within 3 days.`, `${late.length} orders not shipped within 3 days.`, 10, 30);
     rule(productStats.hiddenByStore > 0, productStats.hiddenByStore >= 5, `${productStats.hiddenByStore} product(s) taken off the store by you.`, `${productStats.hiddenByStore} products taken off the store by you.`, 10, 25);
     rule(live.length > 0 && productStats.outOfStock / live.length > 0.5, false, `${productStats.outOfStock} of ${live.length} live products are out of stock.`, '', 10, 0);
-    rule(productStats.avgRating > 0 && productStats.avgRating < 3.5, productStats.avgRating > 0 && productStats.avgRating < 2.5, `Average rating ${productStats.avgRating}/5.`, `Average rating ${productStats.avgRating}/5 is very low.`, 10, 25);
+    rule(productStats.avgRating > 0 && productStats.avgRating < 3.5, productStats.avgRating > 0 && productStats.avgRating < 2.5, `Average product rating ${productStats.avgRating}/5.`, `Average product rating ${productStats.avgRating}/5 is very low.`, 10, 25);
+    // Customer feedback on the seller (needs a few ratings before it counts)
+    const sellerRating = ratingSummary(seller);
+    const enoughRatings = sellerRating.ratingCount >= 3;
+    rule(
+      enoughRatings && sellerRating.ratingAvg < 4,
+      enoughRatings && sellerRating.ratingAvg < 3,
+      `Customer rating ${sellerRating.ratingAvg}/5 from ${sellerRating.ratingCount} buyers (${sellerRating.positivePercent}% positive).`,
+      `Customer rating ${sellerRating.ratingAvg}/5 from ${sellerRating.ratingCount} buyers is low (${sellerRating.positivePercent}% positive).`,
+      10,
+      30
+    );
+    const reactions = sellerRating.likes + sellerRating.dislikes;
+    rule(reactions >= 10 && sellerRating.dislikes / reactions > 0.3, reactions >= 10 && sellerRating.dislikes / reactions > 0.5, `${sellerRating.dislikes} dislikes vs ${sellerRating.likes} likes on products.`, `More dislikes (${sellerRating.dislikes}) than likes (${sellerRating.likes}) on products.`, 10, 20);
     score = Math.max(0, score);
     const level: 'GREEN' | 'YELLOW' | 'RED' = reasons.some((r) => r.level === 'RED') || score < 60
       ? 'RED'
@@ -927,6 +943,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       products: productStats,
       topProducts,
       health: { level, score, reasons, advice },
+      rating: sellerRating,
       earnings: summarizeEarnings(orders),
       recentOrders: orders.slice(0, 15).map((o) => ({
         id: o.id,
@@ -1153,7 +1170,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           at: Date.now(),
           shop:
             s && s.status === 'APPROVED'
-              ? { id, shopName: s.shopName, logoUrl: s.logoUrl || '', city: s.city || '', joinedAt: s.createdAt || '' }
+              ? { id, shopName: s.shopName, logoUrl: s.logoUrl || '', city: s.city || '', joinedAt: s.createdAt || '', ...ratingSummary(s) }
               : null,
         };
         shopCache.set(id, hit);
@@ -1168,6 +1185,6 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
-  // Used by the seller inbox routes (server/sellerInbox.ts)
-  return { requireSeller, forgetSeller };
+  // Used by the seller inbox and feedback routes (server/sellerInbox.ts, server/feedback.ts)
+  return { requireSeller, forgetSeller, forgetShop: (sellerId: string) => shopCache.delete(sellerId) };
 }

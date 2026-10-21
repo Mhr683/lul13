@@ -56,6 +56,19 @@ import { CustomerHelplineDrawer } from './CustomerHelplineDrawer';
 import { PWAInstallButton } from './PWAInstallButton';
 import { BrandLogo } from './BrandLogo';
 import { SellerShopPage } from './SellerShopPage';
+import { ProductReactions } from './ProductReactions';
+import { SellerRatingBadge, useShopInfo } from './SellerRating';
+
+// The seller's customer rating under "Sold & shipped by" on the product page
+const PdpSellerRating: React.FC<{ sellerId: string }> = ({ sellerId }) => {
+  const shop = useShopInfo(sellerId);
+  return shop ? (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-[#575653]">Seller rating:</span>
+      <SellerRatingBadge shop={shop} />
+    </div>
+  ) : null;
+};
 import { PWAInstallModal } from './PWAInstallModal';
 import { HERO_IMAGE_PATH } from '../data/seedData';
 import { SHIPPING_METHODS, calculateShippingFee, formatDualPrice, formatPKR } from '../services/abstractions';
@@ -2175,6 +2188,16 @@ export const StorefrontView: React.FC = () => {
                         Visit store →
                       </button>
                     )}
+                  </div>
+                  {selectedProduct.sellerId && <PdpSellerRating sellerId={selectedProduct.sellerId} />}
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-[#575653]">
+                    <span>Do you like this product?</span>
+                    <ProductReactions
+                      productId={selectedProduct.id}
+                      likes={selectedProduct.likes}
+                      dislikes={selectedProduct.dislikes}
+                      showToast={showToast}
+                    />
                   </div>
 
                   <div className="space-y-1 font-mono tabular-nums">

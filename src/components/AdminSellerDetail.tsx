@@ -403,6 +403,91 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
           </div>
         )}
       </section>
+
+      <SellerFeedbackAdmin sellerId={s.id || id} rating={(r as any).rating} />
     </div>
+  );
+};
+
+// Customer ratings for this seller; the admin can hide a fake or abusive review (the rating follows)
+const SellerFeedbackAdmin: React.FC<{ sellerId: string; rating?: any }> = ({ sellerId, rating }) => {
+  const { showToast } = useStore();
+  const [list, setList] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState('');
+
+  useEffect(() => {
+    api(`/api/admin/sellers/${encodeURIComponent(sellerId)}/feedback`)
+      .then((d) => setList(Array.isArray(d.feedback) ? d.feedback : []))
+      .catch(() => setList([]));
+  }, [sellerId]);
+
+  const toggle = async (f: any) => {
+    const hidden = f.status !== 'HIDDEN';
+    setBusy(f.id);
+    try {
+      await api(`/api/admin/feedback/${encodeURIComponent(f.id)}`, { method: 'POST', body: JSON.stringify({ hidden }) });
+      setList((l) => l && l.map((x) => (x.id === f.id ? { ...x, status: hidden ? 'HIDDEN' : 'PUBLISHED' } : x)));
+      showToast(hidden ? 'Review hidden from the store.' : 'Review shown again.');
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const stars = (n: number) => '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
+  return (
+    <section className="p-4 bg-white border border-black/10 space-y-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-bold">Customer reviews</h2>
+        {rating && (
+          <span className="text-[#575653]">
+            {rating.ratingCount ? (
+              <>
+                <span className="text-[#F5A524]">{stars(rating.ratingAvg)}</span> {Number(rating.ratingAvg).toFixed(1)} · {rating.ratingCount}{' '}
+                reviews · {rating.positivePercent}% positive
+              </>
+            ) : (
+              'No ratings yet'
+            )}{' '}
+            · 👍 {rating.likes || 0} · 👎 {rating.dislikes || 0}
+          </span>
+        )}
+      </div>
+      {list === null ? (
+        <p className="text-[#575653]">Loading reviews...</p>
+      ) : list.length === 0 ? (
+        <p className="text-[#575653]">No customer has reviewed this seller yet.</p>
+      ) : (
+        <ul className="divide-y divide-black/[0.06]">
+          {list.map((f) => (
+            <li key={f.id} className={`py-2.5 space-y-1 ${f.status === 'HIDDEN' ? 'opacity-60' : ''}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[#F5A524] text-sm">{stars(f.rating)}</span>
+                <strong>{f.customerName}</strong>
+                <span className="text-[#575653]">
+                  Order {f.orderNumber} · {new Date(f.createdAt).toLocaleDateString('en-PK')}
+                </span>
+                {f.status === 'HIDDEN' && <span className="px-1.5 py-0.5 bg-black/5 text-[10px] font-bold">Hidden</span>}
+                <button
+                  type="button"
+                  disabled={busy === f.id}
+                  onClick={() => toggle(f)}
+                  className="ml-auto px-2 py-1 border border-black/20 font-semibold disabled:opacity-50 cursor-pointer"
+                >
+                  {f.status === 'HIDDEN' ? 'Show again' : 'Hide'}
+                </button>
+              </div>
+              {f.comment && <p className="whitespace-pre-line">{f.comment}</p>}
+              {f.sellerReply && (
+                <p className="pl-3 border-l-2 border-[#0E7A43] text-[#454441]">
+                  <strong>Seller reply:</strong> {f.sellerReply}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 };

@@ -4,12 +4,13 @@ import { ProductImage } from './ProductImage';
 import { SellerAvatar } from './SellerAvatar';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
+import { fetchShop, SellerRatingBadge, Stars, type ShopInfo } from './SellerRating';
 
 // A seller's shop inside the store (#shop/<sellerId>): the shop's name, picture and city, and every
 // live product it sells, with search, category filter and sorting. Products come from the catalog
 // the store already has in memory; only the shop details are fetched (cached on the server).
 
-type ShopInfo = { id: string; shopName: string; logoUrl: string; city: string; joinedAt: string };
+type Feedback = { id: string; rating: number; comment: string; customerName: string; productNames: string[]; createdAt: string; sellerReply?: string };
 type Sort = 'NEWEST' | 'PRICE_ASC' | 'PRICE_DESC' | 'NAME';
 const PAGE = 24;
 
@@ -27,11 +28,14 @@ export const SellerShopPage: React.FC<{
   const [category, setCategory] = useState('ALL');
   const [sort, setSort] = useState<Sort>('NEWEST');
   const [shown, setShown] = useState(PAGE);
+  const [feedback, setFeedback] = useState<Feedback[] | null>(null);
+  const [feedbackShown, setFeedbackShown] = useState(5);
 
   useEffect(() => {
     let cancelled = false;
     setShop(null);
     setMissing(false);
+    setFeedback(null);
     fetch(`/api/shops/${encodeURIComponent(sellerId)}`)
       .then(async (res) => {
         if (cancelled) return;
@@ -39,7 +43,15 @@ export const SellerShopPage: React.FC<{
         const data = await res.json().catch(() => ({}));
         if (data?.shop) setShop(data.shop);
       })
-      .catch(() => {});
+      .catch(() => {
+        fetchShop(sellerId).then((s) => !cancelled && s && setShop(s));
+      });
+    fetch(`/api/shops/${encodeURIComponent(sellerId)}/feedback`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) setFeedback(Array.isArray(data?.feedback) ? data.feedback : []);
+      })
+      .catch(() => !cancelled && setFeedback([]));
     window.scrollTo({ top: 0 });
     return () => {
       cancelled = true;
@@ -109,6 +121,7 @@ export const SellerShopPage: React.FC<{
             {shop?.city ? ` · ${shop.city}` : ''}
             {joined ? ` · selling since ${joined}` : ''}
           </p>
+          <SellerRatingBadge shop={shop} className="mt-1" />
         </div>
         <button
           type="button"
@@ -228,6 +241,54 @@ export const SellerShopPage: React.FC<{
               </div>
             </>
           )}
+
+          {/* What buyers say (from delivered orders) */}
+          <section className="p-5 bg-white border border-black/[0.08] space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-display font-medium text-[#141413]">Customer feedback</h2>
+              <SellerRatingBadge shop={shop} />
+            </div>
+            {feedback === null ? (
+              <p className="text-xs text-[#575653]">Loading reviews...</p>
+            ) : feedback.length === 0 ? (
+              <p className="text-xs text-[#575653]">No reviews yet. Buyers can rate this shop after their order is delivered.</p>
+            ) : (
+              <>
+                <ul className="divide-y divide-black/[0.06]">
+                  {feedback.slice(0, feedbackShown).map((f) => (
+                    <li key={f.id} className="py-3 space-y-1 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Stars value={f.rating} />
+                        <strong className="text-[#141413]">{f.customerName}</strong>
+                        <span className="text-[#575653]">
+                          {new Date(f.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                        <span className="px-1.5 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-900 text-[10px] font-bold">
+                          Verified purchase
+                        </span>
+                      </div>
+                      {f.comment && <p className="text-[#141413] whitespace-pre-line">{f.comment}</p>}
+                      {f.productNames?.length > 0 && <p className="text-[#575653] truncate">Bought: {f.productNames.join(', ')}</p>}
+                      {f.sellerReply && (
+                        <p className="pl-3 border-l-2 border-[#0E7A43] text-[#454441]">
+                          <strong>Seller reply:</strong> {f.sellerReply}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {feedback.length > feedbackShown && (
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackShown((n) => n + 10)}
+                    className="px-4 py-2 border border-black/20 text-xs font-semibold cursor-pointer"
+                  >
+                    Show more reviews ({feedback.length - feedbackShown})
+                  </button>
+                )}
+              </>
+            )}
+          </section>
         </>
       )}
     </div>
