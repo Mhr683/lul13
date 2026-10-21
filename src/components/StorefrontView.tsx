@@ -60,6 +60,8 @@ import { ProductReactions } from './ProductReactions';
 import { SellerRatingBadge, SellerScoreCards, useShopInfo } from './SellerRating';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfoTabs } from './ProductInfoTabs';
+import { PolicyDocument } from './PolicyDocument';
+import { CUSTOMER_PROTECTION } from '../data/policies';
 
 // The seller's customer rating under "Sold & shipped by" on the product page
 const PdpSellerRating: React.FC<{ sellerId: string }> = ({ sellerId }) => {
@@ -3989,6 +3991,22 @@ export const StorefrontView: React.FC = () => {
               </div>
             )}
 
+            {/* The rules that protect the customer on every order */}
+            <details className="group bg-white border border-emerald-200">
+              <summary className="list-none cursor-pointer px-5 py-4 flex items-center justify-between gap-3">
+                <span className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-[#0E7A43]" />
+                  <span>
+                    <strong className="block text-sm text-[#141413]">Customer Protection Policy</strong>
+                    <span className="text-xs text-[#575653]">Original products, 7-day returns, refunds and support on every order</span>
+                  </span>
+                </span>
+                <ChevronDown className="w-4 h-4 text-[#575653] transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="px-5 pb-5 border-t border-black/[0.06] pt-4">
+                <PolicyDocument intro={CUSTOMER_PROTECTION.intro} sections={CUSTOMER_PROTECTION.sections} compact />
+              </div>
+            </details>
 
             <div className="space-y-6">
               <h2 className="text-xl font-display font-medium text-[#141413]">

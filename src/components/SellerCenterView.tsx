@@ -497,6 +497,26 @@ export const SellerCenterView: React.FC = () => {
         ) : (
           <p className="text-xs text-[#575653]">Loading your profile...</p>
         ))}
+      {tab === 'PROFILE' && (
+        // The rules this shop has agreed to follow
+        <details className="group bg-white border border-black/10">
+          <summary className="list-none cursor-pointer px-5 py-4 flex items-center justify-between gap-3">
+            <span>
+              <strong className="block text-sm">Seller Rules (Supplier Code of Conduct)</strong>
+              <span className="text-xs text-[#575653]">
+                Accepted on{' '}
+                {(seller as any).conductAcceptedAt ? new Date((seller as any).conductAcceptedAt).toLocaleDateString('en-PK') : 'joining'} · tap to
+                read
+              </span>
+            </span>
+            <span className="text-xs font-semibold text-[#0E7A43] group-open:hidden">Show</span>
+            <span className="text-xs font-semibold text-[#0E7A43] hidden group-open:inline">Hide</span>
+          </summary>
+          <div className="px-5 pb-5 border-t border-black/[0.06] pt-4">
+            <PolicyDocument intro={SUPPLIER_CODE.intro} sections={SUPPLIER_CODE.sections} compact />
+          </div>
+        </details>
+      )}
     </div>
   );
 };
