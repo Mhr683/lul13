@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -356,12 +356,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [selectedAdminOrder, setSelectedAdminOrder] = useState<Order | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
+  // Stable across renders: screens use it inside effects and data loaders, and a new function on
+  // every render made those loaders run again after each toast (a request loop when a load failed)
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((prev) => (prev === msg ? null : prev));
     }, 4000);
-  };
+  }, []);
 
   useEffect(() => {
     try {

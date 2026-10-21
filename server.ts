@@ -175,6 +175,21 @@ interface DecodedAuthUser {
 // Works out a signed-in user's role and keeps users/{uid} in sync.
 // Admin roles are only granted to verified emails: the owner email, or an email a
 // SUPER_ADMIN invited from the admin panel (admin_invites/{email}).
+// Last time Firestore refused a request for lack of quota (RESOURCE_EXHAUSTED)
+let firestoreQuotaHitAt = 0;
+function noteFirestoreError(err: any) {
+  if (err?.code === 8 || /RESOURCE_EXHAUSTED|Quota limit exceeded/i.test(String(err?.message || err))) {
+    firestoreQuotaHitAt = Date.now();
+  }
+}
+const firestoreQuotaHit = () => Date.now() - firestoreQuotaHitAt < 15 * 60_000;
+// Errors logged anywhere on the server also mark the quota state
+const consoleError = console.error.bind(console);
+console.error = (...args: any[]) => {
+  for (const a of args) noteFirestoreError(a);
+  consoleError(...args);
+};
+
 // Every admin request needs the caller's role; remember it for 5 minutes instead of reading the
 // user's profile on each request (the team routes clear this when admins change)
 const roleCache = new Map<string, { role: string; email: string; at: number }>();
@@ -388,6 +403,23 @@ const PORT = 3000;
 // so per-visitor limits do not lump every customer together
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
+
+// When the free Firestore database has used up its daily reads, say so plainly instead of the
+// generic "could not load" (it resets at midnight US Pacific time, 12:00 noon in Pakistan)
+app.use('/api', (_req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body: any) => {
+    if (res.statusCode === 503 && firestoreQuotaHit() && body && typeof body === 'object') {
+      body = {
+        ...body,
+        error: 'The store database has reached its daily free limit. It resets at 12:00 noon (Pakistan time). Saved data is still shown.',
+        code: 'QUOTA_EXCEEDED',
+      };
+    }
+    return json(body);
+  };
+  next();
+});
 
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -1134,6 +1166,7 @@ app.post('/api/media/batch-download', requireAdmin, async (req, res) => {
 const catalogStore = createCatalogStore(adminDb, {
   toPublic: (p) => splitProductPrivate(p).publicData,
   dir: path.join(process.cwd(), '.cache'),
+  onListenerError: noteFirestoreError,
 });
 catalogStore.start().catch((err) => console.warn('[Catalog] start failed:', err?.message));
 

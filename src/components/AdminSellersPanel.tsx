@@ -33,6 +33,8 @@ async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+const SELLERS_CACHE_KEY = 'admin_sellers_cache_v1';
+
 const tone: Record<string, string> = {
   PENDING: 'bg-amber-100 text-amber-900 border-amber-400',
   APPROVED: 'bg-emerald-100 text-emerald-900 border-emerald-400',
@@ -52,6 +54,8 @@ export const AdminSellersPanel: React.FC = () => {
   const [healthFilter, setHealthFilter] = useState<'ALL' | 'GREEN' | 'YELLOW' | 'RED'>('ALL');
   const [detailId, setDetailId] = useState<string | null>(null);
 
+  // The last list that loaded is kept on this device and shown when the database cannot answer
+  const [savedAt, setSavedAt] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
       const [s, p] = await Promise.all([api('/api/admin/sellers'), api('/api/admin/payouts')]);
@@ -59,9 +63,29 @@ export const AdminSellersPanel: React.FC = () => {
       setDefaultCommission(s.defaultCommission);
       setCommissionDraft(String(s.defaultCommission));
       setPayouts(p.payouts);
+      setSavedAt(null);
+      try {
+        localStorage.setItem(
+          SELLERS_CACHE_KEY,
+          JSON.stringify({ at: new Date().toISOString(), sellers: s.sellers, defaultCommission: s.defaultCommission, payouts: p.payouts })
+        );
+      } catch {}
     } catch (err: any) {
       showToast(err.message);
-      setSellers([]);
+      let cached: any = null;
+      try {
+        cached = JSON.parse(localStorage.getItem(SELLERS_CACHE_KEY) || 'null');
+      } catch {}
+      if (cached?.sellers) {
+        setSellers(cached.sellers);
+        setDefaultCommission(cached.defaultCommission ?? 10);
+        setCommissionDraft(String(cached.defaultCommission ?? 10));
+        setPayouts(cached.payouts || []);
+        setSavedAt(cached.at);
+      } else {
+        setSellers((prev) => prev || []);
+        setSavedAt('never');
+      }
     }
   }, [showToast]);
 
@@ -164,6 +188,14 @@ export const AdminSellersPanel: React.FC = () => {
           <RefreshCw className="w-3.5 h-3.5 inline mr-1" /> Refresh
         </button>
       </div>
+
+      {savedAt && (
+        <div className="p-3 bg-amber-50 border border-amber-400 text-amber-950 text-xs">
+          {savedAt === 'never'
+            ? 'The seller list could not be loaded right now (the database may have reached its daily limit, which resets at 12:00 noon Pakistan time). Press Refresh later.'
+            : `Showing the list saved on ${new Date(savedAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}; the database could not answer right now (daily limit resets at 12:00 noon Pakistan time).`}
+        </div>
+      )}
 
       {/* All sellers at a glance */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-xs">

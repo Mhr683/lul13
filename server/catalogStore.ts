@@ -41,7 +41,7 @@ const SAVE_REMOTE_EVERY_MS = 15 * 60 * 1000;
 
 export function createCatalogStore(
   adminDb: FirebaseFirestore.Firestore,
-  opts: { toPublic: (p: Doc) => Doc; dir: string }
+  opts: { toPublic: (p: Doc) => Doc; dir: string; onListenerError?: (err: any) => void }
 ) {
   const products = new Map<string, Doc>();
   const privates = new Map<string, Doc>();
@@ -171,6 +171,7 @@ export function createCatalogStore(
   // ------------------------------------------------------------------ listeners
 
   const retryLater = (name: string, start: () => void, err: any) => {
+    opts.onListenerError?.(err);
     console.warn(`[Catalog] ${name} listener stopped (${err?.code || ''} ${err?.message || err}); serving the last copy, retrying in 5 min`);
     unsubs[name]?.();
     delete unsubs[name];
