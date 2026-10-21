@@ -25,7 +25,7 @@
 
   /* Anokha wordmark (BrandLogo) */
   .font-brand {
-    font-family: 'Poppins', var(--font-sans);
+    font-family: 'Montserrat', var(--font-sans);
   }
 
   .font-mono, .tabular-nums {
