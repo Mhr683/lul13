@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, ArrowRight, Sparkles, Tag } from 'lucide-react';
-import { MAIN_NAV_SECTIONS, NavMenuSection, NavCategoryItem } from '../data/categoryNavigation';
+import { NavCategoryItem } from '../data/categoryNavigation';
+import type { NavSectionWithCounts } from '../data/navMatch';
 
 interface HeaderNavDropdownsProps {
+  /** Menu sections with product counts (empty entries already removed) */
+  sections: NavSectionWithCounts[];
   activeCategory: string;
   activeSubcategory: string;
   activeCollection: string;
@@ -16,6 +19,7 @@ interface HeaderNavDropdownsProps {
 }
 
 export const HeaderNavDropdowns: React.FC<HeaderNavDropdownsProps> = ({
+  sections,
   activeCategory,
   activeSubcategory,
   activeCollection,
@@ -78,7 +82,7 @@ export const HeaderNavDropdowns: React.FC<HeaderNavDropdownsProps> = ({
       </button>
 
       {/* 2. Main Dropdown Sections: Shop, Men, Women, Children, Collections */}
-      {MAIN_NAV_SECTIONS.map((section: NavMenuSection) => {
+      {sections.map((section) => {
         const isOpen = openDropdownId === section.id;
         const isSectionActive =
           (section.id === 'nav-men' && activeCategory === 'Men') ||
@@ -145,7 +149,7 @@ export const HeaderNavDropdowns: React.FC<HeaderNavDropdownsProps> = ({
                         }`}
                       >
                         <span className="truncate">{item.name}</span>
-                        <ArrowRight className="w-3 h-3 text-neutral-300 opacity-0 group-hover/item:opacity-100 group-hover/item:text-black transition-all transform group-hover/item:translate-x-0.5" />
+                        <span className="ml-3 text-[10px] font-mono text-neutral-400 group-hover/item:text-black">{item.count}</span>
                       </button>
                     );
                   })}

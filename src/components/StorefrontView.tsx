@@ -50,7 +50,7 @@ import { CustomerNotificationsBell } from './CustomerNotificationsBell';
 import { rememberOrder, tokenForOrder } from '../services/myOrders';
 import { GlobalHeaderSearch } from './GlobalHeaderSearch';
 import { HeaderNavDropdowns } from './HeaderNavDropdowns';
-import { MAIN_NAV_SECTIONS } from '../data/categoryNavigation';
+import { buildNavSections, productMatchesNav } from '../data/navMatch';
 import type { DetectedAddressPayload } from './GoogleMapsAddressDetector';
 import { CustomerHelplineDrawer } from './CustomerHelplineDrawer';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -659,35 +659,16 @@ export const StorefrontView: React.FC = () => {
     ]
   );
 
+  // Header menu with only the entries that have products
+  const navSections = useMemo(() => buildNavSections(products), [products]);
+
   // Filtered & Sorted Products
   const filteredProducts = useMemo(() => {
     return products
       .filter((p) => p.status === 'ACTIVE')
       .filter((p) => {
-        // Category filter
-        if (activeCategory !== 'ALL') {
-          const catNorm = activeCategory.trim().toLowerCase();
-          const pCatNorm = (p.category || '').trim().toLowerCase();
-          const pSubNorm = (p.subcategory || '').trim().toLowerCase();
-
-          const matchExact = pCatNorm === catNorm || pSubNorm === catNorm;
-          const matchDepartment =
-            (catNorm === 'men' && (pCatNorm === 'men' || pSubNorm.includes('men') || (p.seoKeywords || '').toLowerCase().includes('men'))) ||
-            (catNorm === 'women' && (pCatNorm === 'women' || pSubNorm.includes('women') || (p.seoKeywords || '').toLowerCase().includes('women'))) ||
-            (catNorm === 'children' && (pCatNorm === 'children' || pSubNorm.includes('kid') || pSubNorm.includes('boy') || pSubNorm.includes('girl') || pSubNorm.includes('baby') || (p.seoKeywords || '').toLowerCase().includes('kid')));
-
-          if (!matchExact && !matchDepartment) return false;
-        }
-
-        // Subcategory filter
-        if (activeSubcategory !== 'ALL') {
-          const subNorm = activeSubcategory.trim().toLowerCase();
-          const pSubNorm = (p.subcategory || '').trim().toLowerCase();
-          const pCatNorm = (p.category || '').trim().toLowerCase();
-          const pNameNorm = p.name.toLowerCase();
-          const matchSub = pSubNorm.includes(subNorm) || subNorm.includes(pSubNorm) || pCatNorm === subNorm || pNameNorm.includes(subNorm);
-          if (!matchSub) return false;
-        }
+        // Category / subcategory (header menu or sidebar); see src/data/navMatch.ts
+        if (!productMatchesNav(p, activeCategory, activeSubcategory)) return false;
 
         // Collection filter
         if (activeCollection === 'NEW_ARRIVALS' && !p.newArrival) return false;
@@ -1124,6 +1105,7 @@ export const StorefrontView: React.FC = () => {
           <div className="max-w-[1400px] mx-auto px-6 h-12 flex items-center justify-between gap-4">
           <nav className="flex items-center min-w-0">
             <HeaderNavDropdowns
+              sections={navSections}
               activeCategory={activeCategory}
               activeSubcategory={activeSubcategory}
               activeCollection={activeCollection}
@@ -1264,7 +1246,7 @@ export const StorefrontView: React.FC = () => {
                 <Headphones className="w-4 h-4 text-emerald-600" />
               </button>
 
-              {MAIN_NAV_SECTIONS.map((section) => {
+              {navSections.map((section) => {
                 const isExpanded = mobileExpandedSection === section.id;
                 return (
                   <div key={section.id} className="border-b border-neutral-100 pb-2">
@@ -1297,7 +1279,7 @@ export const StorefrontView: React.FC = () => {
                             className="w-full text-left py-1.5 px-3 text-xs text-neutral-600 hover:text-black hover:bg-white rounded flex items-center justify-between"
                           >
                             <span>{item.name}</span>
-                            <ArrowRight className="w-3 h-3 text-neutral-400" />
+                            <span className="text-[10px] text-neutral-400 font-mono">{item.count}</span>
                           </button>
                         ))}
                       </div>
