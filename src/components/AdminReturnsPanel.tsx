@@ -6,7 +6,7 @@ import { formatPKR } from '../services/abstractions';
 
 // Admin: customers' return / replacement requests (Customer Protection Policy). Approving with
 // "seller's fault" applies the Seller Rules automatically: return charge off the payout, product
-// strikes (fake = locked, 3 customers = delisted), and a second fake complaint suspends the seller.
+// strikes (fake = product locked at once, 3 customers = delisted). The account is not suspended for it.
 
 async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   await auth.authStateReady();

@@ -12,7 +12,7 @@ import { POLICY, RETURN_REASONS, RETURN_REASON_LABEL, type ReturnReason, deliver
 //   orders.lateNoticeAt             when the seller was warned about a late dispatch
 //
 // Rules applied when the store upholds a complaint that was the seller's fault:
-//   - fake / replica item: the product is locked at once; a second fake complaint suspends the seller
+//   - fake / replica item: the product is locked at once (the account is not suspended for it)
 //   - 3 different customers complain about one product: the product is delisted for good
 //   - the return shipping is charged to the seller
 // And on a timer: orders not dispatched within 48 hours of confirmation warn the seller.
@@ -303,7 +303,7 @@ export function registerPolicyRoutes(app: express.Express, d: PolicyDeps) {
       if (outcome.action === 'DELISTED') {
         await d.postNotice(r.sellerId, sellerName, 'Product delisted', `"${outcome.name}" has been permanently removed from the store: ${outcome.customers} different customers reported quality / wrong-item problems (Seller Rules: 3 complaints).`, 'URGENT');
       } else if (outcome.action === 'LOCKED') {
-        await d.postNotice(r.sellerId, sellerName, 'Product locked: fake / replica complaint', `"${outcome.name}" has been locked after a customer complaint about a fake or replica item was upheld (order ${r.orderNumber}). Another upheld fake complaint will suspend your account.`, 'URGENT');
+        await d.postNotice(r.sellerId, sellerName, 'Product locked: fake / replica complaint', `"${outcome.name}" has been locked after a customer complaint about a fake or replica item was upheld (order ${r.orderNumber}). It stays off the store; contact the store if you believe this is a mistake.`, 'URGENT');
       } else {
         await d.postNotice(r.sellerId, sellerName, 'Customer complaint upheld', `A complaint about "${outcome.name}" (order ${r.orderNumber}: ${RETURN_REASON_LABEL[r.reason as ReturnReason]}) was upheld. ${outcome.customers} of ${POLICY.COMPLAINTS_TO_DELIST} complaints: at ${POLICY.COMPLAINTS_TO_DELIST} the product is delisted.`, 'WARNING');
       }
@@ -381,20 +381,20 @@ export function registerPolicyRoutes(app: express.Express, d: PolicyDeps) {
               console.warn('[returns] product strike failed:', productId, (err as any)?.message);
             }
           }
+          // The seller's record (shown in account health); fake items lock the product, not the account
           const sellerRef = adminDb.collection('sellers').doc(r.sellerId);
-          const fakeStrikes = await adminDb.runTransaction(async (tx) => {
+          await adminDb.runTransaction(async (tx) => {
             const s = ((await tx.get(sellerRef)).data() as any) || {};
-            const fake = (Number(s.fakeStrikes) || 0) + (r.reason === 'FAKE' ? 1 : 0);
-            tx.set(sellerRef, { complaintStrikes: (Number(s.complaintStrikes) || 0) + 1, fakeStrikes: fake }, { merge: true });
-            return fake;
+            tx.set(
+              sellerRef,
+              {
+                complaintStrikes: (Number(s.complaintStrikes) || 0) + 1,
+                fakeStrikes: (Number(s.fakeStrikes) || 0) + (r.reason === 'FAKE' ? 1 : 0),
+              },
+              { merge: true }
+            );
           });
           d.forgetSeller(r.sellerId);
-          if (r.reason === 'FAKE' && fakeStrikes >= POLICY.FAKE_STRIKES_TO_SUSPEND) {
-            const reason = `Suspended automatically: ${fakeStrikes} upheld complaints about fake / replica products (Seller Rules).`;
-            if (await d.suspendSeller(r.sellerId, reason)) {
-              await d.postNotice(r.sellerId, r.sellerName, 'Account suspended', `${reason} Your products are off the store. Contact the store if you believe this is a mistake.`, 'URGENT');
-            }
-          }
           if (charge > 0) {
             await d.postNotice(r.sellerId, r.sellerName, `Return charge: order ${r.orderNumber}`, `The return on order ${r.orderNumber} was your responsibility (${RETURN_REASON_LABEL[r.reason as ReturnReason]}). PKR ${charge} return shipping will be taken off your next payout.`, 'WARNING');
           }

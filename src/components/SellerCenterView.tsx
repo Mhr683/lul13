@@ -20,7 +20,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { PolicyDocument } from './PolicyDocument';
-import { CONDUCT_VERSION, SUPPLIER_CODE } from '../data/policies';
+import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
 import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
@@ -361,8 +361,27 @@ export const SellerCenterView: React.FC = () => {
   if (seller.status === 'SUSPENDED') {
     return shell(
       <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-3">
-        <h1 className="text-2xl font-display">Your seller account is suspended</h1>
+        <h1 className="text-2xl font-display">
+          Your seller account is {(seller as any).permanentlySuspended ? 'permanently suspended' : 'suspended'}
+        </h1>
         <p className="text-sm text-[#454441]">{seller.statusReason || `Please contact ${storeName} for more information.`}</p>
+        {(seller as any).suspensionCause === 'RATING' && (
+          <div className="p-4 bg-amber-50 border border-amber-300 text-amber-950 text-sm text-left space-y-2">
+            <p>
+              <strong>All your payments are frozen</strong> while the account is suspended.
+            </p>
+            {(seller as any).reinstatementUsed || (seller as any).permanentlySuspended ? (
+              <p>You have already used your one reinstatement, so this account cannot be restored again.</p>
+            ) : (
+              <p>
+                You can restore your account <strong>once</strong> by paying a reinstatement fee of{' '}
+                <strong>PKR {REINSTATEMENT_FEE.toLocaleString('en-PK')}</strong>. Your rating then starts fresh, your products return to
+                the store and your payments are unfrozen. If your rating falls below 3.0 again, the suspension becomes permanent.
+                Contact {storeName} on WhatsApp or by message to arrange it.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     );
   }

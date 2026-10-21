@@ -35,6 +35,8 @@ export interface MarketplaceDeps {
   supplierOf: (productId: string) => any | null | undefined;
   /** Copies remote images into the store's Firebase Storage (old URL -> stored URL) */
   archiveImageUrls: (urls: unknown[]) => Promise<{ storageUnavailable: boolean; results: Record<string, string> }>;
+  /** Sends a notice to one seller's Seller Center inbox */
+  postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => Promise<void>;
   /** Saves an uploaded picture / video and returns its public URL */
   storeMedia: (buffer: Buffer, ext: string, contentType: string) => Promise<string>;
   HOUSE_SELLER_ID: string;
@@ -1184,16 +1186,103 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     return toChange.length;
   };
 
-  /** Suspends a seller automatically under the store rules (low rating, fake products) */
-  const suspendSeller = async (id: string, reason: string) => {
+  /**
+   * Suspends a seller under the store rules. A low-rating suspension also freezes every payout;
+   * the account can be restored once (reinstatement fee), and never after a second one.
+   */
+  const suspendSeller = async (id: string, reason: string, cause: 'RATING' | 'OTHER' = 'OTHER') => {
     const ref = sellersCol().doc(id);
     const snap = await ref.get();
     if (!snap.exists || (snap.data() as any).status === 'SUSPENDED') return false;
-    await ref.set({ status: 'SUSPENDED', statusReason: reason.slice(0, 300), suspendedAutomatically: true, updatedAt: new Date().toISOString() }, { merge: true });
+    const s = snap.data() as any;
+    const permanent = cause === 'RATING' && s.reinstatementUsed === true;
+    await ref.set(
+      {
+        status: 'SUSPENDED',
+        statusReason: reason.slice(0, 300),
+        suspendedAutomatically: true,
+        suspensionCause: cause,
+        suspendedAt: new Date().toISOString(),
+        ...(cause === 'RATING' ? { payoutsFrozen: true } : {}),
+        ...(permanent ? { permanentlySuspended: true } : {}),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
     forgetSeller(id);
     await syncProductsWithSellerStatus(id, 'SUSPENDED');
     return true;
   };
+
+  // Restores an account suspended for low rating, once: the reinstatement fee is taken off the
+  // seller's frozen balance or recorded as paid, the rating starts again from zero and payouts unfreeze
+  app.post('/api/admin/sellers/:id/reinstate', d.requireAdmin, async (req, res) => {
+    const id = str(req.params.id, 128);
+    const feeMethod = req.body?.feeMethod === 'PAID' ? 'PAID' : 'DEDUCT';
+    const reference = str(req.body?.reference, 120);
+    if (feeMethod === 'PAID' && reference.length < 3) return res.status(400).json({ error: 'Enter the payment reference / TID of the fee.' });
+    try {
+      const ref = sellersCol().doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: 'Seller not found.' });
+      const s = snap.data() as any;
+      if (s.status !== 'SUSPENDED' || s.suspensionCause !== 'RATING') {
+        return res.status(409).json({ error: 'Only an account suspended for low rating can be reinstated this way.' });
+      }
+      if (s.reinstatementUsed || s.permanentlySuspended) {
+        return res.status(409).json({ error: 'This seller has already used their one reinstatement. The suspension is permanent.' });
+      }
+      const now = new Date().toISOString();
+      const fee = POLICY.REINSTATEMENT_FEE;
+      if (feeMethod === 'DEDUCT') {
+        await adminDb.collection('seller_charges').doc(`chg-reinstate-${id}`).set({
+          id: `chg-reinstate-${id}`,
+          sellerId: id,
+          orderNumber: '—',
+          amount: fee,
+          reason: 'Account reinstatement fee',
+          createdAt: now,
+          payoutId: null,
+        });
+      }
+      const old = ratingSummary(s);
+      await ref.set(
+        {
+          status: 'APPROVED',
+          statusReason: '',
+          payoutsFrozen: false,
+          reinstatementUsed: true,
+          reinstatedAt: now,
+          reinstatedBy: String((req as any).user?.email || 'admin'),
+          reinstatementFee: { amount: fee, method: feeMethod, reference, at: now },
+          // The rating starts again; the old one is kept for the record
+          ratingBeforeReinstatement: { ratingAvg: old.ratingAvg, ratingCount: old.ratingCount, positivePercent: old.positivePercent },
+          ratingSum: 0,
+          ratingCount: 0,
+          ratingPositive: 0,
+          ratingResetAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+      forgetSeller(id);
+      shopCache.delete(id);
+      const changedProducts = await syncProductsWithSellerStatus(id, 'APPROVED');
+      await d.postNotice(
+        id,
+        s.shopName || '',
+        'Account reinstated (one-time)',
+        `Your account is active again and your products are back in the store. Your rating starts fresh and your payouts are unfrozen.${
+          feeMethod === 'DEDUCT' ? ` The PKR ${fee} reinstatement fee will be taken off your next payout.` : ''
+        }\n\nThis was your one reinstatement: if your rating falls below ${POLICY.MIN_RATING.toFixed(1)} again, the suspension will be permanent.`,
+        'URGENT'
+      ).catch(() => {});
+      res.json({ success: true, changedProducts });
+    } catch (err) {
+      console.error('[admin/sellers reinstate] failed:', err);
+      res.status(503).json({ error: 'Could not reinstate the seller. Please try again.' });
+    }
+  });
 
   // Approve / reject / suspend a seller, or change their commission
   app.post('/api/admin/sellers/:id', d.requireAdmin, async (req, res) => {
@@ -1208,6 +1297,14 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const updates: Record<string, any> = { updatedAt: now };
       if (b.status !== undefined) {
         if (!['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'].includes(b.status)) return res.status(400).json({ error: 'Invalid status.' });
+        // A low-rating suspension is lifted only through the one-time reinstatement (fee, fresh rating)
+        if (b.status === 'APPROVED' && current.status === 'SUSPENDED' && current.suspensionCause === 'RATING') {
+          return res.status(409).json({
+            error: current.reinstatementUsed
+              ? 'This seller was suspended for low rating after their one reinstatement: the suspension is permanent.'
+              : `Suspended for low rating: use "Reinstate (PKR ${POLICY.REINSTATEMENT_FEE} fee, one time)" on the seller's page.`,
+          });
+        }
         updates.status = b.status;
         updates.statusReason = str(b.statusReason, 300);
       }
@@ -1258,6 +1355,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     if (!sellerId || sellerId === d.HOUSE_SELLER_ID) return res.status(400).json({ error: 'Choose a seller.' });
     if (reference.length < 3) return res.status(400).json({ error: 'Enter the bank transfer reference / TID.' });
     try {
+      const sellerData = (await sellersCol().doc(sellerId).get()).data() as any;
+      if (sellerData?.payoutsFrozen) {
+        return res.status(409).json({ error: 'This seller’s payments are frozen (suspended for low rating). Reinstate the account first.' });
+      }
       forgetOrders(sellerId);
       const [orders, charges] = await Promise.all([loadSellerOrders(sellerId, 1000), unpaidChargesOf(sellerId)]);
       // Only orders whose 7-day return window is over (escrow) and without an open return request

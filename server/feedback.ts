@@ -23,7 +23,7 @@ export interface FeedbackDeps {
   forgetSeller: (uid: string) => void;
   forgetShop: (sellerId: string) => void;
   /** Supplier Code of Conduct: a rating below 3.0 suspends the seller */
-  suspendSeller: (sellerId: string, reason: string) => Promise<boolean>;
+  suspendSeller: (sellerId: string, reason: string, cause?: 'RATING' | 'OTHER') => Promise<boolean>;
   postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => Promise<void>;
   limitPerIp: (name: string, max: number, windowMs?: number) => Handler;
 }
@@ -81,10 +81,15 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
   const publicFeedback = async (sellerId: string) => {
     const hit = shopFeedbackCache.get(sellerId);
     if (hit && Date.now() - hit.at < 5 * 60_000) return hit.list;
-    const snap = await feedbackCol().where('sellerId', '==', sellerId).limit(200).get();
+    const [snap, sellerSnap] = await Promise.all([
+      feedbackCol().where('sellerId', '==', sellerId).limit(200).get(),
+      adminDb.collection('sellers').doc(sellerId).get(),
+    ]);
+    // After a one-time reinstatement the shop's rating starts fresh: older reviews are not shown
+    const resetAt = String((sellerSnap.data() as any)?.ratingResetAt || '');
     const list = snap.docs
       .map((doc) => doc.data() as any)
-      .filter((f) => f.status !== 'HIDDEN')
+      .filter((f) => f.status !== 'HIDDEN' && (!resetAt || String(f.createdAt) > resetAt))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
       .slice(0, 50)
       .map((f) => ({
@@ -168,10 +173,12 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       const productRefs = feedback.productIds.map((id) => adminDb.collection('products').doc(id));
       let newCount = 0;
       let newAvg = 0;
+      let reinstatedBefore = false;
       const created = await adminDb.runTransaction(async (tx) => {
         const [existing, sellerSnap, ...productSnaps] = await Promise.all([tx.get(fbRef), tx.get(sellerRef), ...productRefs.map((r) => tx.get(r))]);
         if (existing.exists) return false;
         const s = (sellerSnap.data() as any) || {};
+        reinstatedBefore = s.reinstatementUsed === true;
         newCount = (Number(s.ratingCount) || 0) + 1;
         newAvg = ((Number(s.ratingSum) || 0) + rating) / newCount;
         tx.set(fbRef, feedback);
@@ -209,10 +216,15 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       // Seller Rules: a customer rating below 3.0 (from enough buyers) suspends the account
       if (newCount >= POLICY.MIN_RATINGS && newAvg < POLICY.MIN_RATING) {
         const avg = Math.round(newAvg * 10) / 10;
-        const reason = `Suspended automatically: customer rating ${avg} from ${newCount} buyers is below ${POLICY.MIN_RATING.toFixed(1)} (Seller Rules).`;
-        d.suspendSeller(sellerId, reason)
+        const reason = reinstatedBefore
+          ? `Suspended permanently: customer rating ${avg} from ${newCount} buyers fell below ${POLICY.MIN_RATING.toFixed(1)} again after the one-time reinstatement (Seller Rules).`
+          : `Suspended automatically: customer rating ${avg} from ${newCount} buyers is below ${POLICY.MIN_RATING.toFixed(1)} (Seller Rules).`;
+        const next = reinstatedBefore
+          ? 'Your products are off the store and all payments are frozen. A second reinstatement is not possible.'
+          : `Your products are off the store and all payments are frozen. You can restore your account once by paying a PKR ${POLICY.REINSTATEMENT_FEE.toLocaleString('en-PK')} reinstatement fee: contact the store. Your rating then starts fresh.`;
+        d.suspendSeller(sellerId, reason, 'RATING')
           .then(async (done) => {
-            if (done) await d.postNotice(sellerId, feedback.sellerName, 'Account suspended', `${reason} Your products are off the store. Contact the store to discuss improving your service.`, 'URGENT');
+            if (done) await d.postNotice(sellerId, feedback.sellerName, reinstatedBefore ? 'Account permanently suspended' : 'Account suspended', `${reason}\n\n${next}`, 'URGENT');
           })
           .catch((err) => console.warn('[feedback] auto-suspend failed:', err?.message));
       }
@@ -431,6 +443,8 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
         const s = ((await tx.get(sellerRef)).data() as any) || {};
         const sign = hidden ? -1 : 1;
         tx.update(ref, { status: hidden ? 'HIDDEN' : 'PUBLISHED', moderatedAt: new Date().toISOString() });
+        // A review from before a rating reset (reinstatement) is no longer part of the rating
+        if (s.ratingResetAt && String(f.createdAt) <= String(s.ratingResetAt)) return f.sellerId;
         tx.set(
           sellerRef,
           {

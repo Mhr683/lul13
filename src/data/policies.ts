@@ -3,8 +3,9 @@
 // server/policyRules.ts; keep them in step. Changing the Code of Conduct? Bump CONDUCT_VERSION
 // there and here so every seller accepts the new version.
 
-export const CONDUCT_VERSION = '2026-10-21';
+export const CONDUCT_VERSION = '2026-10-21b';
 export const RETURN_WINDOW_DAYS = 7;
+export const REINSTATEMENT_FEE = 5000;
 
 export type PolicySection = { title: string; points: string[] };
 
@@ -66,7 +67,7 @@ export const SUPPLIER_CODE: { intro: string; sections: PolicySection[] } = {
     {
       title: '3. Quality and customer satisfaction',
       points: [
-        'Zero tolerance for fake items: when a complaint about a fake or replica product is upheld, the product is locked at once. A second upheld fake complaint suspends your account.',
+        'Zero tolerance for fake items: when a complaint about a fake or replica product is upheld, that product is locked at once and taken off the store.',
         'Three complaints rule: when 3 different customers report quality problems or a wrong item for the same product, it is removed from the store permanently.',
         'You can give your side of every return request in Seller Center before the store decides.',
       ],
@@ -76,7 +77,14 @@ export const SUPPLIER_CODE: { intro: string; sections: PolicySection[] } = {
       points: [
         'Return shipping for wrong, damaged, poor quality or fake products is taken off your payout.',
         'Your money for an order is released 7 days after delivery, once the customer’s return period is over (and not while a return request is open).',
-        'A customer rating below 3.0 stars (from at least 5 buyers) or sending fake products gets your account suspended.',
+      ],
+    },
+    {
+      title: '5. Low rating: suspension and one second chance',
+      points: [
+        'If your customer rating falls below 3.0 stars (from at least 5 buyers), your account is suspended and all your payments are frozen.',
+        `You can restore your account once by paying a reinstatement fee of PKR ${REINSTATEMENT_FEE.toLocaleString('en-PK')}. Your rating then starts fresh, your products return to the store and your payments are unfrozen.`,
+        'Reinstatement is given only one time, as a chance to learn from mistakes. If your rating falls below 3.0 again, the suspension is permanent.',
       ],
     },
   ],

@@ -3436,6 +3436,8 @@ app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true, f
 // Seller Center API and admin seller/payout management
 const marketplace = registerMarketplaceRoutes(app, {
   storeMedia,
+  // the seller inbox is registered just below; this only runs later, on a request
+  postNotice: (...args) => sellerInbox.postNotice(...args),
   adminDb,
   requireAuth,
   requireAdmin,

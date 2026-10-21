@@ -10,15 +10,15 @@ export const POLICY = {
   ESCROW_DAYS: 7,
   /** Different customers with an upheld quality / wrong-item complaint before a product is delisted */
   COMPLAINTS_TO_DELIST: 3,
-  /** Upheld fake / replica complaints before the seller's account is suspended */
-  FAKE_STRIKES_TO_SUSPEND: 2,
-  /** Customer rating below this (with at least MIN_RATINGS ratings) suspends the seller */
+  /** Customer rating below this (with at least MIN_RATINGS ratings) suspends the seller and freezes payouts */
   MIN_RATING: 3.0,
   MIN_RATINGS: 5,
+  /** Fee (PKR) to restore an account suspended for low rating; allowed only once per seller */
+  REINSTATEMENT_FEE: 5000,
   /** Return shipping charged to the seller when the return was their fault (PKR), unless set in store settings */
   DEFAULT_RETURN_CHARGE: 250,
   /** Bump when the Supplier Code of Conduct changes: every seller must accept the new version */
-  CONDUCT_VERSION: '2026-10-21',
+  CONDUCT_VERSION: '2026-10-21b',
 };
 
 export const RETURN_REASONS = ['DAMAGED', 'WRONG_ITEM', 'QUALITY', 'FAKE'] as const;

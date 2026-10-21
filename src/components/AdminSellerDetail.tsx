@@ -4,6 +4,7 @@ import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
 import { SellerAvatar } from './SellerAvatar';
+import { REINSTATEMENT_FEE } from '../data/policies';
 
 // Admin: one seller's full profile and performance report: bio and payout details, orders by
 // stage, sales and earnings (today / 7 days / 30 days / all time), returns and cancellations,
@@ -193,8 +194,17 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
             </div>
           </div>
           {s.statusReason && <div className="text-rose-800">Note: {s.statusReason}</div>}
+          {s.reinstatementUsed && (
+            <div className="text-[#454441]">
+              Reinstated once on {new Date(s.reinstatedAt).toLocaleDateString('en-PK')} (fee PKR {s.reinstatementFee?.amount ?? '-'},{' '}
+              {s.reinstatementFee?.method === 'PAID' ? `paid, ref ${s.reinstatementFee?.reference}` : 'taken off payout'}) · rating before:{' '}
+              {s.ratingBeforeReinstatement?.ratingAvg ?? '-'} from {s.ratingBeforeReinstatement?.ratingCount ?? 0} buyers
+            </div>
+          )}
         </div>
       </div>
+
+      {s.status === 'SUSPENDED' && s.suspensionCause === 'RATING' && <ReinstatePanel seller={s} onDone={load} />}
 
       {/* Health */}
       <div className={`p-4 border-2 ${h.box} space-y-2`}>
@@ -405,6 +415,76 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
       </section>
 
       <SellerFeedbackAdmin sellerId={s.id || id} rating={(r as any).rating} />
+    </div>
+  );
+};
+
+// Low-rating suspension: payments are frozen; the account can be restored once for a fee
+const ReinstatePanel: React.FC<{ seller: any; onDone: () => void }> = ({ seller, onDone }) => {
+  const { showToast } = useStore();
+  const [method, setMethod] = useState<'DEDUCT' | 'PAID'>('DEDUCT');
+  const [reference, setReference] = useState('');
+  const [saving, setSaving] = useState(false);
+  const used = seller.reinstatementUsed || seller.permanentlySuspended;
+
+  const reinstate = async () => {
+    if (!window.confirm(`Reinstate ${seller.shopName} for a PKR ${REINSTATEMENT_FEE.toLocaleString('en-PK')} fee? This can be done only once.`)) return;
+    setSaving(true);
+    try {
+      await api(`/api/admin/sellers/${encodeURIComponent(seller.id)}/reinstate`, {
+        method: 'POST',
+        body: JSON.stringify({ feeMethod: method, reference }),
+      });
+      showToast('Seller reinstated. Rating reset, products back, payments unfrozen.');
+      onDone();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="p-4 border-2 border-rose-400 bg-rose-50 text-rose-950 space-y-2">
+      <div className="text-sm font-bold">
+        {used ? 'Permanently suspended (low rating after the one reinstatement)' : 'Suspended for low rating · all payments frozen'}
+      </div>
+      {used ? (
+        <p>This seller already used their one reinstatement. It cannot be restored again.</p>
+      ) : (
+        <>
+          <p>
+            The seller can be restored <strong>once</strong> for a <strong>PKR {REINSTATEMENT_FEE.toLocaleString('en-PK')}</strong> fee: the
+            rating starts fresh, products return to the store and payments are unfrozen.
+          </p>
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" checked={method === 'DEDUCT'} onChange={() => setMethod('DEDUCT')} />
+              Take the fee off the seller's next payout
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" checked={method === 'PAID'} onChange={() => setMethod('PAID')} />
+              Seller paid separately
+            </label>
+          </div>
+          {method === 'PAID' && (
+            <input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="Payment reference / TID"
+              className="w-full max-w-xs px-3 py-1.5 border border-black/20 bg-white"
+            />
+          )}
+          <button
+            type="button"
+            disabled={saving || (method === 'PAID' && reference.trim().length < 3)}
+            onClick={reinstate}
+            className="px-4 py-2 bg-[#0E7A43] text-white font-bold disabled:opacity-50 cursor-pointer"
+          >
+            {saving ? 'Saving...' : `Reinstate (PKR ${REINSTATEMENT_FEE.toLocaleString('en-PK')}, one time)`}
+          </button>
+        </>
+      )}
     </div>
   );
 };
