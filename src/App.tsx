@@ -115,14 +115,13 @@ const MainRouter: React.FC = () => {
       window.removeEventListener('popstate', sync);
     };
   }, []);
-  const [adminInitialTab, setAdminInitialTab] = useState<string | undefined>(() => {
+  const [adminInitialTab] = useState<string | undefined>(() => {
     try {
       return localStorage.getItem('atelier_admin_tab') || 'DASHBOARD';
     } catch {
       return 'DASHBOARD';
     }
   });
-  const [autoOpenNewProduct, setAutoOpenNewProduct] = useState(false);
   const { toastMessage } = useStore();
 
   const handleSwitchMode = (newMode: Portal) => {
@@ -146,17 +145,7 @@ const MainRouter: React.FC = () => {
           <SellerCenterView />
         </Suspense>
       ) : mode === 'STOREFRONT' ? (
-        <StorefrontView
-          onOpenAdmin={(tab?: string, openNewProduct?: boolean) => {
-            const chosenTab = tab || 'DASHBOARD';
-            setAdminInitialTab(chosenTab);
-            try {
-              localStorage.setItem('atelier_admin_tab', chosenTab);
-            } catch {}
-            setAutoOpenNewProduct(Boolean(openNewProduct));
-            handleSwitchMode('ADMIN');
-          }}
-        />
+        <StorefrontView />
       ) : (
         <AdminGate onBack={() => handleSwitchMode('STOREFRONT')}>
           <Suspense
@@ -168,11 +157,7 @@ const MainRouter: React.FC = () => {
           >
             <AdminDashboardView
               initialTab={adminInitialTab as any}
-              autoOpenNewProduct={autoOpenNewProduct}
-              onReturnToStore={() => {
-                handleSwitchMode('STOREFRONT');
-                setAutoOpenNewProduct(false);
-              }}
+              onReturnToStore={() => handleSwitchMode('STOREFRONT')}
             />
           </Suspense>
         </AdminGate>

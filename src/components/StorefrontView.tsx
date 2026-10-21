@@ -95,11 +95,10 @@ type StoreSubView =
   | 'ORDER_TRACKING'
   | 'SHOP';
 
-interface StorefrontViewProps {
-  onOpenAdmin: (tab?: string, openNewProduct?: boolean) => void;
-}
 
-export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) => {
+// The customer store. The admin console (/admin) and Seller Center (/seller) are separate apps with
+// their own links, so nothing here leads to the admin console.
+export const StorefrontView: React.FC = () => {
   const {
     products,
     categories,
@@ -1081,20 +1080,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               <span className="hidden sm:inline">Bag</span>
               <span className="font-mono tabular-nums">({cartCount})</span>
             </button>
-
-            {/* Only signed-in admins see this; the console itself is also login-protected */}
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => onOpenAdmin('DASHBOARD')}
-                className="px-2.5 sm:px-3 py-2 bg-[#C5A059] text-[#0B0F17] text-xs font-semibold whitespace-nowrap cursor-pointer flex items-center gap-1.5"
-                title="Admin panel"
-                aria-label="Admin panel"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Admin</span>
-              </button>
-            )}
 
             <button
               onClick={() => {
@@ -4080,42 +4065,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               </div>
             )}
 
-            {/* Store Owner & Seller Hub Card (admins only) */}
-            {isAdmin && (
-            <div className="p-6 bg-gradient-to-r from-[#141413] via-[#1c1c1a] to-[#252523] text-white border border-[#C5A059]/40 space-y-4 shadow-sm">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="space-y-1.5">
-                  <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-[#C5A059]/20 text-[#C5A059] border border-[#C5A059]/30 text-[11px] font-semibold tracking-wider uppercase">
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span>Store Owner &amp; Seller Hub</span>
-                  </div>
-                  <h2 className="text-xl font-display font-medium text-white">
-                    Seller Center &amp; Admin Console
-                  </h2>
-                  <p className="text-xs text-white/70 max-w-2xl leading-relaxed">
-                    List products, update stock and ship orders in Seller Center. The admin console is for sellers, payouts,
-                    promotions and store settings.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3 shrink-0">
-                  <a
-                    href="/seller"
-                    className="px-4 py-2.5 border border-white/20 hover:border-white text-white text-xs font-medium flex items-center gap-2 cursor-pointer transition-colors"
-                  >
-                    <Package className="w-4 h-4" />
-                    <span>Seller Center</span>
-                  </a>
-                  <button
-                    onClick={() => onOpenAdmin('DASHBOARD')}
-                    className="px-4 py-2.5 border border-white/20 hover:border-white text-white text-xs font-medium cursor-pointer transition-colors"
-                  >
-                    <span>Full Admin Console</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-            )}
 
             <div className="space-y-6">
               <h2 className="text-xl font-display font-medium text-[#141413]">

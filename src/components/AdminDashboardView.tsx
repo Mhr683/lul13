@@ -157,11 +157,9 @@ const DEMO_AI_COMMANDS = [
 export const AdminDashboardView: React.FC<{
   onReturnToStore: () => void;
   initialTab?: AdminTab;
-  autoOpenNewProduct?: boolean;
 }> = ({
   onReturnToStore,
   initialTab = 'DASHBOARD',
-  autoOpenNewProduct = false,
 }) => {
   const {
     products,
@@ -243,23 +241,6 @@ export const AdminDashboardView: React.FC<{
       setActiveTab(validTab(initialTab));
     }
   }, [initialTab]);
-
-  useEffect(() => {
-    if (autoOpenNewProduct) {
-      setActiveTab('CATALOG');
-      setEditingProduct({
-        name: '',
-        sku: `AA-NEW-${Math.floor(100 + Math.random() * 899)}`,
-        price: 950,
-        stock: 15,
-        category: categories[0]?.name || 'Leather Goods',
-        brand: settings.storeName || 'Store Brand',
-        status: 'ACTIVE',
-        shortDescription: '',
-        description: '',
-      });
-    }
-  }, [autoOpenNewProduct, categories, settings.storeName]);
 
   // Floating AI Copilot Drawer Toggle (available on non-AI tabs)
   const [copilotDrawerOpen, setCopilotDrawerOpen] = useState(false);
