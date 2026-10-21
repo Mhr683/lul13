@@ -38,6 +38,14 @@ import { registerSellerAiRoutes } from './server/sellerAi';
 import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
 import { effectivePrice, isFlashActive, welcomeOf, referralOf, DEFAULT_NEW_SELLER_FREE_DAYS } from './src/services/promotions';
 import {
+  PAYMENT_SECRET_FIELDS,
+  PAYMENT_SECRETS_COLLECTION,
+  PAYMENT_SECRETS_DOC,
+  stripPaymentSecrets,
+  pickPaymentSecrets,
+} from './src/services/paymentSecrets';
+import type { PaymentSecrets } from './src/types/store';
+import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
   splitProductPrivate,
@@ -4753,7 +4761,7 @@ async function loadStoreSettingsForSupport(): Promise<any> {
   if (cached) return { ...DEFAULT_SETTINGS, ...cached };
   try {
     const snap = await adminDb.collection('settings').doc('store_config').get();
-    if (snap.exists) return { ...DEFAULT_SETTINGS, ...snap.data() };
+    if (snap.exists) return { ...DEFAULT_SETTINGS, ...stripPaymentSecrets(snap.data() || {}) };
   } catch (err) {
     console.warn('[Helpline] Could not load store settings:', err);
   }
@@ -5138,6 +5146,102 @@ app.patch('/api/helpline/tickets/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------- payment gateway secrets
+// Merchant IDs and secret keys live in settings_private/payment, which browsers can never read
+// (firestore.rules). The server reads the document at most once per instance and keeps it in memory;
+// saves through the route below update that copy, so no further reads are needed.
+const paymentSecretsRef = () => adminDb.collection(PAYMENT_SECRETS_COLLECTION).doc(PAYMENT_SECRETS_DOC);
+let paymentSecretsCache: PaymentSecrets | null = null;
+let paymentSecretsLoading: Promise<PaymentSecrets> | null = null;
+
+async function getPaymentSecrets(): Promise<PaymentSecrets> {
+  if (paymentSecretsCache) return paymentSecretsCache;
+  if (!paymentSecretsLoading) {
+    paymentSecretsLoading = paymentSecretsRef()
+      .get()
+      .then((snap) => {
+        paymentSecretsCache = snap.exists ? (snap.data() as PaymentSecrets) : {};
+        return paymentSecretsCache;
+      })
+      .finally(() => {
+        paymentSecretsLoading = null;
+      });
+  }
+  return paymentSecretsLoading;
+}
+
+// Which secrets are set (never their values)
+function paymentSecretsStatus(s: PaymentSecrets) {
+  return {
+    fields: Object.fromEntries(PAYMENT_SECRET_FIELDS.map((k) => [k, Boolean(s[k])])),
+    updatedAt: s.updatedAt || null,
+  };
+}
+
+const PAYMENT_SECRET_ROLES = ['SUPER_ADMIN', 'ADMIN'];
+
+app.get('/api/admin/payment-secrets', requireAdmin, async (req, res) => {
+  if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) {
+    return res.status(403).json({ error: 'Only the store owner or an admin can view payment keys.' });
+  }
+  try {
+    res.json(paymentSecretsStatus(await getPaymentSecrets()));
+  } catch (err: any) {
+    console.error('[Payment secrets] Load failed:', err?.message || err);
+    res.status(500).json({ error: 'Could not load payment key status.' });
+  }
+});
+
+// Body: { easypaisaHashKey: 'new value' | '' (clear) , ... }. Fields left out are unchanged.
+app.post('/api/admin/payment-secrets', requireAdmin, async (req, res) => {
+  const user = (req as any).user;
+  if (!PAYMENT_SECRET_ROLES.includes(user?.role)) {
+    return res.status(403).json({ error: 'Only the store owner or an admin can change payment keys.' });
+  }
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const update: Record<string, any> = {};
+  for (const key of PAYMENT_SECRET_FIELDS) {
+    if (!(key in body)) continue;
+    const v = body[key];
+    if (v !== null && typeof v !== 'string') return res.status(400).json({ error: `${key} must be text.` });
+    const value = String(v || '').trim();
+    if (value.length > 512) return res.status(400).json({ error: `${key} is too long.` });
+    update[key] = value ? value : FieldValue.delete();
+  }
+  if (!Object.keys(update).length) return res.status(400).json({ error: 'No payment keys given.' });
+  update.updatedAt = new Date().toISOString();
+  update.updatedBy = String(user.uid || '');
+  try {
+    const current = await getPaymentSecrets();
+    await paymentSecretsRef().set(update, { merge: true });
+    const next: Record<string, any> = { ...current };
+    for (const [k, v] of Object.entries(update)) {
+      if (v instanceof FieldValue) delete next[k];
+      else next[k] = v;
+    }
+    paymentSecretsCache = next as PaymentSecrets;
+    const logId = `log-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    adminDb
+      .collection('audit_logs')
+      .doc(logId)
+      .set({
+        id: logId,
+        actorUid: String(user.uid || ''),
+        actorName: String(user.email || 'Admin').slice(0, 110),
+        action: 'PAYMENT_SECRETS_UPDATED',
+        resource: 'PaymentSecrets',
+        // Field names only, never values
+        details: `Changed: ${Object.keys(update).filter((k) => !k.startsWith('updated')).join(', ')}`,
+        createdAt: update.updatedAt,
+      })
+      .catch(() => {});
+    res.json(paymentSecretsStatus(paymentSecretsCache));
+  } catch (err: any) {
+    console.error('[Payment secrets] Save failed:', err?.message || err);
+    res.status(500).json({ error: 'Payment keys were not saved.' });
+  }
+});
+
 // One-time, idempotent move of supplier/cost data out of public product and order documents
 // into the admin-only product_private and order_private collections.
 async function migratePrivateSupplierData() {
@@ -5182,14 +5286,40 @@ async function migratePrivateSupplierData() {
     console.log(`[Private Data Migration] Moved supplier data for ${movedProducts} products and ${movedOrders} orders.`);
   }
 
-  // Gateway secrets must never live in the publicly readable settings document
+  await migratePaymentSecrets();
+}
+
+// Gateway merchant IDs / secret keys must never live in the publicly readable settings document:
+// copy any found there into settings_private/payment (without overwriting newer private values),
+// then remove them from the public document. One read when nothing needs moving.
+async function migratePaymentSecrets() {
   const settingsRef = adminDb.collection('settings').doc('store_config');
   const settingsSnap = await settingsRef.get();
-  const secretKeys = ['jazzcashPassword', 'jazzcashIntegritySalt', 'easypaisaHashKey'];
-  if (settingsSnap.exists && secretKeys.some((k) => settingsSnap.data()?.[k])) {
-    await settingsRef.update(Object.fromEntries(secretKeys.map((k) => [k, FieldValue.delete()])));
-    console.warn('[Settings] Removed payment gateway secrets from the public settings document. Store them in server secrets instead.');
-  }
+  const data = settingsSnap.exists ? settingsSnap.data() || {} : {};
+  const present = PAYMENT_SECRET_FIELDS.filter((k) => k in data);
+  if (!present.length) return;
+
+  const found = pickPaymentSecrets(data);
+  const privateRef = paymentSecretsRef();
+  const result = await adminDb.runTransaction(async (tx) => {
+    const privSnap = await tx.get(privateRef);
+    const existing = privSnap.exists ? (privSnap.data() as PaymentSecrets) : {};
+    const toCopy: Record<string, any> = {};
+    for (const [k, v] of Object.entries(found)) {
+      if (!(existing as any)[k]) toCopy[k] = v;
+    }
+    if (Object.keys(toCopy).length) {
+      tx.set(privateRef, { ...toCopy, updatedAt: new Date().toISOString(), updatedBy: 'migration' }, { merge: true });
+    }
+    tx.update(settingsRef, Object.fromEntries(present.map((k) => [k, FieldValue.delete()])));
+    return { merged: { ...existing, ...toCopy } as PaymentSecrets, moved: Object.keys(toCopy) };
+  });
+  paymentSecretsCache = result.merged;
+  const { moved } = result;
+  console.warn(
+    `[Settings] Removed payment gateway fields from the public settings document` +
+      (moved.length ? `; moved ${moved.join(', ')} to ${PAYMENT_SECRETS_COLLECTION}/${PAYMENT_SECRETS_DOC}.` : '.')
+  );
 }
 
 async function startServer() {

@@ -152,6 +152,7 @@ import {
 } from '../services/abstractions';
 import { ShippingCalculationService } from '../services/shippingService';
 import { welcomeOf } from '../services/promotions';
+import { stripPaymentSecrets } from '../services/paymentSecrets';
 import { getReferralCode } from '../services/referral';
 
 interface StoreContextValue {
@@ -329,7 +330,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [settings, setSettings] = useState<StoreSettings>(() => {
     try {
       const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
-      return saved ? { ...INITIAL_SETTINGS, ...JSON.parse(saved) } : INITIAL_SETTINGS;
+      return saved ? (stripPaymentSecrets({ ...INITIAL_SETTINGS, ...JSON.parse(saved) }) as StoreSettings) : INITIAL_SETTINGS;
     } catch {
       return INITIAL_SETTINGS;
     }
@@ -540,7 +541,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(list));
       } catch {}
     };
-    const applySettings = (data: StoreSettings) => {
+    const applySettings = (raw: StoreSettings) => {
+      const data = stripPaymentSecrets(raw) as StoreSettings;
       setSettings(data);
       try {
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(data));
@@ -2101,12 +2103,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Update Store Settings
   const updateStoreSettings = async (updated: Partial<StoreSettings>) => {
-    const nextSettings: StoreSettings = {
+    // Gateway merchant IDs / secret keys are saved only through /api/admin/payment-secrets; the
+    // public settings document must never hold them (firestore.rules rejects a save that does)
+    const nextSettings = stripPaymentSecrets({
       ...settings,
       ...updated,
       id: 'store_config',
       updatedAt: new Date().toISOString(),
-    };
+    }) as StoreSettings;
     // Always update local state immediately
     setSettings(nextSettings);
     try {

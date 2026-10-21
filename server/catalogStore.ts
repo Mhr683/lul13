@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
+import { stripPaymentSecrets } from '../src/services/paymentSecrets';
 
 // In-memory copy of everything customers browse (products, categories, store settings, active
 // coupons, approved reviews) plus the admin-only supplier data. Customers, Seller Center and the
@@ -78,7 +79,7 @@ export function createCatalogStore(
     privates.clear();
     for (const [id, d] of s.privates) privates.set(id, d);
     categories = s.categories || [];
-    settings = s.settings || null;
+    settings = s.settings ? stripPaymentSecrets(s.settings) : null;
     coupons = s.coupons || [];
     reviews = s.reviews || [];
     fullSyncAt = s.fullSyncAt || '';
@@ -233,7 +234,8 @@ export function createCatalogStore(
     const startSettings = () => {
       unsubs.settings = adminDb.collection('settings').doc('store_config').onSnapshot(
         (snap) => {
-          settings = snap.exists ? (snap.data() as Doc) : null;
+          // Gateway secrets are never sent to the store (they belong in settings_private/payment)
+          settings = snap.exists ? stripPaymentSecrets(snap.data() as Doc) : null;
           changed();
         },
         (err) => retryLater('settings', startSettings, err)

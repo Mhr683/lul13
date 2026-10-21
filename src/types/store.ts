@@ -439,6 +439,18 @@ export interface ShippingZoneConfig {
   allowManualQuoteIfNoRate?: boolean;
 }
 
+// Payment gateway merchant IDs and secret keys. Stored in settings_private/payment, which only
+// the server can read or write (never sent to browsers).
+export interface PaymentSecrets {
+  easypaisaStoreId?: string;
+  easypaisaHashKey?: string;
+  jazzcashMerchantId?: string;
+  jazzcashPassword?: string;
+  jazzcashIntegritySalt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface StoreSettings {
   id: string;
   storeName: string;
@@ -473,16 +485,12 @@ export interface StoreSettings {
   // International Zones
   internationalZones: ShippingZoneConfig[];
   allowInternationalManualQuotes: boolean;
-  // Payment Provider Configuration
+  // Payment Provider Configuration (public flags only; merchant IDs and secret keys live in
+  // settings_private/payment, see PaymentSecrets)
   easypaisaEnabled?: boolean;
-  easypaisaStoreId?: string;
-  easypaisaHashKey?: string;
   easypaisaAccountNum?: string;
   easypaisaEnvironment?: 'sandbox' | 'production';
   jazzcashEnabled?: boolean;
-  jazzcashMerchantId?: string;
-  jazzcashPassword?: string;
-  jazzcashIntegritySalt?: string;
   jazzcashEnvironment?: 'sandbox' | 'production';
   cardEnabled?: boolean;
   installmentsEnabled?: boolean;

@@ -286,6 +286,8 @@ service cloud.firestore {
         data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
         data.taxRate is number && data.taxRate >= 0 && data.taxRate <= 100 &&
         (!('guestCheckoutEnabled' in data) || data.guestCheckoutEnabled is bool) &&
+        // Gateway merchant IDs / secret keys belong in settings_private/payment (server only)
+        !data.keys().hasAny(['easypaisaStoreId', 'easypaisaHashKey', 'jazzcashMerchantId', 'jazzcashPassword', 'jazzcashIntegritySalt']) &&
         (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 
@@ -438,6 +440,13 @@ service cloud.firestore {
         incoming().id == existing().id &&
         isAdmin();
       allow delete: if false;
+    }
+
+    // Collection 10b: /settings_private/{docId}
+    // Payment gateway merchant IDs and secret keys. Only the server (Admin SDK) reads or writes
+    // them, through the admin-only /api/admin/payment-secrets route; browsers never can.
+    match /settings_private/{docId} {
+      allow read, write: if false;
     }
 
     // Collection 11: /email_logs/{logId}

@@ -61,6 +61,7 @@ import { BackupRestorePanel } from './BackupRestorePanel';
 import { AdminSellersPanel } from './AdminSellersPanel';
 import { AdminReturnsPanel } from './AdminReturnsPanel';
 import { AdminGrowthPanel } from './AdminGrowthPanel';
+import { AdminPaymentKeysPanel } from './AdminPaymentKeysPanel';
 import {
   Product,
   Order,
@@ -252,9 +253,6 @@ export const AdminDashboardView: React.FC<{
   const [copilotDrawerOpen, setCopilotDrawerOpen] = useState(false);
 
   // Settings visibility toggles for merchant secrets
-  const [showJazzPassword, setShowJazzPassword] = useState(false);
-  const [showJazzSalt, setShowJazzSalt] = useState(false);
-  const [showEasypaisaHash, setShowEasypaisaHash] = useState(false);
   const [showGoogleMapsKey, setShowGoogleMapsKey] = useState(false);
 
   // AI Conversation State
@@ -4249,8 +4247,8 @@ export const AdminDashboardView: React.FC<{
                   </span>
                 </div>
 
-                {/* Online gateway credentials are never stored here: the settings document is publicly
-                    readable, so secret keys belong in server environment variables (AI Studio Secrets). */}
+                {/* Online gateway credentials are never stored in the public settings document; the panel
+                    below sends them to the server, which keeps them in settings_private/payment. */}
                 <div className="p-4 sm:p-5 bg-amber-50 border-2 border-amber-300 space-y-2 rounded-xs text-xs text-[#141413]">
                   <div className="font-bold">Online payments (JazzCash / Easypaisa / cards)</div>
                   <p className="font-semibold">
@@ -4258,10 +4256,11 @@ export const AdminDashboardView: React.FC<{
                     To add an online gateway, first open a merchant account (Safepay, PayFast, JazzCash or Easypaisa).
                   </p>
                   <p>
-                    Never enter gateway secret keys (password, integrity salt, hash key) here. Every visitor can read these
-                    settings. Put keys only in the AI Studio <strong>Secrets</strong> panel, then have the gateway integrated.
+                    Enter gateway keys only in the private box below. Other store settings can be read by every visitor,
+                    so never paste keys into any other field.
                   </p>
                 </div>
+                <AdminPaymentKeysPanel />
 
                 {/* 3C. Google Maps Platform API Key */}
                 <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-3 rounded-xs">
