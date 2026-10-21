@@ -1511,11 +1511,99 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   });
 
   // Used by the seller inbox and feedback routes (server/sellerInbox.ts, server/feedback.ts)
+  // ---------------------------------------------------------------- one seller's own data (seller AI)
+  // Everything below takes the seller's uid from the verified sign-in and only ever touches that
+  // seller's products and orders (server/sellerAi.ts uses it; it has no other database access).
+
+  // (productsOf is defined above, with the seller report)
+  // The assistant may ask several times in a conversation: a copy up to 5 minutes old is fine
+  // here (orders cost two reads each), and the seller's own updates still drop it at once
+  const AI_MAX_AGE = 5 * 60_000;
+  const ordersForAi = async (uid: string) => {
+    const hit = ordersCache.get(uid);
+    return hit && Date.now() - hit.at < AI_MAX_AGE ? hit.orders : sellerOrdersCached(uid);
+  };
+  const chargesCache = new Map<string, { at: number; total: number }>();
+  const ordersOf = async (uid: string) => (await ordersForAi(uid)).map(sellerSafeOrder);
+
+  const earningsOf = async (uid: string) => {
+    let c = chargesCache.get(uid);
+    if (!c || Date.now() - c.at > AI_MAX_AGE) {
+      const charges = await unpaidChargesOf(uid);
+      c = { at: Date.now(), total: charges.reduce((s, x) => s + Number(x.amount || 0), 0) };
+      chargesCache.set(uid, c);
+    }
+    return summarizeEarnings(await ordersForAi(uid), c.total);
+  };
+
+  const EDITABLE = ['price', 'compareAtPrice', 'stock', 'status', 'shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords'];
+  /** Applies field changes to the seller's own products; anything not theirs is skipped */
+  const applyProductPatches = async (uid: string, patches: Array<Record<string, any> & { id: string }>) => {
+    const skipped: { id: string; name?: string; reason: string }[] = [];
+    let updated = 0;
+    const refs = patches.slice(0, 300).map((p) => adminDb.collection('products').doc(String(p.id)));
+    // Ownership and current values come from the server's catalog copy (no reads); only when it is
+    // not loaded yet are the products read from the database
+    const mirror = d.allProductsOfSeller(uid);
+    const mine = mirror ? new Map(mirror.map((p) => [p.id, p])) : null;
+    const snaps = mine
+      ? refs.map((ref) => ({ ref, id: ref.id, exists: mine.has(ref.id), data: () => mine.get(ref.id) }))
+      : refs.length
+      ? await adminDb.getAll(...refs)
+      : [];
+    const now = new Date().toISOString();
+    let batch = adminDb.batch();
+    let inBatch = 0;
+    for (let i = 0; i < snaps.length; i++) {
+      const snap = snaps[i];
+      const current = snap.data() as any;
+      if (!snap.exists || current?.sellerId !== uid) {
+        skipped.push({ id: refs[i].id, reason: 'Not a product of your shop.' });
+        continue;
+      }
+      const patch: Record<string, any> = {};
+      for (const k of EDITABLE) if (patches[i][k] !== undefined) patch[k] = patches[i][k];
+      if (patch.price !== undefined) {
+        patch.price = money(patch.price);
+        if (!(patch.price > 0)) {
+          skipped.push({ id: snap.id, name: current.name, reason: 'Price must be more than 0.' });
+          continue;
+        }
+        if (Number(current.compareAtPrice) > 0 && Number(current.compareAtPrice) <= patch.price && patch.compareAtPrice === undefined) patch.compareAtPrice = 0;
+      }
+      if (patch.stock !== undefined) patch.stock = Math.max(0, Math.floor(Number(patch.stock) || 0));
+      if (patch.status !== undefined) {
+        if (!['ACTIVE', 'DRAFT'].includes(patch.status)) delete patch.status;
+        else if (patch.status === 'ACTIVE' && current.adminHidden) {
+          skipped.push({ id: snap.id, name: current.name, reason: 'The store has hidden this product.' });
+          continue;
+        } else if (patch.status === 'ACTIVE' && needsBrandProof(current) && !d.supplierOf(snap.id)?.brandProofUrl) {
+          skipped.push({ id: snap.id, name: current.name, reason: 'Needs a purchase invoice / brand approval first.' });
+          continue;
+        }
+      }
+      for (const [k, max] of Object.entries({ shortDescription: 480, description: 4800, seoTitle: 150, seoDescription: 310, seoKeywords: 390 })) {
+        if (patch[k] !== undefined) patch[k] = str(patch[k], max);
+      }
+      if (!Object.keys(patch).length) continue;
+      batch.update(snap.ref, { ...patch, updatedAt: now });
+      updated++;
+      if (++inBatch >= 400) {
+        await batch.commit();
+        batch = adminDb.batch();
+        inBatch = 0;
+      }
+    }
+    if (inBatch) await batch.commit();
+    return { updated, skipped };
+  };
+
   return {
     requireSeller,
     forgetSeller,
     forgetOrders,
     suspendSeller,
+    sellerData: { productsOf, ordersOf, earningsOf, applyProductPatches, supplierOf: d.supplierOf },
     forgetShop: (sellerId: string) => shopCache.delete(sellerId),
   };
 }

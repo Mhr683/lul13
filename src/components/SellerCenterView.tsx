@@ -18,7 +18,9 @@ import {
   Search,
   Star,
   RotateCcw,
+  Bot,
 } from 'lucide-react';
+import { SellerAiAssistant } from './SellerAiAssistant';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
 import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
@@ -38,7 +40,7 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 // It opens instantly: the shop and product list from the last visit are shown at once (Firebase can
 // take many seconds to restore a sign-in) and refreshed in the background.
 
-type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'RETURNS' | 'EARNINGS' | 'REVIEWS' | 'MESSAGES' | 'PROFILE' | 'RULES';
+type Tab = 'DASHBOARD' | 'AI' | 'PRODUCTS' | 'ORDERS' | 'RETURNS' | 'EARNINGS' | 'REVIEWS' | 'MESSAGES' | 'PROFILE' | 'RULES';
 
 type ThreadMessage = { id: string; from: 'SELLER' | 'ADMIN'; author: string; text: string; at: string };
 type SellerThread = {
@@ -388,6 +390,7 @@ export const SellerCenterView: React.FC = () => {
 
   const tabs: { id: Tab; label: string; icon: any; badge?: number }[] = [
     { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'AI', label: 'AI Assistant', icon: Bot },
     { id: 'ORDERS', label: 'Orders', icon: ShoppingCart },
     { id: 'PRODUCTS', label: 'Products', icon: Package },
     { id: 'RETURNS', label: 'Returns', icon: RotateCcw },
@@ -479,6 +482,17 @@ export const SellerCenterView: React.FC = () => {
       {tab === 'PRODUCTS' && <ProductsTab uid={uid} categoryNames={categories.map((c) => c.name)} />}
       {tab === 'EARNINGS' && <EarningsTab />}
       {tab === 'RETURNS' && <ReturnsTab />}
+      {tab === 'AI' && (
+        <SellerAiAssistant
+          shopName={seller.shopName}
+          call={api}
+          onChanged={() => {
+            // product list and orders are re-read next time those tabs open
+            delete memo.orders;
+            delete memo.earnings;
+          }}
+        />
+      )}
       {tab === 'RULES' && (
         <div className="bg-white border border-black/10 p-5 space-y-3">
           <h2 className="text-lg font-display">Seller Rules (Supplier Code of Conduct)</h2>

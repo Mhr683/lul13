@@ -34,6 +34,7 @@ import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
 import { registerPolicyRoutes } from './server/policy';
+import { registerSellerAiRoutes } from './server/sellerAi';
 import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
@@ -3482,6 +3483,13 @@ registerFeedbackRoutes(app, {
   postNotice: sellerInbox.postNotice,
   limitPerIp,
   callerUid: callerUidOf,
+});
+
+// Each seller's own AI assistant (works only on that seller's shop)
+registerSellerAiRoutes(app, {
+  requireSeller: marketplace.requireSeller,
+  getAI: getGenAIClient,
+  sellerData: marketplace.sellerData,
 });
 
 // Customer Protection Policy (returns within 7 days) and the Supplier Code of Conduct rules
