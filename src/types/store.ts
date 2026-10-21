@@ -116,6 +116,10 @@ export interface Product {
   images?: string[];
   /** Optional product video (uploaded file or https link, e.g. YouTube) */
   videoUrl?: string;
+  /** Flash deal: this price applies between flashStartsAt and flashEndsAt (src/services/promotions.ts) */
+  flashPrice?: number;
+  flashStartsAt?: string;
+  flashEndsAt?: string;
   rating?: number;
   reviewCount?: number;
   /** Customer likes / dislikes (totals kept by the server) */
@@ -502,6 +506,13 @@ export interface StoreSettings {
   guestCheckoutEnabled?: boolean;
   /** Default commission the store keeps on each seller sale (percent of the item amount) */
   marketplaceCommissionPercent?: number;
+  /** New sellers pay 0% commission for this many days after approval */
+  newSellerFreeDays?: number;
+  // Growth features (src/services/promotions.ts)
+  welcomeOffer?: import('../services/promotions').WelcomeOffer;
+  referral?: import('../services/promotions').ReferralSettings;
+  socialProofEnabled?: boolean;
+  campaigns?: import('../services/promotions').Campaign[];
   googleMapsApiKey?: string;
   aiTone?: 'Professional' | 'Premium' | 'Friendly' | 'Minimal' | 'Luxury' | 'Persuasive';
   // 24/7 Client Helpline & Concierge Configuration

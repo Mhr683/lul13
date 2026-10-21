@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useMemo, useEffect, useRef, Suspense, lazy } from 'react';
 import {
   Search,
   ShoppingBag,
@@ -62,6 +62,18 @@ import { ProductGallery } from './ProductGallery';
 import { ProductInfoTabs } from './ProductInfoTabs';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
+import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
+import {
+  WelcomeOfferPopup,
+  DailyDeals,
+  SocialProofToast,
+  CampaignBanners,
+  CampaignPage,
+  ReferAndEarnCard,
+  liveCampaigns,
+  fetchReferral,
+  type ReferralInfo,
+} from './GrowthWidgets';
 
 // The seller's customer rating under "Sold & shipped by" on the product page
 const PdpSellerRating: React.FC<{ sellerId: string }> = ({ sellerId }) => {
@@ -113,14 +125,15 @@ type StoreSubView =
   | 'SHIPPING_POLICY'
   | 'CONTACT_US'
   | 'ORDER_TRACKING'
-  | 'SHOP';
+  | 'SHOP'
+  | 'CAMPAIGN';
 
 
 // The customer store. The admin console (/admin) and Seller Center (/seller) are separate apps with
 // their own links, so nothing here leads to the admin console.
 export const StorefrontView: React.FC = () => {
   const {
-    products,
+    products: catalogProducts,
     categories,
     reviews,
     orders,
@@ -149,6 +162,16 @@ export const StorefrontView: React.FC = () => {
     showToast,
   } = useStore();
 
+  // Live flash deals become the price (the normal price shows crossed out); re-checked every minute
+  const [minuteTick, setMinuteTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setMinuteTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const products = useMemo(() => withFlashPrices(catalogProducts), [catalogProducts, minuteTick]);
+  const campaignsLive = useMemo(() => liveCampaigns(settings), [settings, minuteTick]);
+  const [openCampaign, setOpenCampaign] = useState<Campaign | null>(null);
+
   const [subView, setSubView] = useState<StoreSubView>('HOME');
   // The seller whose shop page is open (#shop/<sellerId>)
   const [shopSellerId, setShopSellerId] = useState<string | null>(null);
@@ -169,6 +192,21 @@ export const StorefrontView: React.FC = () => {
   const rawWa = settings.whatsappNumber || settings.helplineWhatsApp || '923001234567';
   const cleanWa = rawWa.replace(/[^0-9]/g, '');
 
+  // Festival campaign page (#campaign/<slug>)
+  const campaignSlugRef = useRef('');
+  useEffect(() => {
+    if (subView !== 'CAMPAIGN' || openCampaign) return;
+    const c = campaignsLive.find((x) => x.slug.toLowerCase() === campaignSlugRef.current);
+    if (c) setOpenCampaign(c);
+  }, [subView, openCampaign, campaignsLive]);
+  const showCampaign = (c: Campaign) => {
+    setOpenCampaign(c);
+    campaignSlugRef.current = c.slug.toLowerCase();
+    setSubView('CAMPAIGN');
+    window.history.pushState(null, '', `#campaign/${encodeURIComponent(c.slug)}`);
+    window.scrollTo({ top: 0 });
+  };
+
   // URL Routing for Policy and Tracking Pages
   useEffect(() => {
     const handleUrlRoute = () => {
@@ -178,9 +216,13 @@ export const StorefrontView: React.FC = () => {
 
       // Seller ids are case-sensitive, so they are read from the original hash
       const shopMatch = /^#shop\/(.+)$/i.exec(window.location.hash);
+      const campaignMatch = /^#campaign\/(.+)$/i.exec(window.location.hash);
       if (shopMatch) {
         setShopSellerId(decodeURIComponent(shopMatch[1]));
         setSubView('SHOP');
+      } else if (campaignMatch) {
+        campaignSlugRef.current = decodeURIComponent(campaignMatch[1]).toLowerCase();
+        setSubView('CAMPAIGN');
       } else if (path === '/refund-policy' || hash === '#refund-policy') {
         setSubView('REFUND_POLICY');
       } else if (path === '/terms' || path === '/terms-and-conditions' || hash === '#terms' || hash === '#terms-and-conditions') {
@@ -732,7 +774,7 @@ export const StorefrontView: React.FC = () => {
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-  const discountAmount = useMemo(() => {
+  const couponAmount = useMemo(() => {
     if (!appliedCoupon) return 0;
     if (appliedCoupon.type === 'PERCENTAGE') {
       const raw = (cartSubtotal * appliedCoupon.value) / 100;
@@ -743,6 +785,45 @@ export const StorefrontView: React.FC = () => {
     }
     return 0;
   }, [cartSubtotal, appliedCoupon]);
+
+  // Abandoned checkout: with the customer's consent, the cart and phone are saved (at most once a
+  // minute) so the store can send one WhatsApp reminder if the order is not finished
+  const [cartReminderConsent, setCartReminderConsent] = useState(true);
+  const lastCartSave = useRef(0);
+  useEffect(() => {
+    if (subView !== 'CHECKOUT' || !cartReminderConsent || !cart.length) return;
+    const phone = String(customerPhone || '').replace(/[^\d+]/g, '');
+    if (!/^(\+?92|0)3\d{9}$/.test(phone)) return;
+    const t = setTimeout(() => {
+      if (Date.now() - lastCartSave.current < 60_000) return;
+      lastCartSave.current = Date.now();
+      fetch('/api/carts/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone,
+          name: customerName,
+          consent: true,
+          items: cart.map((i) => ({ productId: i.productId, name: i.name, quantity: i.quantity, price: i.price })),
+        }),
+      }).catch(() => {});
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [subView, cartReminderConsent, cart, customerPhone, customerName]);
+
+  // Refer & Earn credit the signed-in customer can use (the server applies the same cap)
+  const [referral, setReferral] = useState<ReferralInfo | null>(null);
+  const [useCredit, setUseCredit] = useState(true);
+  useEffect(() => {
+    if (!firebaseUser || subView !== 'CHECKOUT') return;
+    fetchReferral().then(setReferral).catch(() => {});
+  }, [firebaseUser, subView]);
+  const creditAmount = useMemo(() => {
+    if (!useCredit || !referral?.enabled || !(referral.available > 0)) return 0;
+    const cap = (cartSubtotal * Math.min(100, referral.maxPercentOfOrder ?? referralOf(settings).maxPercentOfOrder)) / 100;
+    return Math.floor(Math.min(referral.available, Math.max(0, cap - (appliedCoupon?.id === 'welcome-offer' ? couponAmount : 0))));
+  }, [useCredit, referral, cartSubtotal, settings, appliedCoupon, couponAmount]);
+  const discountAmount = couponAmount + creditAmount;
 
   // Live Country & Courier Shipping Calculation
   const liveShippingCalc = useMemo<ShippingCalculationResponse>(() => {
@@ -896,6 +977,7 @@ export const StorefrontView: React.FC = () => {
         notes: customerNote || undefined,
         isQuoteRequest: isQuoteFlow,
         directAutoDebit: false,
+        ...({ useReferralCredit: creditAmount > 0 } as any),
       });
       setConfirmedOrderNumber(order.orderNumber);
       setConfirmedSplitOrders(order.splitOrders || []);
@@ -1453,6 +1535,15 @@ export const StorefrontView: React.FC = () => {
         {/* ======================== 1. HOME VIEW ======================== */}
         {subView === 'HOME' && (
           <div>
+            {/* Festival / event campaigns (Eid, Black Friday, ...) and flash deals with a countdown */}
+            <CampaignBanners campaigns={campaignsLive} onOpen={showCampaign} />
+            <DailyDeals
+              products={products}
+              onSelect={handleSelectProduct}
+              onAdd={(p) => addToCart(p, 1)}
+              Image={({ src, alt }) => <ProductImage src={src} alt={alt} className="w-full h-full object-cover" />}
+            />
+
             {/* Section 1: Storefront Hero */}
             <section className="relative border-b border-black/[0.07]">
               <div className="max-w-[1360px] mx-auto px-6 py-12 lg:py-20 grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
@@ -2082,6 +2173,26 @@ export const StorefrontView: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* ======================== FESTIVAL CAMPAIGN PAGE ======================== */}
+        {subView === 'CAMPAIGN' && (
+          openCampaign ? (
+            <CampaignPage
+              campaign={openCampaign}
+              products={campaignProducts(openCampaign, products)}
+              onSelect={handleSelectProduct}
+              onAdd={(p) => addToCart(p, 1)}
+              onBack={() => {
+                setOpenCampaign(null);
+                setSubView('HOME');
+                window.history.pushState(null, '', '/');
+              }}
+              Image={({ src, alt }) => <ProductImage src={src} alt={alt} className="w-full h-full object-cover" />}
+            />
+          ) : (
+            <div className="max-w-xl mx-auto px-6 py-16 text-center text-sm text-[#575653]">This offer has ended or is loading...</div>
+          )
         )}
 
         {/* ======================== SELLER SHOP PAGE ======================== */}
@@ -3193,6 +3304,10 @@ export const StorefrontView: React.FC = () => {
                         <span className="block text-[10px] text-[#787774] mt-1">
                           {addressVerification.fieldMessages.phone}
                         </span>
+                        <label className="mt-1.5 flex items-start gap-1.5 text-[10px] text-[#575653] cursor-pointer">
+                          <input type="checkbox" checked={cartReminderConsent} onChange={(e) => setCartReminderConsent(e.target.checked)} className="mt-0.5" />
+                          If I don't finish my order, you may send me one reminder on WhatsApp / SMS.
+                        </label>
                       </div>
 
                       {/* Complete Street Address with Live Verification */}
@@ -3864,11 +3979,20 @@ export const StorefrontView: React.FC = () => {
                       <span>Subtotal</span>
                       <span className="font-mono tabular-nums">{formatDualPrice(cartSubtotal, true)}</span>
                     </div>
-                    {discountAmount > 0 && (
+                    {couponAmount > 0 && (
                       <div className="flex justify-between text-[#166534]">
-                        <span>Privilege Discount ({appliedCoupon?.code})</span>
-                        <span className="font-mono tabular-nums">-{formatDualPrice(discountAmount, true)}</span>
+                        <span>Discount ({appliedCoupon?.code})</span>
+                        <span className="font-mono tabular-nums">-{formatDualPrice(couponAmount, true)}</span>
                       </div>
+                    )}
+                    {referral?.enabled && referral.available > 0 && (
+                      <label className="flex justify-between items-center gap-2 text-[#166534] cursor-pointer">
+                        <span className="flex items-center gap-1.5">
+                          <input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit(e.target.checked)} />
+                          Refer & Earn credit ({formatPKR(referral.available)} available)
+                        </span>
+                        <span className="font-mono tabular-nums">{creditAmount > 0 ? `-${formatDualPrice(creditAmount, true)}` : '—'}</span>
+                      </label>
                     )}
                     <div className="flex justify-between items-start text-[#575653]">
                       <div>
@@ -4007,6 +4131,9 @@ export const StorefrontView: React.FC = () => {
                 <PolicyDocument intro={CUSTOMER_PROTECTION.intro} sections={CUSTOMER_PROTECTION.sections} compact />
               </div>
             </details>
+
+            {/* Refer & Earn: share a link, get credit when a friend's first order is delivered */}
+            <ReferAndEarnCard signedIn={!!firebaseUser} onSignIn={() => setAuthModalOpen(true)} showToast={showToast} />
 
             <div className="space-y-6">
               <h2 className="text-xl font-display font-medium text-[#141413]">
@@ -4279,6 +4406,22 @@ export const StorefrontView: React.FC = () => {
         )}
       </main>
 
+      {/* Welcome offer for first-time visitors, and real recent purchases */}
+      <WelcomeOfferPopup
+        settings={settings}
+        onApply={(code) => {
+          const r = applyCouponCode(code);
+          showToast(r.success ? `Code ${code} will be used on your first order.` : `Use code ${code} at checkout.`);
+        }}
+      />
+      <SocialProofToast
+        enabled={settings.socialProofEnabled !== false}
+        onOpen={(id) => {
+          const p = products.find((x) => x.id === id);
+          if (p) handleSelectProduct(p);
+        }}
+      />
+
       {/* Slide-Over Shopping Bag Drawer */}
       {cartDrawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs">
@@ -4420,7 +4563,7 @@ export const StorefrontView: React.FC = () => {
                   </div>
                   {discountAmount > 0 && (
                     <div className="flex justify-between text-[#166534]">
-                      <span>Discount ({appliedCoupon?.code})</span>
+                      <span>Discount{appliedCoupon ? ` (${appliedCoupon.code})` : ''}{creditAmount > 0 ? ' + referral credit' : ''}</span>
                       <span className="font-mono tabular-nums">-{formatDualPrice(discountAmount, true)}</span>
                     </div>
                   )}

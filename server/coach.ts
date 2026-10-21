@@ -281,6 +281,13 @@ export function buildCoach(input: {
       positivePercent: r.ratingCount ? r.positivePercent : null,
     },
     last30: { orders: recent.length, sales: Math.round(sales30), avgOrder: Math.round(avgOrder) },
+    // Live products running out (5 or fewer left), fewest first
+    lowStock: live
+      .filter((p) => Number(p.stock) > 0 && Number(p.stock) <= 5)
+      .sort((a, b) => Number(a.stock) - Number(b.stock))
+      .slice(0, 8)
+      .map((p) => ({ id: p.id, name: String(p.name).slice(0, 60), stock: Number(p.stock) })),
+    newOrdersToday: orders.filter((o) => String(o.createdAt).slice(0, 10) === new Date().toISOString().slice(0, 10)).length,
     periods: report.periods,
     issues,
     strengths,

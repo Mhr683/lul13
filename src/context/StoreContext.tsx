@@ -151,6 +151,8 @@ import {
   sanitizeSlug,
 } from '../services/abstractions';
 import { ShippingCalculationService } from '../services/shippingService';
+import { welcomeOf } from '../services/promotions';
+import { getReferralCode } from '../services/referral';
 
 interface StoreContextValue {
   // Auth
@@ -900,7 +902,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const applyCouponCode = (rawCode: string): { success: boolean; message: string } => {
     const clean = rawCode.trim().toUpperCase();
-    const found = coupons.find((c) => c.code.toUpperCase() === clean && c.active);
+    // The welcome offer (first order only; the server checks that) works like a percentage coupon
+    const welcome = welcomeOf(settings);
+    const welcomeCoupon: Coupon | null =
+      welcome.enabled && clean === String(welcome.code).toUpperCase()
+        ? {
+            id: 'welcome-offer',
+            code: clean,
+            type: 'PERCENTAGE',
+            value: welcome.percent,
+            maxDiscount: welcome.maxDiscount,
+            active: true,
+            createdAt: '',
+          }
+        : null;
+    const found = welcomeCoupon || coupons.find((c) => c.code.toUpperCase() === clean && c.active);
     if (!found) {
       return { success: false, message: 'Invalid or expired promotional code.' };
     }
@@ -998,6 +1014,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       body: JSON.stringify({
         items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         couponCode: appliedCoupon?.code,
+        referralCode: getReferralCode() || undefined,
+        useReferralCredit: (payload as any).useReferralCredit === true,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
         customerEmail: payload.customerEmail,

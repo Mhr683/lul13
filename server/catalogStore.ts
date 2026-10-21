@@ -344,6 +344,7 @@ export function createCatalogStore(
       return { json: publicJson, gzip: publicGzip! };
     },
     allProducts: () => Array.from(products.values()),
+    product: (id: string) => products.get(id) || null,
     productsOfSeller: (sellerId: string, activeOnly = false) => {
       const list: Doc[] = [];
       for (const p of products.values()) if (p.sellerId === sellerId && (!activeOnly || p.status === 'ACTIVE')) list.push(p);

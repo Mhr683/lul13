@@ -35,6 +35,8 @@ import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
 import { registerPolicyRoutes } from './server/policy';
 import { registerSellerAiRoutes } from './server/sellerAi';
+import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
+import { effectivePrice, isFlashActive, welcomeOf, referralOf, DEFAULT_NEW_SELLER_FREE_DAYS } from './src/services/promotions';
 import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
@@ -2625,6 +2627,17 @@ app.post('/api/orders/create', async (req, res) => {
       });
     }
 
+    // Growth: referral code from a friend's link, and the customer's own referral credit
+    const referralCode = String(req.body.referralCode || '').trim().toUpperCase().slice(0, 20);
+    let creditInfo: { earned: number } | null = null;
+    if (userId && req.body.useReferralCredit === true && referralOf(catalogStore.settings()).enabled) {
+      try {
+        creditInfo = await referralCreditOf(adminDb, userId, catalogStore.settings());
+      } catch (credErr) {
+        console.warn('[orders/create] referral credit lookup failed:', (credErr as any)?.message);
+      }
+    }
+
     // 6. Execute atomic Firestore Transaction with firebase-admin (with local persistence fallback if ADC is unconfigured in container)
     let result: {
       orderId: string;
@@ -2699,8 +2712,40 @@ app.post('/api/orders/create', async (req, res) => {
           if (!sDoc.exists || s?.status !== 'APPROVED') {
             throw new Error(`A seller in your cart is not available right now. Please remove their items and try again.`);
           }
-          const pct = typeof s?.commissionPercent === 'number' ? s.commissionPercent : defaultCommission;
+          let pct = typeof s?.commissionPercent === 'number' ? s.commissionPercent : defaultCommission;
+          // New sellers: 0% commission for their first days on the platform
+          const freeDays = Number((storeSettings as any)?.newSellerFreeDays ?? DEFAULT_NEW_SELLER_FREE_DAYS);
+          const since = Date.parse(s?.approvedAt || s?.createdAt || '');
+          if (freeDays > 0 && !isNaN(since) && Date.now() - since < freeDays * 86400_000) pct = 0;
           sellerInfo.set(sid, { shopName: String(s?.shopName || 'Seller'), commissionPercent: Math.min(100, Math.max(0, pct)) });
+        }
+
+        // Step C3: Welcome offer (first order only) and referral (friend's first order)
+        const welcome = welcomeOf(storeSettings);
+        const isWelcomeCode = Boolean(
+          welcome.enabled && typeof couponCode === 'string' && couponCode.trim().toUpperCase() === String(welcome.code).toUpperCase()
+        );
+        let firstOrder = false;
+        if (isWelcomeCode || referralCode) {
+          const [byPhone, byUser] = await Promise.all([
+            transaction.get(adminDb.collection('orders').where('customerPhone', '==', cleanPhone).limit(1)),
+            userId ? transaction.get(adminDb.collection('orders').where('userId', '==', userId).limit(1)) : Promise.resolve(null),
+          ]);
+          firstOrder = byPhone.empty && (!byUser || byUser.empty);
+        }
+        if (isWelcomeCode && !firstOrder) {
+          throw new Error(`The code ${welcome.code} is only for a customer's first order.`);
+        }
+        let referredBy = '';
+        if (referralCode && firstOrder && referralOf(storeSettings).enabled) {
+          const codeDoc = await transaction.get(adminDb.collection('referral_codes').doc(referralCode));
+          const refUid = String(codeDoc.data()?.uid || '');
+          if (refUid && refUid !== userId) referredBy = refUid;
+        }
+        let creditAvailable = 0;
+        if (creditInfo && userId) {
+          const u = await transaction.get(adminDb.collection('users').doc(userId));
+          creditAvailable = Math.max(0, creditInfo.earned - (Number(u.data()?.referralCreditUsed) || 0));
         }
 
         // Step D: Recalculate price & subtotal
@@ -2708,7 +2753,8 @@ app.post('/api/orders/create', async (req, res) => {
         const orderItems: OrderItem[] = [];
         const itemSeller = new Map<OrderItem, string>();
         for (const p of productDocs) {
-          const price = Number(p.data.price) || 0;
+          // A live flash deal is the price (src/services/promotions.ts, same as the store shows)
+          const price = effectivePrice(p.data);
           merchandiseSubtotal += price * p.reqQty;
           const item: OrderItem = {
             productId: p.data.id || p.ref.id,
@@ -2747,6 +2793,28 @@ app.post('/api/orders/create', async (req, res) => {
         }
         discount = Number(discount.toFixed(2));
 
+        // Step E2: Store-funded promotions (the seller's earning is not reduced by these):
+        // welcome offer on the first order, and the customer's referral credit
+        let promoDiscount = 0;
+        let welcomeUsed = false;
+        let creditApplied = 0;
+        if (paymentMethod !== 'MANUAL_QUOTE') {
+          // (a coupon document with the same code as the welcome offer is not counted twice)
+          if (isWelcomeCode && firstOrder && !couponData) {
+            const w = (merchandiseSubtotal * Math.min(50, Math.max(0, Number(welcome.percent) || 0))) / 100;
+            promoDiscount += welcome.maxDiscount ? Math.min(w, Number(welcome.maxDiscount)) : w;
+            welcomeUsed = true;
+          }
+          const room = Math.max(0, merchandiseSubtotal - discount);
+          promoDiscount = Math.min(promoDiscount, room);
+          if (creditAvailable > 0) {
+            const cap = (merchandiseSubtotal * Math.min(100, referralOf(storeSettings).maxPercentOfOrder)) / 100;
+            creditApplied = Math.floor(Math.min(creditAvailable, Math.max(0, cap - promoDiscount), Math.max(0, room - promoDiscount)));
+            promoDiscount += creditApplied;
+          }
+          promoDiscount = Number(promoDiscount.toFixed(2));
+        }
+
         // Step F: Split the cart into one order per seller (each seller ships their own parcel), with
         // its own shipping fee, its share of the coupon discount, tax, commission and seller earning.
         const isQuoteRequest = paymentMethod === 'MANUAL_QUOTE';
@@ -2754,8 +2822,11 @@ app.post('/api/orders/create', async (req, res) => {
         const groups = sellerIds.map((sid) => {
           const groupItems = orderItems.filter((it) => itemSeller.get(it) === sid);
           const groupSubtotal = Number(groupItems.reduce((s, it) => s + it.price * it.quantity, 0).toFixed(2));
-          const groupDiscount =
-            merchandiseSubtotal > 0 ? Number(((discount * groupSubtotal) / merchandiseSubtotal).toFixed(2)) : 0;
+          const share = merchandiseSubtotal > 0 ? groupSubtotal / merchandiseSubtotal : 0;
+          const groupCoupon = Number((discount * share).toFixed(2));
+          const groupPromo = Number((promoDiscount * share).toFixed(2));
+          // What the customer saves on this parcel (coupon + store promotions)
+          const groupDiscount = Number((groupCoupon + groupPromo).toFixed(2));
           const groupProducts = productDocs.filter((p) => String(p.data.sellerId || HOUSE_SELLER_ID) === sid).map((p) => p.data);
           const calc = ShippingCalculationService.calculate({
             destinationCountryIso: isDomestic ? 'PK' : (destCountryIso || 'PK'),
@@ -2771,7 +2842,9 @@ app.post('/api/orders/create', async (req, res) => {
           const groupTax = Number(((groupTaxable * taxRate) / 100).toFixed(2));
           const groupTotal = Number((groupTaxable + groupTax + groupShipping).toFixed(2));
           const info = sellerInfo.get(sid)!;
-          const commissionAmount = Number(((groupTaxable * info.commissionPercent) / 100).toFixed(2));
+          // Store promotions are paid by the store: commission and the seller's earning ignore them
+          const sellerBase = Math.max(0, groupSubtotal - groupCoupon);
+          const commissionAmount = Number(((sellerBase * info.commissionPercent) / 100).toFixed(2));
           return {
             sellerId: sid,
             sellerName: info.shopName,
@@ -2785,7 +2858,8 @@ app.post('/api/orders/create', async (req, res) => {
             commissionPercent: info.commissionPercent,
             commissionAmount,
             // The seller ships the parcel, so the shipping fee is theirs; the store keeps the commission
-            sellerEarning: Number((groupTaxable - commissionAmount + groupShipping).toFixed(2)),
+            sellerEarning: Number((sellerBase - commissionAmount + groupShipping).toFixed(2)),
+            promoDiscount: groupPromo,
           };
         });
 
@@ -2801,6 +2875,9 @@ app.post('/api/orders/create', async (req, res) => {
 
         if (couponRef && (discount > 0 || hasFreeShippingCoupon)) {
           transaction.update(couponRef, { usedCount: FieldValue.increment(1) });
+        }
+        if (creditApplied > 0 && userId) {
+          transaction.set(adminDb.collection('users').doc(userId), { referralCreditUsed: FieldValue.increment(creditApplied) }, { merge: true });
         }
 
         // Step H: Guest tracking token (shared by the orders of this checkout) and checkout id
@@ -2867,7 +2944,11 @@ app.post('/api/orders/create', async (req, res) => {
             total: g.total,
             currency: 'PKR',
             exchangeRateSnapshot: Number(storeSettings?.usdToPkrRate) || 278.5,
-            ...(couponData ? { couponCode: couponData.code } : {}),
+            ...(couponData ? { couponCode: couponData.code } : welcomeUsed ? { couponCode: String(welcome.code).toUpperCase() } : {}),
+            ...(g.promoDiscount > 0 ? { promoDiscount: g.promoDiscount } : {}),
+            ...(welcomeUsed ? { welcomeOfferUsed: true } : {}),
+            // The friend who shared the link earns credit once this (first) order is delivered
+            ...(referredBy && g === groups[0] ? { referredBy, referralFirstOrder: true } : {}),
             shippingAddressSummary: fullAddressSummary,
             shippingCalculationSnapshot: ShippingCalculationService.createSnapshot(g.calc),
             district: district || city,
@@ -2921,7 +3002,8 @@ app.post('/api/orders/create', async (req, res) => {
         txnError?.message?.includes('not found in catalog') ||
         txnError?.message?.includes('not active') ||
         txnError?.message?.includes('Insufficient stock') ||
-        txnError?.message?.includes('seller in your cart');
+        txnError?.message?.includes('seller in your cart') ||
+        txnError?.message?.includes("only for a customer's first order");
 
       if (isValidationError) {
         return res.status(400).json({ error: txnError.message });
@@ -2937,12 +3019,17 @@ app.post('/api/orders/create', async (req, res) => {
     // 2. To Store Owner
     // If sending fails, it is logged in email_logs collection and never breaks the order.
     if (result && result.order) {
+      // The checkout is done: drop the saved "abandoned cart" of this phone (no reminder needed)
+      adminDb.collection('abandoned_carts').doc(phoneKey(cleanPhone)).delete().catch(() => {});
       (async () => {
-        let storeCfg: any = DEFAULT_SETTINGS;
-        try {
-          const cfgDoc = await adminDb.collection('settings').doc('store_config').get();
-          if (cfgDoc.exists) storeCfg = cfgDoc.data();
-        } catch {}
+        // Store settings from the catalog copy (no read); the database only if it is not loaded
+        let storeCfg: any = catalogStore.settings() || DEFAULT_SETTINGS;
+        if (!catalogStore.settings()) {
+          try {
+            const cfgDoc = await adminDb.collection('settings').doc('store_config').get();
+            if (cfgDoc.exists) storeCfg = cfgDoc.data();
+          } catch {}
+        }
 
         const emailSettings = {
           storeName: storeCfg?.storeName || 'Store',
@@ -3483,6 +3570,18 @@ registerFeedbackRoutes(app, {
   postNotice: sellerInbox.postNotice,
   limitPerIp,
   callerUid: callerUidOf,
+});
+
+// Growth: social proof, abandoned checkouts, refer & earn, flash deals
+registerGrowthRoutes(app, {
+  adminDb,
+  requireAuth,
+  requireAdmin,
+  requireSeller: marketplace.requireSeller,
+  limitPerIp,
+  getSettings: () => catalogStore.settings(),
+  productById: (id) => (catalogStore.ready ? catalogStore.product(id) : null),
+  isQuotaHit: firestoreQuotaHit,
 });
 
 // Each seller's own AI assistant (works only on that seller's shop)

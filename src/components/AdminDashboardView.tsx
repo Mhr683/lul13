@@ -46,6 +46,7 @@ import {
   Menu,
   Store,
   RotateCcw,
+  Rocket,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
@@ -59,6 +60,7 @@ import { StoreTextsPanel } from './StoreTextsPanel';
 import { BackupRestorePanel } from './BackupRestorePanel';
 import { AdminSellersPanel } from './AdminSellersPanel';
 import { AdminReturnsPanel } from './AdminReturnsPanel';
+import { AdminGrowthPanel } from './AdminGrowthPanel';
 import {
   Product,
   Order,
@@ -103,10 +105,11 @@ type AdminTab =
   | 'SETTINGS'
   | 'SELLERS'
   | 'SELLER_INBOX'
-  | 'RETURNS';
+  | 'RETURNS'
+  | 'GROWTH';
 
 const ADMIN_TABS: AdminTab[] = [
-  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'COUPONS', 'REVIEWS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
+  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'GROWTH', 'COUPONS', 'REVIEWS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
 ];
 // Tabs remembered from before the listing work moved to Seller Center fall back to the dashboard
 const validTab = (tab: string | undefined): AdminTab => (ADMIN_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'DASHBOARD');
@@ -2560,6 +2563,7 @@ export const AdminDashboardView: React.FC<{
                 { id: 'CATALOG', label: 'Products (all sellers)', icon: Package },
                 { id: 'ORDERS', label: 'Orders (all sellers)', icon: ShoppingCart },
                 { id: 'RETURNS', label: 'Returns & Complaints', icon: RotateCcw },
+                { id: 'GROWTH', label: 'Marketing & Growth', icon: Rocket },
                 { id: 'COUPONS', label: 'Promotions & Coupons', icon: Tag },
                 { id: 'REVIEWS', label: 'Client Reviews', icon: MessageSquare },
                 { id: 'AI_TASKS', label: 'AI Background Tasks', icon: Cpu },
@@ -4037,6 +4041,7 @@ export const AdminDashboardView: React.FC<{
           {/* ======================== TAB 12: STORE, MERCHANT, PAYMENT & LOGISTICS SETTINGS ======================== */}
           {activeTab === 'SELLERS' && <AdminSellersPanel />}
           {activeTab === 'RETURNS' && <AdminReturnsPanel />}
+          {activeTab === 'GROWTH' && <AdminGrowthPanel />}
           {activeTab === 'SELLER_INBOX' && <AdminSellerInbox onUnreadChange={setSellerUnread} />}
 
           {activeTab === 'SETTINGS' && (

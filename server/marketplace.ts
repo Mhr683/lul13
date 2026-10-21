@@ -1298,6 +1298,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const updates: Record<string, any> = { updatedAt: now };
       if (b.status !== undefined) {
         if (!['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'].includes(b.status)) return res.status(400).json({ error: 'Invalid status.' });
+        // First approval starts the new-seller 0% commission period
+        if (b.status === 'APPROVED' && !current.approvedAt) updates.approvedAt = now;
         // A low-rating suspension is lifted only through the one-time reinstatement (fee, fresh rating)
         if (b.status === 'APPROVED' && current.status === 'SUSPENDED' && current.suspensionCause === 'RATING') {
           return res.status(409).json({

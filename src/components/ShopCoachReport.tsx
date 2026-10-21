@@ -10,6 +10,8 @@ export type Coach = {
   headline: string;
   scores: { onTimeDelivery: number | null; cancellation: number; returns: number; rating: number | null; positivePercent: number | null };
   last30: { orders: number; sales: number; avgOrder: number };
+  lowStock?: { id: string; name: string; stock: number }[];
+  newOrdersToday?: number;
   issues: { level: 'RED' | 'YELLOW' | 'INFO'; title: string; detail: string; impact: string; fix: string; tab?: string }[];
   strengths: string[];
   charts: {

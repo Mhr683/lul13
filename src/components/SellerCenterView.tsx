@@ -479,7 +479,7 @@ export const SellerCenterView: React.FC = () => {
           )}
         </button>
       )}
-      {tab === 'DASHBOARD' && <DashboardTab onGo={setTab} />}
+      {tab === 'DASHBOARD' && <DashboardTab onGo={setTab} seller={seller} />}
       {tab === 'ORDERS' && <OrdersTab />}
       {tab === 'PRODUCTS' && <ProductsTab uid={uid} categoryNames={categories.map((c) => c.name)} />}
       {tab === 'EARNINGS' && <EarningsTab />}
@@ -534,6 +534,65 @@ export const SellerCenterView: React.FC = () => {
             <PolicyDocument intro={SUPPLIER_CODE.intro} sections={SUPPLIER_CODE.sections} compact />
           </div>
         </details>
+      )}
+    </div>
+  );
+};
+
+// ------------------------------------------------------------------ flash deal on one product
+
+const FlashDealBox: React.FC<{ productId: string; price: number; current: { price: string; endsAt: string } | null }> = ({ productId, price, current }) => {
+  const { showToast } = useStore();
+  const [deal, setDeal] = useState(current);
+  const [dealPrice, setDealPrice] = useState('');
+  const [hours, setHours] = useState('24');
+  const [busy, setBusy] = useState(false);
+  const save = async (body: any) => {
+    setBusy(true);
+    try {
+      const r = await api(`/api/seller/products/${encodeURIComponent(productId)}/flash`, { method: 'POST', body: JSON.stringify(body) });
+      setDeal(body.clear ? null : { price: String(r.flashPrice), endsAt: r.flashEndsAt });
+      showToast(body.clear ? 'Deal ended.' : 'Flash deal started: it shows in Anokhi Daily Deals with a countdown.');
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sm:col-span-2 p-3 border border-rose-200 bg-rose-50/40 space-y-2">
+      <span className="text-[11px] font-bold text-[#B91C1C] block">⚡ Flash deal (limited-time price with a countdown in the store)</span>
+      {deal ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span>
+            Deal price <strong>{formatPKR(Number(deal.price))}</strong> until{' '}
+            {new Date(deal.endsAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+          </span>
+          <button type="button" disabled={busy} onClick={() => save({ clear: true })} className="px-2 py-1 border border-black/20 cursor-pointer">
+            End deal
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <input className={`${inputCls} w-32`} value={dealPrice} onChange={(e) => setDealPrice(e.target.value)} placeholder="Deal price" inputMode="numeric" />
+          <span>for</span>
+          <select className={`${inputCls} w-32`} value={hours} onChange={(e) => setHours(e.target.value)}>
+            {['6', '12', '24', '48', '72', '168'].map((h) => (
+              <option key={h} value={h}>
+                {Number(h) < 48 ? `${h} hours` : `${Number(h) / 24} days`}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={busy || !(Number(dealPrice) > 0 && Number(dealPrice) < price)}
+            onClick={() => save({ flashPrice: Number(dealPrice), endsAt: new Date(Date.now() + Number(hours) * 3600_000).toISOString() })}
+            className="px-3 py-1.5 bg-[#B91C1C] text-white font-bold disabled:opacity-40 cursor-pointer"
+          >
+            Start deal
+          </button>
+          <span className="text-[#575653]">must be lower than {formatPKR(price)}; you pay for the discount</span>
+        </div>
       )}
     </div>
   );
@@ -1040,7 +1099,12 @@ const ApplyForm: React.FC<{
 
 // ------------------------------------------------------------------ dashboard
 
-const DashboardTab: React.FC<{ onGo: (t: Tab) => void }> = ({ onGo }) => {
+const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = ({ onGo, seller }) => {
+  const { settings } = useStore();
+  // New sellers: 0% commission for the first days after approval (store setting)
+  const freeDays = Number(settings.newSellerFreeDays ?? 30);
+  const since = Date.parse((seller as any).approvedAt || (seller as any).createdAt || '');
+  const freeUntil = freeDays > 0 && !isNaN(since) ? since + freeDays * 86400_000 : null;
   const [orders, setOrders] = useState<SellerOrder[] | null>(memo.orders || null);
   const [summary, setSummary] = useState<any>(memo.earnings?.summary || null);
   useEffect(() => {
@@ -1096,6 +1160,37 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void }> = ({ onGo }) => {
             <div className="text-xl font-bold font-mono mt-1">{c.value}</div>
           </button>
         ))}
+      </div>
+      {freeUntil && freeUntil > Date.now() && (
+        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs">
+          🎉 <strong>0% commission</strong> on every sale until{' '}
+          {new Date(freeUntil).toLocaleDateString('en-PK', { day: 'numeric', month: 'long', year: 'numeric' })} — list your products and
+          start selling!
+        </div>
+      )}
+      {/* Inventory at a glance: new orders today and products running out */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="p-4 bg-white border border-black/10">
+          <div className="text-[11px] text-[#575653]">New orders today</div>
+          <div className="text-xl font-bold font-mono mt-1">{coach ? coach.newOrdersToday ?? 0 : '…'}</div>
+        </div>
+        <button type="button" onClick={() => onGo('PRODUCTS')} className="p-4 bg-white border border-black/10 text-left cursor-pointer">
+          <div className="text-[11px] text-[#575653]">Running low (5 or fewer left)</div>
+          {!coach ? (
+            <div className="text-xs mt-1">…</div>
+          ) : !coach.lowStock?.length ? (
+            <div className="text-xs mt-1 text-emerald-700 font-semibold">All live products have enough stock.</div>
+          ) : (
+            <ul className="mt-1 space-y-0.5 text-xs">
+              {coach.lowStock.map((p) => (
+                <li key={p.id} className="flex justify-between gap-2">
+                  <span className="truncate">{p.name}</span>
+                  <span className={`font-mono font-bold ${p.stock <= 2 ? 'text-rose-700' : 'text-amber-700'}`}>{p.stock} left</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </button>
       </div>
       {/* Shop Coach: health, charts and what to fix (also in the AI Assistant) */}
       <div className="p-4 bg-[#FBFBF9] border border-black/10 space-y-3">
@@ -1481,6 +1576,8 @@ const emptyProduct = {
   images: [] as string[],
   videoUrl: '',
   brandProofUrl: '',
+  flashPrice: '',
+  flashEndsAt: '',
   shortDescription: '',
   description: '',
   weightKg: '0.5',
@@ -1561,8 +1658,11 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
     setOpening(p.id);
     try {
       const { product: full, supplier, brandProofUrl } = await api(`/api/seller/products/${encodeURIComponent(p.id)}`);
+      const flashLive = Number(full.flashPrice) > 0 && full.flashEndsAt && Date.parse(full.flashEndsAt) > Date.now();
       setEditing({
         brandProofUrl: brandProofUrl || '',
+        flashPrice: flashLive ? String(full.flashPrice) : '',
+        flashEndsAt: flashLive ? full.flashEndsAt : '',
         supplierName: supplier?.supplierName || '',
         supplierCostPrice: supplier?.supplierCostPrice ? String(supplier.supplierCostPrice) : '',
         supplierProductUrl: supplier?.supplierProductUrl || '',
@@ -1735,6 +1835,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
               onError={showToast}
             />
           </div>
+          {editing.id && <FlashDealBox productId={editing.id} price={Number(editing.price) || 0} current={editing.flashPrice ? { price: editing.flashPrice, endsAt: editing.flashEndsAt } : null} />}
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
             <span className="text-[11px] font-bold text-[#141413] block">
               Purchase invoice or brand approval (required for electronics and branded items)
