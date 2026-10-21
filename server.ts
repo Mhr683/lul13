@@ -403,6 +403,8 @@ const PORT = 3000;
 // Behind Cloud Run / AI Studio's proxy: take the visitor's address from X-Forwarded-For (one hop),
 // so per-visitor limits do not lump every customer together
 app.set('trust proxy', 1);
+// Seller picture / video uploads arrive as the raw file (checked again in server/marketplace.ts)
+app.use('/api/seller/media/upload', express.raw({ type: () => true, limit: '52mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // When the free Firestore database has used up its daily reads, say so plainly instead of the
@@ -3402,8 +3404,36 @@ async function applyOrderStatusWithStock(
   });
 }
 
+// Product pictures and videos uploaded by sellers. They go to Firebase Storage when the bucket
+// exists (Blaze plan); until then they are kept on this server's disk under .media/ and served
+// from /media/ (fine for one server; move them to Storage before running several servers).
+const MEDIA_DIR = path.join(process.cwd(), '.media');
+let bucketCheck: { at: number; ok: boolean } | null = null;
+async function storeMedia(buffer: Buffer, ext: string, contentType: string): Promise<string> {
+  const name = `${crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 24)}.${ext}`;
+  if (!bucketCheck || Date.now() - bucketCheck.at > 10 * 60_000) {
+    let ok = false;
+    try {
+      [ok] = await adminBucket.exists();
+    } catch {}
+    bucketCheck = { at: Date.now(), ok };
+  }
+  if (bucketCheck.ok) {
+    try {
+      return await uploadBufferToFirebaseStorage(buffer, name, contentType);
+    } catch (err: any) {
+      console.warn('[media] Storage upload failed, keeping the file on disk:', err?.message);
+    }
+  }
+  await fs.promises.mkdir(MEDIA_DIR, { recursive: true });
+  await fs.promises.writeFile(path.join(MEDIA_DIR, name), buffer);
+  return `/media/${name}`;
+}
+app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true, fallthrough: false }));
+
 // Seller Center API and admin seller/payout management
 const marketplace = registerMarketplaceRoutes(app, {
+  storeMedia,
   adminDb,
   requireAuth,
   requireAdmin,

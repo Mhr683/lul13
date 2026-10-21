@@ -11,3 +11,6 @@ coverage/
 
 # Server's saved catalog copy (server/catalogStore.ts)
 .cache/
+
+# Seller uploads kept on disk until Firebase Storage is available (server.ts storeMedia)
+.media/

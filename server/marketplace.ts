@@ -34,6 +34,8 @@ export interface MarketplaceDeps {
   supplierOf: (productId: string) => any | null | undefined;
   /** Copies remote images into the store's Firebase Storage (old URL -> stored URL) */
   archiveImageUrls: (urls: unknown[]) => Promise<{ storageUnavailable: boolean; results: Record<string, string> }>;
+  /** Saves an uploaded picture / video and returns its public URL */
+  storeMedia: (buffer: Buffer, ext: string, contentType: string) => Promise<string>;
   HOUSE_SELLER_ID: string;
   DEFAULT_COMMISSION_PERCENT: number;
 }
@@ -41,6 +43,7 @@ export interface MarketplaceDeps {
 const SELLER_ORDER_STATUSES = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
 const CLOSED_STATUSES = ['CANCELLED', 'RETURNED', 'REFUNDED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'];
 const SHIPPED_OR_LATER = ['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'];
+const MAX_PRODUCT_IMAGES = 8;
 
 const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
 const money = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
@@ -411,11 +414,19 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const name = str(b.name, 190);
     const price = money(b.price);
     const category = str(b.category, 75);
-    const primaryImage = str(b.primaryImage, 980);
+    // Up to 8 pictures (the first is the main one) and one optional video
+    const mediaOk = (u: string) => /^https:\/\//i.test(u) || /^\/media\/[a-zA-Z0-9_.-]+$/.test(u);
+    const images: string[] | undefined = Array.isArray(b.images)
+      ? Array.from(new Set(b.images.map((u: unknown) => str(u, 980)).filter(Boolean) as string[])).slice(0, MAX_PRODUCT_IMAGES)
+      : undefined;
+    const primaryImage = images ? images[0] || '' : str(b.primaryImage, 980);
+    const videoUrl = b.videoUrl === undefined ? undefined : str(b.videoUrl, 980);
     if (name.length < 3) return { error: 'Enter a product name (at least 3 characters).' };
     if (!(price > 0)) return { error: 'Enter a price (PKR).' };
     if (category.length < 2) return { error: 'Choose a category.' };
-    if (primaryImage && !/^https:\/\//i.test(primaryImage)) return { error: 'The image link must start with https://' };
+    if (primaryImage && !mediaOk(primaryImage)) return { error: 'The image link must start with https://' };
+    if (images && images.some((u) => !mediaOk(u))) return { error: 'Every picture link must start with https://' };
+    if (videoUrl && !mediaOk(videoUrl)) return { error: 'The video link must start with https://' };
     return {
       fields: {
         name,
@@ -425,6 +436,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         category,
         status: b.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
         primaryImage,
+        images,
+        videoUrl,
         sellerSku: str(b.sku, 60).replace(/[^a-zA-Z0-9_.-]/g, '-'),
       },
     };
@@ -472,6 +485,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       seoKeywords: existing?.seoKeywords || `${category.toLowerCase()}, ${seller.shopName.toLowerCase()}`.slice(0, 390),
       // A CSV row without a picture keeps the one the product already has
       primaryImage: primaryImage || (b.fromCsv ? existing?.primaryImage || '' : ''),
+      // The form sends the whole gallery; a CSV row only changes the main picture
+      images: f.images
+        ? f.images
+        : (() => {
+            const old: string[] = Array.isArray(existing?.images) ? existing.images : [];
+            const main = primaryImage || existing?.primaryImage || '';
+            return main ? [main, ...old.filter((u) => u !== main)].slice(0, MAX_PRODUCT_IMAGES) : old;
+          })(),
+      videoUrl: f.videoUrl !== undefined ? f.videoUrl : existing?.videoUrl || '',
       rating: existing?.rating ?? 0,
       reviewCount: existing?.reviewCount ?? 0,
       weightKg: Math.max(0.05, Number(b.weightKg) || existing?.weightKg || 0.5),
@@ -613,6 +635,40 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
 
   // Copy the pictures of the seller's products into the store's own storage, so they stay even when
   // the supplier removes them (needs Firebase Storage, i.e. the Blaze plan)
+  // A picture (up to 8 MB) or video (up to 50 MB) for a product, sent as the raw file body.
+  // The file type is checked from its first bytes, not from what the browser says.
+  const sniffMedia = (b: Buffer): { ext: string; type: string; video: boolean } | null => {
+    if (b.length < 12) return null;
+    if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { ext: 'jpg', type: 'image/jpeg', video: false };
+    if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { ext: 'png', type: 'image/png', video: false };
+    if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return { ext: 'webp', type: 'image/webp', video: false };
+    if (b.toString('ascii', 0, 4) === 'GIF8') return { ext: 'gif', type: 'image/gif', video: false };
+    if (b.toString('ascii', 4, 8) === 'ftyp') {
+      const brand = b.toString('ascii', 8, 12);
+      if (brand.startsWith('qt')) return { ext: 'mov', type: 'video/quicktime', video: true };
+      if (/^(avif|avis)/.test(brand)) return { ext: 'avif', type: 'image/avif', video: false };
+      if (/^(heic|heix|mif1|msf1)/.test(brand)) return null; // iPhone HEIC photos do not show in most browsers
+      return { ext: 'mp4', type: 'video/mp4', video: true };
+    }
+    if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return { ext: 'webm', type: 'video/webm', video: true };
+    return null;
+  };
+  app.post('/api/seller/media/upload', requireSeller, async (req, res) => {
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || !body.length) return res.status(400).json({ error: 'No file received.' });
+    const kind = sniffMedia(body);
+    if (!kind) return res.status(415).json({ error: 'Use a JPG, PNG or WEBP picture, or an MP4 / WEBM / MOV video.' });
+    if (!kind.video && body.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'Pictures can be at most 8 MB.' });
+    if (kind.video && body.length > 50 * 1024 * 1024) return res.status(413).json({ error: 'The video can be at most 50 MB.' });
+    try {
+      const url = await d.storeMedia(body, kind.ext, kind.type);
+      res.json({ success: true, url, video: kind.video });
+    } catch (err) {
+      console.error('[seller/media/upload] failed:', err);
+      res.status(503).json({ error: 'Could not save the file. Please try again.' });
+    }
+  });
+
   app.post('/api/seller/media/archive', requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     try {
@@ -1159,6 +1215,61 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
 
   // What a customer sees on a seller's shop page (no private details); kept 10 minutes
   const shopCache = new Map<string, { at: number; shop: any | null }>();
+
+  // The three scores customers see (on-time shipping, cancellations, quality), from the last 90 days.
+  // Worked out at most every 12 hours per shop and kept on the seller record, so visits cost no reads.
+  const METRICS_TTL = 12 * 60 * 60 * 1000;
+  const computePublicMetrics = async (sellerId: string, s: any) => {
+    const snap = await adminDb
+      .collection('orders')
+      .where('sellerId', '==', sellerId)
+      .select('status', 'createdAt', 'trackingEvents')
+      .limit(1000)
+      .get();
+    const now = Date.now();
+    const all = snap.docs.map((doc) => doc.data() as any);
+    const recent = all.filter((o) => now - Date.parse(o.createdAt || 0) <= 90 * DAY);
+    const orders = recent.length >= 5 ? recent : all;
+    const shippedAt = (o: any) => {
+      const ev = (Array.isArray(o.trackingEvents) ? o.trackingEvents : []).find((e: any) => SHIPPED_OR_LATER.includes(String(e?.status)));
+      return ev ? Date.parse(ev.at) : NaN;
+    };
+    // On time = handed to the courier within 3 days; orders still waiting after 3 days count as late
+    let onTime = 0;
+    let due = 0;
+    for (const o of orders) {
+      const placed = Date.parse(o.createdAt || 0);
+      const shipped = shippedAt(o);
+      if (SHIPPED_OR_LATER.includes(o.status) || ['RETURNED', 'REFUNDED'].includes(o.status) || !isNaN(shipped)) {
+        due++;
+        if (isNaN(shipped) || shipped - placed <= 3 * DAY) onTime++;
+      } else if (OPEN_FOR_SHIPPING.includes(o.status) && now - placed > 3 * DAY) {
+        due++;
+      }
+    }
+    const cancelled = orders.filter((o) => o.status === 'CANCELLED').length;
+    const finished = orders.filter((o) => ['DELIVERED', 'RETURNED', 'REFUNDED'].includes(o.status));
+    const returned = finished.filter((o) => o.status !== 'DELIVERED').length;
+    const r = ratingSummary(s);
+    // Quality: delivered without a return, blended with buyers' ratings once there are a few
+    const keptRate = finished.length ? 100 - pct(returned, finished.length) : null;
+    const quality =
+      keptRate === null && r.ratingCount < 3
+        ? null
+        : r.ratingCount >= 3
+        ? Math.round(keptRate === null ? r.positivePercent : (keptRate + r.positivePercent) / 2)
+        : Math.round(keptRate as number);
+    const metrics = {
+      orders: orders.length,
+      onTimeDelivery: due ? Math.round((onTime / due) * 100) : null,
+      cancellation: orders.length ? Math.round(pct(cancelled, orders.length)) : null,
+      qualityScore: quality,
+      at: new Date().toISOString(),
+    };
+    sellersCol().doc(sellerId).set({ publicMetrics: metrics }, { merge: true }).catch(() => {});
+    return metrics;
+  };
+
   app.get('/api/shops/:id', async (req, res) => {
     const id = str(req.params.id, 128);
     try {
@@ -1166,11 +1277,29 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (!hit || Date.now() - hit.at > 10 * 60_000) {
         const snap = await sellersCol().doc(id).get();
         const s = snap.exists ? (snap.data() as any) : null;
+        let metrics = s?.publicMetrics || null;
+        if (s && s.status === 'APPROVED' && (!metrics || Date.now() - Date.parse(metrics.at || 0) > METRICS_TTL)) {
+          try {
+            metrics = await computePublicMetrics(id, s);
+          } catch (err) {
+            console.warn('[shops] metrics failed:', (err as any)?.message);
+          }
+        }
         hit = {
           at: Date.now(),
           shop:
             s && s.status === 'APPROVED'
-              ? { id, shopName: s.shopName, logoUrl: s.logoUrl || '', city: s.city || '', joinedAt: s.createdAt || '', ...ratingSummary(s) }
+              ? {
+                  id,
+                  shopName: s.shopName,
+                  logoUrl: s.logoUrl || '',
+                  city: s.city || '',
+                  joinedAt: s.createdAt || '',
+                  ...ratingSummary(s),
+                  metrics: metrics
+                    ? { orders: metrics.orders, onTimeDelivery: metrics.onTimeDelivery, cancellation: metrics.cancellation, qualityScore: metrics.qualityScore }
+                    : null,
+                }
               : null,
         };
         shopCache.set(id, hit);

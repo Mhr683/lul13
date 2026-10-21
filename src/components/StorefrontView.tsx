@@ -57,15 +57,20 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { BrandLogo } from './BrandLogo';
 import { SellerShopPage } from './SellerShopPage';
 import { ProductReactions } from './ProductReactions';
-import { SellerRatingBadge, useShopInfo } from './SellerRating';
+import { SellerRatingBadge, SellerScoreCards, useShopInfo } from './SellerRating';
+import { ProductGallery } from './ProductGallery';
+import { ProductInfoTabs } from './ProductInfoTabs';
 
 // The seller's customer rating under "Sold & shipped by" on the product page
 const PdpSellerRating: React.FC<{ sellerId: string }> = ({ sellerId }) => {
   const shop = useShopInfo(sellerId);
   return shop ? (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <span className="text-[#575653]">Seller rating:</span>
-      <SellerRatingBadge shop={shop} />
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-[#575653]">Seller rating:</span>
+        <SellerRatingBadge shop={shop} />
+      </div>
+      <SellerScoreCards shop={shop} />
     </div>
   ) : null;
 };
@@ -2125,32 +2130,20 @@ export const StorefrontView: React.FC = () => {
               {/* Contiguous Purchase Module: Sticky Gallery Left + Purchase Module Right */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
                 <div className="lg:col-span-7 space-y-4">
-                  <div className="aspect-[4/3] w-full bg-[#F7F6F2] border border-black/[0.07] overflow-hidden">
-                    <ProductImage
-                      src={selectedProduct.primaryImage}
-                      alt={selectedProduct.name}
-                      category={selectedProduct.category}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-xs text-[#575653] pt-2">
-                    <div className="p-3.5 border border-black/[0.07] bg-white">
-                      <span className="block font-medium text-[#141413]">SKU Reference</span>
-                      <span className="font-mono tabular-nums">{selectedProduct.sku}</span>
-                    </div>
-                    <div className="p-3.5 border border-black/[0.07] bg-white">
-                      <span className="block font-medium text-[#141413]">Dimensions</span>
-                      <span className="font-mono tabular-nums">
-                        {selectedProduct.dimensions || 'Standard'}
-                      </span>
-                    </div>
-                    <div className="p-3.5 border border-black/[0.07] bg-white">
-                      <span className="block font-medium text-[#141413]">Weight</span>
-                      <span className="font-mono tabular-nums">
-                        {selectedProduct.weightKg || 0.85} kg
-                      </span>
-                    </div>
-                  </div>
+                  <ProductGallery
+                    images={selectedProduct.images}
+                    primaryImage={selectedProduct.primaryImage}
+                    videoUrl={selectedProduct.videoUrl}
+                    alt={selectedProduct.name}
+                    fallback={
+                      <ProductImage
+                        src={selectedProduct.primaryImage}
+                        alt={selectedProduct.name}
+                        category={selectedProduct.category}
+                        className="w-full h-full object-cover"
+                      />
+                    }
+                  />
                 </div>
 
                 {/* Right Contiguous Purchase Module */}
@@ -2215,7 +2208,7 @@ export const StorefrontView: React.FC = () => {
                   </div>
 
                   <p className="text-sm text-[#575653] leading-relaxed">
-                    {selectedProduct.description}
+                    {selectedProduct.shortDescription || selectedProduct.description}
                   </p>
 
                   {/* Quantity + Primary Buy Actions */}
@@ -2325,92 +2318,18 @@ export const StorefrontView: React.FC = () => {
               </div>
             </div>
 
-            {/* Product Reviews & Client Testimonials */}
-            <section className="pt-12 border-t border-black/[0.07] grid grid-cols-1 lg:grid-cols-12 gap-12">
-              <div className="lg:col-span-5 space-y-4">
-                <h2 className="text-2xl font-display font-medium text-[#141413]">
-                  Customer Reviews
-                </h2>
-                <p className="text-xs text-[#575653]">
-                  Reviews are restricted to authenticated customers and moderated by store administration.
-                </p>
-
-                <form
-                  onSubmit={handleReviewSubmit}
-                  className="p-6 bg-white border border-black/[0.07] space-y-4"
-                >
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-[#141413]">
-                    Record Your Evaluation
-                  </h3>
-                  <div>
-                    <label className="block text-xs text-[#575653] mb-1">Rating</label>
-                    <select
-                      value={reviewRating}
-                      onChange={(e) => setReviewRating(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-black/15 text-xs bg-[#FBFBF9]"
-                    >
-                      <option value={5}>5 Stars — Museum / Heirloom Standard</option>
-                      <option value={4}>4 Stars — Exceptional Craft</option>
-                      <option value={3}>3 Stars — Satisfactory</option>
-                      <option value={2}>2 Stars — Subpar</option>
-                      <option value={1}>1 Star — Defective</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#575653] mb-1">Headline</label>
-                    <input
-                      type="text"
-                      required
-                      value={reviewTitle}
-                      onChange={(e) => setReviewTitle(e.target.value)}
-                      placeholder="e.g., Impeccable balance and finish"
-                      className="w-full px-3 py-2 border border-black/15 text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#575653] mb-1">Written Review</label>
-                    <textarea
-                      rows={3}
-                      required
-                      value={reviewComment}
-                      onChange={(e) => setReviewComment(e.target.value)}
-                      placeholder="Share your experience with the materials, ergonomics, and finish..."
-                      className="w-full px-3 py-2 border border-black/15 text-xs"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-[#141413] text-[#FBFBF9] text-xs font-medium cursor-pointer"
-                  >
-                    Submit Verified Review
-                  </button>
-                </form>
-              </div>
-
-              <div className="lg:col-span-7 space-y-4">
-                {reviews
-                  .filter((r) => r.productId === selectedProduct.id || r.status === 'APPROVED')
-                  .slice(0, 5)
-                  .map((rev) => (
-                    <div
-                      key={rev.id}
-                      className="p-6 bg-white border border-black/[0.07] space-y-2"
-                    >
-                      <div className="flex items-center justify-between text-xs text-[#787774]">
-                        <span className="font-mono tabular-nums text-[#8C6D46] font-semibold">
-                          ★ {rev.rating}.0 / 5.0 · Verified Purchase
-                        </span>
-                        <span className="font-mono tabular-nums">
-                          {rev.createdAt.slice(0, 10)}
-                        </span>
-                      </div>
-                      <h4 className="text-sm font-semibold text-[#141413]">{rev.title}</h4>
-                      <p className="text-xs text-[#575653] leading-relaxed">{rev.comment}</p>
-                      <div className="text-[11px] text-[#787774] pt-1">— {rev.authorName}</div>
-                    </div>
-                  ))}
-              </div>
-            </section>
+            {/* Description and verified-buyer reviews */}
+            <ProductInfoTabs
+              productId={selectedProduct.id}
+              description={selectedProduct.description}
+              shortDescription={selectedProduct.shortDescription}
+              details={[
+                { label: 'SKU', value: selectedProduct.sku },
+                { label: 'Dimensions', value: selectedProduct.dimensions || 'Standard' },
+                { label: 'Weight', value: `${selectedProduct.weightKg || 0.85} kg` },
+              ]}
+              legacyReviews={reviews.filter((r) => r.productId === selectedProduct.id && r.status === 'APPROVED') as any}
+            />
 
             {/* Recently Viewed & Related Products */}
             <section className="pt-12 border-t border-black/[0.07]">

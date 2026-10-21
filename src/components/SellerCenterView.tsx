@@ -25,6 +25,7 @@ import { AuthPanel } from './AuthPanel';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SellerAvatar } from './SellerAvatar';
 import { BrandLogo } from './BrandLogo';
+import { ProductMediaEditor } from './ProductMediaEditor';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 
@@ -103,6 +104,16 @@ async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data?.error || 'Something went wrong. Please try again.'), { code: data?.code });
   return data as T;
+}
+
+// Uploads one product picture or video (sent as the raw file) and returns its URL
+async function uploadMedia(file: Blob): Promise<string> {
+  const { url } = await api<{ url: string }>('/api/seller/media/upload', {
+    method: 'POST',
+    body: file,
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+  });
+  return url;
 }
 
 // ------------------------------------------------------------------ local cache (this device only)
@@ -1167,6 +1178,8 @@ const emptyProduct = {
   stock: '10',
   category: '',
   primaryImage: '',
+  images: [] as string[],
+  videoUrl: '',
   shortDescription: '',
   description: '',
   weightKg: '0.5',
@@ -1260,6 +1273,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
         stock: String(full.stock),
         category: full.category,
         primaryImage: full.primaryImage || '',
+        images: Array.isArray(full.images) && full.images.length ? full.images : full.primaryImage ? [full.primaryImage] : [],
+        videoUrl: full.videoUrl || '',
         shortDescription: full.shortDescription || '',
         description: full.description || '',
         weightKg: String(full.weightKg || 0.5),
@@ -1407,9 +1422,14 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
               ))}
             </datalist>
           </div>
-          <div className="sm:col-span-2">
-            <label className={labelCls}>Image link (https://...)</label>
-            <input className={inputCls} value={editing.primaryImage} onChange={set('primaryImage')} placeholder="https://..." />
+          <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9]">
+            <ProductMediaEditor
+              images={editing.images}
+              videoUrl={editing.videoUrl}
+              onChange={(m) => setEditing((p) => (p ? { ...p, ...m, primaryImage: m.images[0] || '' } : p))}
+              upload={uploadMedia}
+              onError={showToast}
+            />
           </div>
           <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
             <span className="text-[11px] text-[#575653]">Let AI write the short and full description from the name and category.</span>

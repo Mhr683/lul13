@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Star } from 'lucide-react';
+import { Star, Clock3, RotateCcw, Award } from 'lucide-react';
 
 // Seller rating shown to customers: stars, average, number of ratings and % positive.
 // Shop details come from /api/shops/:id (cached on the server); one request per shop per page load.
@@ -15,6 +15,8 @@ export type ShopInfo = {
   positivePercent: number;
   likes: number;
   dislikes: number;
+  /** Percentages from the shop's recent orders (null = not enough orders yet) */
+  metrics?: { orders: number; onTimeDelivery: number | null; cancellation: number | null; qualityScore: number | null } | null;
 };
 
 const shopCache = new Map<string, Promise<ShopInfo | null>>();
@@ -62,6 +64,53 @@ export const Stars: React.FC<{ value: number; size?: number; className?: string 
     })}
   </span>
 );
+
+/** The seller's three scores for customers: on-time delivery, cancellation and quality */
+export const SellerScoreCards: React.FC<{ shop: ShopInfo | null; className?: string }> = ({ shop, className = '' }) => {
+  if (!shop) return null;
+  const m = shop.metrics;
+  const show = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v}%`);
+  const cards = [
+    {
+      label: 'On-time Delivery',
+      value: m?.onTimeDelivery,
+      Icon: Clock3,
+      box: 'bg-gradient-to-br from-orange-50 to-white border-orange-100',
+      icon: 'text-orange-500',
+      title: 'Orders handed to the courier within 3 days',
+    },
+    {
+      label: 'Cancellation',
+      value: m?.cancellation,
+      Icon: RotateCcw,
+      box: 'bg-gradient-to-br from-emerald-50 to-white border-emerald-100',
+      icon: 'text-emerald-600',
+      title: 'Orders the seller cancelled',
+    },
+    {
+      label: 'Quality Score',
+      value: m?.qualityScore,
+      Icon: Award,
+      box: 'bg-gradient-to-br from-cyan-50 to-white border-cyan-100',
+      icon: 'text-cyan-600',
+      title: 'Delivered without returns, and buyers’ ratings',
+    },
+  ];
+  return (
+    <div className={`space-y-1 ${className}`}>
+      <div className="grid grid-cols-3 gap-2">
+        {cards.map(({ label, value, Icon, box, icon, title }) => (
+          <div key={label} title={title} className={`p-2.5 sm:p-3 border rounded-lg text-center shadow-sm ${box}`}>
+            <Icon className={`w-6 h-6 mx-auto ${icon}`} />
+            <div className="mt-1 text-base font-bold text-[#141413]">{show(value)}</div>
+            <div className="text-[10px] sm:text-[11px] text-[#575653] leading-tight">{label}</div>
+          </div>
+        ))}
+      </div>
+      {(!m || !m.orders) && <p className="text-[10px] text-[#787774]">New shop: scores appear after the first orders.</p>}
+    </div>
+  );
+};
 
 /** "★★★★☆ 4.6 (23 ratings) · 96% positive", or "New seller" when nobody has rated yet */
 export const SellerRatingBadge: React.FC<{ shop: Pick<ShopInfo, 'ratingAvg' | 'ratingCount' | 'positivePercent'> | null; className?: string }> = ({

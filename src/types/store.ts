@@ -112,6 +112,10 @@ export interface Product {
   seoDescription?: string;
   seoKeywords?: string;
   primaryImage?: string;
+  /** All pictures (up to 8, the first is primaryImage) */
+  images?: string[];
+  /** Optional product video (uploaded file or https link, e.g. YouTube) */
+  videoUrl?: string;
   rating?: number;
   reviewCount?: number;
   /** Customer likes / dislikes (totals kept by the server) */

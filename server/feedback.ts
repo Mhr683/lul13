@@ -155,16 +155,30 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
         comment,
         customerName: shortName(order.customerName),
         productNames: (order.items || []).map((it: any) => String(it.name || '').slice(0, 120)).slice(0, 5),
+        productIds: Array.from(new Set((order.items || []).map((it: any) => String(it.productId || '')).filter(Boolean))).slice(0, 10) as string[],
         status: 'PUBLISHED',
         createdAt: now,
         tokenHash: token ? hash(token) : '',
         userId: order.userId || '',
       };
+      const productRefs = feedback.productIds.map((id) => adminDb.collection('products').doc(id));
       const created = await adminDb.runTransaction(async (tx) => {
-        const [existing, sellerSnap] = await Promise.all([tx.get(fbRef), tx.get(sellerRef)]);
+        const [existing, sellerSnap, ...productSnaps] = await Promise.all([tx.get(fbRef), tx.get(sellerRef), ...productRefs.map((r) => tx.get(r))]);
         if (existing.exists) return false;
         const s = (sellerSnap.data() as any) || {};
         tx.set(fbRef, feedback);
+        // Each product bought gets the stars too (shown on product cards and the product page)
+        productSnaps.forEach((snap, i) => {
+          if (!snap.exists) return;
+          const p = snap.data() as any;
+          const count = Number(p.reviewCount) || 0;
+          const avg = Number(p.rating) || 0;
+          tx.update(productRefs[i], {
+            reviewCount: count + 1,
+            rating: Math.round(((avg * count + rating) / (count + 1)) * 10) / 10,
+            updatedAt: now,
+          });
+        });
         tx.set(
           sellerRef,
           {
@@ -183,6 +197,7 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       });
       if (!created) return res.status(409).json({ error: 'You have already rated this order. Thank you!' });
       forgetFeedback(sellerId);
+      feedback.productIds.forEach((id) => productReviewCache.delete(id));
       res.json({ success: true, rating });
     } catch (err) {
       console.error('[feedback] failed:', err);
@@ -196,6 +211,39 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       res.json({ success: true, feedback: await publicFeedback(str(req.params.id, 128)) });
     } catch (err) {
       console.error('[shops feedback] failed:', err);
+      res.status(503).json({ error: 'Could not load reviews.' });
+    }
+  });
+
+  // Verified-buyer reviews of one product (from delivered orders), kept 5 minutes per product
+  const productReviewCache = new Map<string, { at: number; list: any[] }>();
+  app.get('/api/products/:id/reviews', async (req, res) => {
+    const productId = str(req.params.id, 128);
+    try {
+      let hit = productReviewCache.get(productId);
+      if (!hit || Date.now() - hit.at > 5 * 60_000) {
+        const snap = await feedbackCol().where('productIds', 'array-contains', productId).limit(100).get();
+        const list = snap.docs
+          .map((doc) => doc.data() as any)
+          .filter((f) => f.status !== 'HIDDEN')
+          .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+          .slice(0, 50)
+          .map((f) => ({
+            id: f.id,
+            rating: f.rating,
+            comment: f.comment,
+            customerName: f.customerName,
+            createdAt: f.createdAt,
+            sellerReply: f.sellerReply || '',
+          }));
+        hit = { at: Date.now(), list };
+        productReviewCache.set(productId, hit);
+        if (productReviewCache.size > 5000) productReviewCache.clear();
+      }
+      res.setHeader('Cache-Control', 'public, max-age=120');
+      res.json({ success: true, reviews: hit.list });
+    } catch (err) {
+      console.error('[product reviews] failed:', err);
       res.status(503).json({ error: 'Could not load reviews.' });
     }
   });
@@ -323,6 +371,7 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       if (!snap.exists || (snap.data() as any).sellerId !== uid) return res.status(404).json({ error: 'Review not found.' });
       await ref.update({ sellerReply: reply, sellerRepliedAt: new Date().toISOString() });
       forgetFeedback(uid);
+      ((snap.data() as any).productIds || []).forEach((id: string) => productReviewCache.delete(id));
       res.json({ success: true });
     } catch (err) {
       console.error('[seller/feedback reply] failed:', err);
@@ -377,6 +426,7 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       });
       if (!sellerId) return res.status(404).json({ error: 'Review not found.' });
       forgetFeedback(sellerId);
+      productReviewCache.clear();
       res.json({ success: true });
     } catch (err) {
       console.error('[admin feedback moderate] failed:', err);
