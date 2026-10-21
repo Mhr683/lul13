@@ -57,7 +57,7 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { BrandLogo } from './BrandLogo';
 import { SellerShopPage } from './SellerShopPage';
 import { ProductReactions } from './ProductReactions';
-import { SellerRatingBadge, SellerScoreCards, useShopInfo } from './SellerRating';
+import { ProductRatingBadge, SellerRatingBadge, SellerScoreCards, useShopInfo } from './SellerRating';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfoTabs } from './ProductInfoTabs';
 import { PolicyDocument } from './PolicyDocument';
@@ -748,7 +748,11 @@ export const StorefrontView: React.FC = () => {
       .sort((a, b) => {
         if (sortBy === 'PRICE_ASC') return a.price - b.price;
         if (sortBy === 'PRICE_DESC') return b.price - a.price;
-        if (sortBy === 'RATING') return (b.rating || 5) - (a.rating || 5);
+        // Unrated products (reviewCount 0) sort after rated ones, even though new products default to rating 5
+        if (sortBy === 'RATING') {
+          const score = (p: Product) => (Number(p.reviewCount) > 0 ? Number(p.rating) || 0 : -1);
+          return score(b) - score(a) || (Number(b.reviewCount) || 0) - (Number(a.reviewCount) || 0);
+        }
         if (sortBy === 'NEWEST') return b.createdAt.localeCompare(a.createdAt);
         return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
       });
@@ -1723,6 +1727,8 @@ export const StorefrontView: React.FC = () => {
                           {product.name}
                         </h3>
 
+                        <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} className="mt-1" />
+
                         <p className="text-xs text-black font-medium mt-1.5 line-clamp-2 leading-relaxed">
                           {product.shortDescription}
                         </p>
@@ -2123,6 +2129,7 @@ export const StorefrontView: React.FC = () => {
                             >
                               {product.name}
                             </h3>
+                            <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} className="mt-1" />
                             <p className="text-xs text-black font-medium mt-1 line-clamp-2">
                               {product.shortDescription}
                             </p>
@@ -2249,15 +2256,13 @@ export const StorefrontView: React.FC = () => {
                     </span>
                     <span aria-hidden="true">·</span>
                     <span>{selectedProduct.category}</span>
-                    {selectedProduct.reviewCount ? (
-                      <>
-                        <span aria-hidden="true">·</span>
-                        <span className="font-mono tabular-nums">
-                          ★ {selectedProduct.rating} ({selectedProduct.reviewCount} reviews)
-                        </span>
-                      </>
-                    ) : null}
                   </div>
+                  <ProductRatingBadge
+                    rating={selectedProduct.rating}
+                    reviewCount={selectedProduct.reviewCount}
+                    size={16}
+                    className="!text-xs !mt-2"
+                  />
 
                   <h1 className="text-3xl font-display font-medium text-[#141413]">
                     {selectedProduct.name}

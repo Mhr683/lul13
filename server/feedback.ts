@@ -29,6 +29,8 @@ export interface FeedbackDeps {
 }
 
 const MAX_ACTIVITY = 60;
+// sellerId stored on reviews of orders sold by the store itself (products are rated, no seller is)
+const HOUSE_SELLER = 'house';
 const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
 
 // "Ayesha K." from "Ayesha Khan"
@@ -148,8 +150,9 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       const { order } = found;
       if (!(await canReview(req, order, token))) return res.status(403).json({ error: 'Only the buyer of this order can rate it.' });
       if (order.status !== 'DELIVERED') return res.status(409).json({ error: 'You can rate the seller once the order has been delivered.' });
-      const sellerId = String(order.sellerId || '');
-      if (!sellerId || sellerId === 'house') return res.status(409).json({ error: 'This order has no seller to rate.' });
+      // Orders sold by the store itself have no marketplace seller: the review rates the products only
+      const isHouse = !order.sellerId || order.sellerId === HOUSE_SELLER;
+      const sellerId = isHouse ? HOUSE_SELLER : String(order.sellerId);
 
       const fbRef = feedbackCol().doc(orderNumber);
       const sellerRef = adminDb.collection('sellers').doc(sellerId);
@@ -175,9 +178,13 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       let newAvg = 0;
       let reinstatedBefore = false;
       const created = await adminDb.runTransaction(async (tx) => {
-        const [existing, sellerSnap, ...productSnaps] = await Promise.all([tx.get(fbRef), tx.get(sellerRef), ...productRefs.map((r) => tx.get(r))]);
+        const [existing, sellerSnap, ...productSnaps] = await Promise.all([
+          tx.get(fbRef),
+          isHouse ? Promise.resolve(null) : tx.get(sellerRef),
+          ...productRefs.map((r) => tx.get(r)),
+        ]);
         if (existing.exists) return false;
-        const s = (sellerSnap.data() as any) || {};
+        const s = (sellerSnap?.data() as any) || {};
         reinstatedBefore = s.reinstatementUsed === true;
         newCount = (Number(s.ratingCount) || 0) + 1;
         newAvg = ((Number(s.ratingSum) || 0) + rating) / newCount;
@@ -194,6 +201,7 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
             updatedAt: now,
           });
         });
+        if (isHouse) return true;
         tx.set(
           sellerRef,
           {
@@ -211,10 +219,10 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
         return true;
       });
       if (!created) return res.status(409).json({ error: 'You have already rated this order. Thank you!' });
-      forgetFeedback(sellerId);
+      if (!isHouse) forgetFeedback(sellerId);
       feedback.productIds.forEach((id) => productReviewCache.delete(id));
       // Seller Rules: a customer rating below 3.0 (from enough buyers) suspends the account
-      if (newCount >= POLICY.MIN_RATINGS && newAvg < POLICY.MIN_RATING) {
+      if (!isHouse && newCount >= POLICY.MIN_RATINGS && newAvg < POLICY.MIN_RATING) {
         const avg = Math.round(newAvg * 10) / 10;
         const reason = reinstatedBefore
           ? `Suspended permanently: customer rating ${avg} from ${newCount} buyers fell below ${POLICY.MIN_RATING.toFixed(1)} again after the one-time reinstatement (Seller Rules).`
@@ -439,10 +447,13 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
         const f = snap.data() as any;
         const wasHidden = f.status === 'HIDDEN';
         if (wasHidden === hidden) return f.sellerId;
-        const sellerRef = adminDb.collection('sellers').doc(f.sellerId);
-        const s = ((await tx.get(sellerRef)).data() as any) || {};
+        const isHouse = !f.sellerId || f.sellerId === HOUSE_SELLER;
+        const sellerRef = adminDb.collection('sellers').doc(isHouse ? HOUSE_SELLER : f.sellerId);
+        const s = isHouse ? {} : ((await tx.get(sellerRef)).data() as any) || {};
         const sign = hidden ? -1 : 1;
         tx.update(ref, { status: hidden ? 'HIDDEN' : 'PUBLISHED', moderatedAt: new Date().toISOString() });
+        // Store-sold orders have no seller rating to adjust
+        if (isHouse) return HOUSE_SELLER;
         // A review from before a rating reset (reinstatement) is no longer part of the rating
         if (s.ratingResetAt && String(f.createdAt) <= String(s.ratingResetAt)) return f.sellerId;
         tx.set(
@@ -457,7 +468,7 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
         return f.sellerId;
       });
       if (!sellerId) return res.status(404).json({ error: 'Review not found.' });
-      forgetFeedback(sellerId);
+      if (sellerId !== HOUSE_SELLER) forgetFeedback(sellerId);
       productReviewCache.clear();
       res.json({ success: true });
     } catch (err) {

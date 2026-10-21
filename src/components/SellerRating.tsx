@@ -112,6 +112,28 @@ export const SellerScoreCards: React.FC<{ shop: ShopInfo | null; className?: str
   );
 };
 
+/** Product cards / product page: "★★★★☆ 4.6 (23)", or "No ratings yet". Product rating and
+ * reviewCount are updated by the server when a buyer rates a delivered order. */
+export const ProductRatingBadge: React.FC<{ rating?: number; reviewCount?: number; size?: number; className?: string }> = ({
+  rating,
+  reviewCount,
+  size = 12,
+  className = '',
+}) => {
+  const count = Number(reviewCount) || 0;
+  if (!count) {
+    return <span className={`text-[11px] font-semibold text-[#787774] ${className}`}>No ratings yet</span>;
+  }
+  const value = Math.max(0, Math.min(5, Number(rating) || 0));
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] ${className}`} title={`${value.toFixed(1)} out of 5 from ${count} ${count === 1 ? 'rating' : 'ratings'}`}>
+      <Stars value={value} size={size} />
+      <strong className="text-[#141413]">{value.toFixed(1)}</strong>
+      <span className="text-[#575653]">({count})</span>
+    </span>
+  );
+};
+
 /** "★★★★☆ 4.6 (23 ratings) · 96% positive", or "New seller" when nobody has rated yet */
 export const SellerRatingBadge: React.FC<{ shop: Pick<ShopInfo, 'ratingAvg' | 'ratingCount' | 'positivePercent'> | null; className?: string }> = ({
   shop,

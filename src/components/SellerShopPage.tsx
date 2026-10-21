@@ -4,7 +4,7 @@ import { ProductImage } from './ProductImage';
 import { SellerAvatar } from './SellerAvatar';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
-import { fetchShop, SellerRatingBadge, SellerScoreCards, Stars, type ShopInfo } from './SellerRating';
+import { fetchShop, ProductRatingBadge, SellerRatingBadge, SellerScoreCards, Stars, type ShopInfo } from './SellerRating';
 
 // A seller's shop inside the store (#shop/<sellerId>): the shop's name, picture and city, and every
 // live product it sells, with search, category filter and sorting. Products come from the catalog
@@ -205,6 +205,7 @@ export const SellerShopPage: React.FC<{
                         >
                           {p.name}
                         </h3>
+                        <ProductRatingBadge rating={p.rating} reviewCount={p.reviewCount} className="mt-1" />
                       </div>
                     </div>
                     <div className="px-3 pb-3 pt-2 border-t border-black/10 flex flex-wrap items-center justify-between gap-2">

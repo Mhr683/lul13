@@ -1,0 +1,12 @@
+{
+  "hosting": {
+    "public": "hosting",
+    "ignore": ["**/.*"]
+  },
+  "firestore": [
+    {
+      "database": "ai-studio-1469bab5-af17-489c-8d0c-fc6bc6a1f36e",
+      "rules": "firestore.rules"
+    }
+  ]
+}

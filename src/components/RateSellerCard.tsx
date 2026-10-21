@@ -37,13 +37,15 @@ export const RateSellerCard: React.FC<{
     };
   }, [orderNumber, token]);
 
-  if (!sellerId || checking) return null;
+  if (checking) return null;
+  // Orders sold by the store itself have no marketplace seller; the buyer rates the products
+  const isHouse = !sellerId || sellerId === 'house';
 
   if (rated) {
     return (
       <div className="p-4 bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs flex items-center gap-2">
         <span className="text-base">{'★'.repeat(rated)}{'☆'.repeat(5 - rated)}</span>
-        Thank you! You rated {sellerName || 'the seller'} for this order.
+        Thank you! You rated {isHouse ? 'this order' : `${sellerName || 'the seller'} for this order`}.
       </div>
     );
   }
@@ -62,7 +64,7 @@ export const RateSellerCard: React.FC<{
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Could not save your review.');
-      forgetShopInfo(sellerId);
+      if (!isHouse && sellerId) forgetShopInfo(sellerId);
       setRated(rating);
     } catch (err: any) {
       setError(err.message);
@@ -74,8 +76,14 @@ export const RateSellerCard: React.FC<{
   return (
     <div className="p-4 sm:p-5 bg-white border-2 border-[#0E7A43]/40 space-y-3 text-xs text-[#141413]">
       <div>
-        <h3 className="text-sm font-bold">How was your order from {sellerName || 'this seller'}?</h3>
-        <p className="text-[#575653]">Your rating helps other customers choose good sellers. It is shown on the seller's shop page.</p>
+        <h3 className="text-sm font-bold">
+          {isHouse ? 'How was your order?' : `How was your order from ${sellerName || 'this seller'}?`}
+        </h3>
+        <p className="text-[#575653]">
+          {isHouse
+            ? 'Your rating is shown on the products you bought and helps other customers choose.'
+            : "Your rating helps other customers choose good sellers. It is shown on the products and on the seller's shop page."}
+        </p>
       </div>
       <div className="flex items-center gap-1" onMouseLeave={() => setHover(0)}>
         {[1, 2, 3, 4, 5].map((i) => (

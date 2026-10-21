@@ -29,6 +29,9 @@ function createDb(): Firestore {
 export const db = createDb();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+// Always show Google's account chooser, so a person can sign in with their own Gmail whichever
+// Google account the browser is already signed in to ("Use another account" adds a new one)
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export async function getAuthToken(): Promise<string | null> {
   const user = auth.currentUser;
