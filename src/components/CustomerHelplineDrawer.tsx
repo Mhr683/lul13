@@ -134,7 +134,10 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
       }
     };
     poll();
-    const timer = setInterval(poll, 8000);
+    // Replies from the store team; only while the chat is on screen
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') poll();
+    }, 15_000);
     return () => {
       cancelled = true;
       clearInterval(timer);

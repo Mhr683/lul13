@@ -95,7 +95,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
     }
   }, [page, initialOrderNumber, initialPhone, initialToken]);
 
-  // Keep the tracked order live: re-check every 30 s while the page is open and visible
+  // Keep the tracked order live: re-check every minute while the page is open and visible
   const lastTrackRef = React.useRef<{ order: string; phone: string; token: string } | null>(null);
   useEffect(() => {
     if (page !== 'ORDER_TRACKING' || !trackedOrder) return;
@@ -104,7 +104,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
         const last = lastTrackRef.current;
         executeTrackOrder(last.order, last.phone, true, last.token);
       }
-    }, 30_000);
+    }, 60_000);
     return () => clearInterval(timer);
   }, [page, trackedOrder?.orderNumber]);
 

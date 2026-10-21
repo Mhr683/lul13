@@ -404,10 +404,19 @@ export const AdminDashboardView: React.FC<{
     }
   };
 
+  // Customer inbox: checked every minute while the admin app is in front (the server keeps the list
+  // in memory, so this costs no database reads most of the time)
   useEffect(() => {
     fetchInboxTickets();
-    const interval = setInterval(fetchInboxTickets, 12000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchInboxTickets();
+    }, 60_000);
+    const onVisible = () => document.visibilityState === 'visible' && fetchInboxTickets();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const handleSimulateIncomingMessage = async (e: React.FormEvent) => {

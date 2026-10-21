@@ -189,6 +189,11 @@ async function resolveUserRole(decoded: DecodedAuthUser): Promise<string> {
 }
 
 async function resolveUserRoleFresh(decoded: DecodedAuthUser): Promise<string> {
+  return (await resolveUserFresh(decoded)).role;
+}
+
+// Reads (and if needed creates / updates) users/{uid}; returns the role and the resulting profile
+async function resolveUserFresh(decoded: DecodedAuthUser): Promise<{ role: string; profile: any }> {
   const email = String(decoded.email || '').trim().toLowerCase();
   const verified = Boolean(decoded.email_verified);
   const userRef = adminDb.collection('users').doc(decoded.uid);
@@ -211,18 +216,22 @@ async function resolveUserRoleFresh(decoded: DecodedAuthUser): Promise<string> {
 
   const now = new Date().toISOString();
   if (!snap.exists) {
-    await userRef.set({
+    const profile = {
       uid: decoded.uid,
       email: email.slice(0, 250),
       name: String(decoded.name || email.split('@')[0] || 'Customer').slice(0, 110),
       role,
       createdAt: now,
       updatedAt: now,
-    });
-  } else if (currentRole !== role) {
-    await userRef.update({ role, updatedAt: now });
+    };
+    await userRef.set(profile);
+    return { role, profile };
   }
-  return role;
+  if (currentRole !== role) {
+    await userRef.update({ role, updatedAt: now });
+    return { role, profile: { ...snap.data(), role, updatedAt: now } };
+  }
+  return { role, profile: snap.data() };
 }
 
 
@@ -395,11 +404,10 @@ app.post('/api/auth/sync', requireAuth, async (req, res) => {
   try {
     const authHeader = String(req.headers.authorization || '');
     const decoded = await admin.auth().verifyIdToken(authHeader.slice(7).trim());
-    // Sign-in: always the fresh role (this is where admin invites are applied)
-    const role = await resolveUserRoleFresh(decoded);
+    // Sign-in: always the fresh role (this is where admin invites are applied); one profile read
+    const { role, profile } = await resolveUserFresh(decoded);
     roleCache.set(decoded.uid, { role, email: String(decoded.email || '').trim().toLowerCase(), at: Date.now() });
-    const snap = await adminDb.collection('users').doc(decoded.uid).get();
-    res.json({ success: true, role, profile: snap.data(), emailVerified: Boolean(decoded.email_verified) });
+    res.json({ success: true, role, profile, emailVerified: Boolean(decoded.email_verified) });
   } catch (err) {
     console.error('[auth/sync] failed:', err);
     res.status(503).json({ error: 'Could not load your account right now. Please try again.' });
@@ -2929,6 +2937,9 @@ app.post('/api/orders/create', async (req, res) => {
   }
 });
 
+type RelatedOrder = { orderNumber: string; status: string; total: number; createdAt: string };
+const relatedOrdersCache = new Map<string, { at: number; list: RelatedOrder[] }>();
+
 // 6.2. GET /api/orders/track (Secure Order Tracking for Guests & Members)
 app.get('/api/orders/track', async (req, res) => {
   const { order, token, phone } = req.query;
@@ -2989,20 +3000,25 @@ app.get('/api/orders/track', async (req, res) => {
     }
 
     // Other orders placed with the same phone number (shown once this order has been verified)
-    let relatedOrders: Array<{ orderNumber: string; status: string; total: number; createdAt: string }> = [];
+    // (kept for 5 minutes per number: the tracking page refreshes itself while it is open)
+    let relatedOrders: RelatedOrder[] = [];
     if (orderData.customerPhone) {
       try {
-        const sameNumber = await adminDb
-          .collection('orders')
-          .where('customerPhone', '==', orderData.customerPhone)
-          .limit(30)
-          .get();
-        relatedOrders = sameNumber.docs
-          .map((d) => d.data() as Order)
-          .filter((o) => o.orderNumber !== orderData!.orderNumber)
-          .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-          .slice(0, 20)
-          .map((o) => ({ orderNumber: o.orderNumber, status: o.status, total: o.total, createdAt: o.createdAt }));
+        const phoneKey = String(orderData.customerPhone);
+        const hit = relatedOrdersCache.get(phoneKey);
+        let all: RelatedOrder[];
+        if (hit && Date.now() - hit.at < 5 * 60_000) {
+          all = hit.list;
+        } else {
+          const sameNumber = await adminDb.collection('orders').where('customerPhone', '==', phoneKey).limit(30).get();
+          all = sameNumber.docs
+            .map((d) => d.data() as Order)
+            .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+            .map((o) => ({ orderNumber: o.orderNumber, status: o.status, total: o.total, createdAt: o.createdAt }));
+          relatedOrdersCache.set(phoneKey, { at: Date.now(), list: all });
+          if (relatedOrdersCache.size > 5000) relatedOrdersCache.clear();
+        }
+        relatedOrders = all.filter((o) => o.orderNumber !== orderData!.orderNumber).slice(0, 20);
       } catch (relErr) {
         console.warn('[track] related orders lookup failed:', relErr);
       }
@@ -4476,7 +4492,32 @@ const isRealEmail = (email?: string) =>
 const HUMAN_REQUEST_PATTERN =
   /\b(agent|human|real person|representative|insaan|insan|banda|bande se|kisi se baat|call me|call karo|manager|complaint|shikayat)\b/i;
 
+// Support conversations: the admin inbox list and each open website chat are served from memory
+// (they used to be read from Firestore every few seconds). Every change made on this server updates
+// the copy at once; the time limits cover changes made by another server instance.
+const ticketListCache: { at: number; list: any[] | null } = { at: 0, list: null };
+const ticketDocCache = new Map<string, { at: number; ticket: CustomerTicket }>();
+const TICKET_LIST_TTL = 60_000;
+const TICKET_DOC_TTL = 60_000;
+function ticketChanged(id: string, ticket: CustomerTicket | null) {
+  ticketListCache.list = null;
+  if (ticket) ticketDocCache.set(id, { at: Date.now(), ticket });
+  else ticketDocCache.delete(id);
+  if (ticketDocCache.size > 5000) ticketDocCache.clear();
+}
+async function getTicketCached(id: string): Promise<CustomerTicket | null> {
+  const hit = ticketDocCache.get(id);
+  if (hit && Date.now() - hit.at < TICKET_DOC_TTL) return hit.ticket;
+  const snap = await adminDb.collection('support_tickets').doc(id).get();
+  const ticket = snap.exists ? (snap.data() as CustomerTicket) : null;
+  if (ticket) ticketDocCache.set(id, { at: Date.now(), ticket });
+  return ticket;
+}
+
 async function loadStoreSettingsForSupport(): Promise<any> {
+  // The catalog copy already holds the store settings (no read)
+  const cached = catalogStore.settings();
+  if (cached) return { ...DEFAULT_SETTINGS, ...cached };
   try {
     const snap = await adminDb.collection('settings').doc('store_config').get();
     if (snap.exists) return { ...DEFAULT_SETTINGS, ...snap.data() };
@@ -4580,10 +4621,10 @@ app.post('/api/ai/customer-support', async (req, res) => {
     let ticket: CustomerTicket | null = null;
     if (typeof chatId === 'string' && typeof chatKey === 'string' && /^chat-[a-f0-9]{24}$/.test(chatId)) {
       const ref = adminDb.collection('support_tickets').doc(chatId);
-      const snap = await ref.get();
-      if (snap.exists && (snap.data() as CustomerTicket).chatKeyHash === hashChatKey(chatKey)) {
+      const existing = await getTicketCached(chatId);
+      if (existing && existing.chatKeyHash === hashChatKey(chatKey)) {
         ticketRef = ref;
-        ticket = snap.data() as CustomerTicket;
+        ticket = existing;
       }
     }
 
@@ -4637,6 +4678,7 @@ app.post('/api/ai/customer-support', async (req, res) => {
       ...(isRealEmail(customerEmail) && !ticket.email ? { email: String(customerEmail).trim().toLowerCase() } : {}),
     };
     await ticketRef.set(updates);
+    ticketChanged(ticket.id, updates as CustomerTicket);
 
     res.json({
       success: true,
@@ -4668,9 +4710,8 @@ app.get('/api/helpline/chat/:chatId', async (req, res) => {
     return res.status(404).json({ error: 'Chat not found.' });
   }
   try {
-    const snap = await adminDb.collection('support_tickets').doc(chatId).get();
-    const ticket = snap.data() as CustomerTicket | undefined;
-    if (!snap.exists || !ticket || ticket.chatKeyHash !== hashChatKey(key)) {
+    const ticket = await getTicketCached(chatId);
+    if (!ticket || ticket.chatKeyHash !== hashChatKey(key)) {
       return res.status(404).json({ error: 'Chat not found.' });
     }
     res.json({
@@ -4737,6 +4778,7 @@ app.post('/api/helpline/contact-ticket', async (req, res) => {
 
   try {
     await adminDb.collection('support_tickets').doc(id).set(ticket);
+    ticketChanged(id, ticket);
   } catch (logErr) {
     console.error('Failed to save support ticket to Firestore:', logErr);
     return res.status(503).json({ error: 'Service temporarily unavailable: failed to log support ticket.' });
@@ -4755,13 +4797,18 @@ app.post('/api/helpline/contact-ticket', async (req, res) => {
 // GET /api/helpline/tickets (Admin Inbox)
 app.get('/api/helpline/tickets', requireAdmin, async (_req, res) => {
   try {
-    const snap = await adminDb.collection('support_tickets').orderBy('createdAt', 'desc').limit(100).get();
-    const list = snap.docs.map((d) => {
-      const { chatKeyHash: _omit, ...rest } = d.data() as any;
-      return { id: d.id, ...rest };
-    });
-    list.sort((a: any, b: any) => String(b.lastMessageAt || b.createdAt).localeCompare(String(a.lastMessageAt || a.createdAt)));
-    res.json({ success: true, tickets: list });
+    if (!ticketListCache.list || Date.now() - ticketListCache.at > TICKET_LIST_TTL) {
+      const snap = await adminDb.collection('support_tickets').orderBy('createdAt', 'desc').limit(100).get();
+      const list = snap.docs.map((d) => {
+        const { chatKeyHash: _omit, ...rest } = d.data() as any;
+        return { id: d.id, ...rest };
+      });
+      list.sort((a: any, b: any) => String(b.lastMessageAt || b.createdAt).localeCompare(String(a.lastMessageAt || a.createdAt)));
+      ticketListCache.list = list;
+      ticketListCache.at = Date.now();
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, tickets: ticketListCache.list });
   } catch (err: any) {
     console.error('Failed to fetch support tickets from Firestore:', err);
     res.status(503).json({ error: 'Service temporarily unavailable: failed to fetch support tickets.' });
@@ -4821,6 +4868,7 @@ app.post('/api/helpline/tickets/:id/merchant-reply', requireAdmin, async (req, r
       updates.status = status;
     }
     await ticketRef.update(updates);
+    ticketChanged(id, { ...existing, ...updates } as CustomerTicket);
     const { chatKeyHash: _omit, ...publicExisting } = existing as any;
     res.json({
       success: true,
@@ -4848,6 +4896,7 @@ app.patch('/api/helpline/tickets/:id', requireAdmin, async (req, res) => {
     const existing = ticketSnap.data() as CustomerTicket;
     if (status) {
       await ticketRef.update({ status, updatedAt: new Date().toISOString() });
+      ticketChanged(id, { ...existing, status } as CustomerTicket);
     }
     res.json({ success: true, ticket: { ...existing, status: status || existing.status, id } });
   } catch (err: any) {

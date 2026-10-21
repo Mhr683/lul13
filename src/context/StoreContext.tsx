@@ -72,7 +72,26 @@ function readCachedProfile(): UserProfile | null {
 function writeCachedProfile(profile: UserProfile | null) {
   try {
     if (profile) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
-    else localStorage.removeItem(PROFILE_CACHE_KEY);
+    else {
+      localStorage.removeItem(PROFILE_CACHE_KEY);
+      localStorage.removeItem(PROFILE_SYNCED_KEY);
+    }
+  } catch {}
+}
+// When the server last confirmed this user's profile / role
+const PROFILE_SYNCED_KEY = 'store_profile_synced_v1';
+const PROFILE_SYNC_EVERY_MS = 6 * 60 * 60 * 1000;
+function readProfileSyncedAt(uid: string): number {
+  try {
+    const v = JSON.parse(localStorage.getItem(PROFILE_SYNCED_KEY) || 'null');
+    return v && v.uid === uid ? Number(v.at) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+function writeProfileSyncedAt(uid: string) {
+  try {
+    localStorage.setItem(PROFILE_SYNCED_KEY, JSON.stringify({ uid, at: Date.now() }));
   } catch {}
 }
 import {
@@ -421,7 +440,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (user) {
         // Hold the UI (e.g. the admin gate) until this user's role is known, unless the cached
         // profile from the last visit already belongs to this user
-        if (readCachedProfile()?.uid !== user.uid) setAuthReady(false);
+        const cached = readCachedProfile();
+        if (cached?.uid !== user.uid) setAuthReady(false);
+        // The profile confirmed by the server is reused for up to 6 hours, so opening the app does not
+        // read the account every time ("Check again" / refreshAccount always asks the server)
+        if (cached?.uid === user.uid && Date.now() - readProfileSyncedAt(user.uid) < PROFILE_SYNC_EVERY_MS) {
+          setUserProfile(cached);
+          setAuthReady(true);
+          return;
+        }
         // The server decides the role (owner / invited admin / customer) and keeps users/{uid} in sync
         try {
           const token = await user.getIdToken();
@@ -433,6 +460,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const data = await syncRes.json();
             if (data?.profile) {
               setUserProfile(data.profile as UserProfile);
+              writeProfileSyncedAt(user.uid);
               setAuthReady(true);
               return;
             }
@@ -786,7 +814,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       });
       if (syncRes.ok) {
         const data = await syncRes.json();
-        if (data?.profile) setUserProfile(data.profile as UserProfile);
+        if (data?.profile) {
+          setUserProfile(data.profile as UserProfile);
+          writeProfileSyncedAt(auth.currentUser.uid);
+        }
       }
     } catch {}
     setEmailVerified(Boolean(auth.currentUser?.emailVerified));
