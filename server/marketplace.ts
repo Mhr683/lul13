@@ -786,6 +786,201 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
 
   // ---------------------------------------------------------------- admin: sellers
 
+  // ---------------------------------------------------------------- admin: seller report & health
+
+  const DAY = 24 * 60 * 60 * 1000;
+  const NEW_STATUSES = ['PENDING_CONFIRMATION', 'PENDING'];
+  const TO_PACK_STATUSES = ['CONFIRMED', 'PROCESSING'];
+  const IN_TRANSIT_STATUSES = ['SHIPPED', 'OUT_FOR_DELIVERY'];
+  const OPEN_FOR_SHIPPING = [...NEW_STATUSES, ...TO_PACK_STATUSES, 'PACKED'];
+  const units = (o: any) => (o.items || []).reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0);
+  const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0);
+
+  type HealthReason = { level: 'RED' | 'YELLOW' | 'GREEN'; text: string };
+
+  // Everything the admin needs to judge a seller, worked out from the cached orders and the catalog copy
+  const buildSellerReport = (seller: any, orders: any[], products: any[]) => {
+    const now = Date.now();
+    const placedWithin = (o: any, ms: number) => now - Date.parse(o.createdAt || 0) <= ms;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const count = (statuses: string[]) => orders.filter((o) => statuses.includes(o.status)).length;
+    const counts = {
+      total: orders.length,
+      new: count(NEW_STATUSES),
+      toPack: count(TO_PACK_STATUSES),
+      packed: count(['PACKED']),
+      inTransit: count(IN_TRANSIT_STATUSES),
+      delivered: count(['DELIVERED']),
+      cancelled: count(['CANCELLED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED']),
+      returned: count(['RETURNED']),
+      refunded: count(['REFUNDED']),
+    };
+
+    const period = (filter: (o: any) => boolean) => {
+      const list = orders.filter(filter);
+      const live = list.filter((o) => !CLOSED_STATUSES.includes(o.status));
+      const delivered = list.filter((o) => o.status === 'DELIVERED');
+      return {
+        orders: list.length,
+        units: live.reduce((s, o) => s + units(o), 0),
+        sales: money(live.reduce((s, o) => s + (Number(o.total) || 0), 0)),
+        sellerEarning: money(delivered.reduce((s, o) => s + (Number(o.sellerEarning) || 0), 0)),
+        storeCommission: money(delivered.reduce((s, o) => s + (Number(o.commissionAmount) || 0), 0)),
+        returns: list.filter((o) => o.status === 'RETURNED').length,
+        cancellations: list.filter((o) => o.status === 'CANCELLED').length,
+      };
+    };
+    const periods = {
+      today: period((o) => Date.parse(o.createdAt || 0) >= startOfToday.getTime()),
+      week: period((o) => placedWithin(o, 7 * DAY)),
+      month: period((o) => placedWithin(o, 30 * DAY)),
+      all: period(() => true),
+    };
+
+    // Rates over the last 30 days (all time while the shop is young)
+    const recent = orders.filter((o) => placedWithin(o, 30 * DAY));
+    const basis = recent.length >= 5 ? recent : orders;
+    const cancelRate = pct(basis.filter((o) => o.status === 'CANCELLED').length, basis.length);
+    const finished = basis.filter((o) => ['DELIVERED', 'RETURNED', 'REFUNDED'].includes(o.status));
+    const returnRate = pct(basis.filter((o) => ['RETURNED', 'REFUNDED'].includes(o.status)).length, finished.length);
+    const late = orders.filter((o) => OPEN_FOR_SHIPPING.includes(o.status) && now - Date.parse(o.createdAt || 0) > 3 * DAY);
+    const oldestOpenDays = orders
+      .filter((o) => OPEN_FOR_SHIPPING.includes(o.status))
+      .reduce((m, o) => Math.max(m, Math.floor((now - Date.parse(o.createdAt || 0)) / DAY)), 0);
+
+    const live = products.filter((p) => p.status === 'ACTIVE');
+    const rated = products.filter((p) => Number(p.reviewCount) > 0);
+    const productStats = {
+      total: products.filter((p) => p.status !== 'ARCHIVED').length,
+      live: live.length,
+      draft: products.filter((p) => p.status === 'DRAFT' && !p.adminHidden).length,
+      outOfStock: live.filter((p) => Number(p.stock) <= 0).length,
+      hiddenByStore: products.filter((p) => p.adminHidden).length,
+      reviews: rated.reduce((s, p) => s + Number(p.reviewCount || 0), 0),
+      avgRating: rated.length
+        ? Math.round((rated.reduce((s, p) => s + Number(p.rating || 0) * Number(p.reviewCount || 0), 0) / Math.max(1, rated.reduce((s, p) => s + Number(p.reviewCount || 0), 0))) * 10) / 10
+        : 0,
+    };
+
+    // Best sellers by units in orders that were not cancelled
+    const byProduct = new Map<string, { productId: string; name: string; units: number; sales: number }>();
+    for (const o of orders) {
+      if (CLOSED_STATUSES.includes(o.status)) continue;
+      for (const it of o.items || []) {
+        const row = byProduct.get(it.productId) || { productId: it.productId, name: it.name, units: 0, sales: 0 };
+        row.units += Number(it.quantity) || 0;
+        row.sales = money(row.sales + (Number(it.price) || 0) * (Number(it.quantity) || 0));
+        byProduct.set(it.productId, row);
+      }
+    }
+    const topProducts = Array.from(byProduct.values()).sort((a, b) => b.units - a.units).slice(0, 5);
+
+    // Account health: each rule can make the account yellow (watch) or red (warn now)
+    const reasons: HealthReason[] = [];
+    let score = 100;
+    const rule = (bad: boolean, worse: boolean, yellowText: string, redText: string, yellowCost: number, redCost: number) => {
+      if (worse) {
+        reasons.push({ level: 'RED', text: redText });
+        score -= redCost;
+      } else if (bad) {
+        reasons.push({ level: 'YELLOW', text: yellowText });
+        score -= yellowCost;
+      }
+    };
+    if (seller.status === 'SUSPENDED') {
+      reasons.push({ level: 'RED', text: 'The account is suspended.' });
+      score -= 50;
+    }
+    rule(cancelRate > 5, cancelRate > 10, `Cancellation rate ${cancelRate}% (should stay under 5%).`, `Cancellation rate ${cancelRate}% is too high (over 10%).`, 15, 30);
+    rule(returnRate > 5, returnRate > 10, `Return rate ${returnRate}% (should stay under 5%).`, `Return rate ${returnRate}% is too high (over 10%).`, 15, 30);
+    rule(late.length >= 1, late.length >= 3, `${late.length} order not shipped within 3 days.`, `${late.length} orders not shipped within 3 days.`, 10, 30);
+    rule(productStats.hiddenByStore > 0, productStats.hiddenByStore >= 5, `${productStats.hiddenByStore} product(s) taken off the store by you.`, `${productStats.hiddenByStore} products taken off the store by you.`, 10, 25);
+    rule(live.length > 0 && productStats.outOfStock / live.length > 0.5, false, `${productStats.outOfStock} of ${live.length} live products are out of stock.`, '', 10, 0);
+    rule(productStats.avgRating > 0 && productStats.avgRating < 3.5, productStats.avgRating > 0 && productStats.avgRating < 2.5, `Average rating ${productStats.avgRating}/5.`, `Average rating ${productStats.avgRating}/5 is very low.`, 10, 25);
+    score = Math.max(0, score);
+    const level: 'GREEN' | 'YELLOW' | 'RED' = reasons.some((r) => r.level === 'RED') || score < 60
+      ? 'RED'
+      : reasons.some((r) => r.level === 'YELLOW') || score < 85
+      ? 'YELLOW'
+      : 'GREEN';
+    if (!reasons.length) {
+      reasons.push({
+        level: 'GREEN',
+        text: orders.length ? 'Orders are shipped on time with few cancellations and returns.' : 'New shop: no orders yet.',
+      });
+    }
+    const advice =
+      level === 'RED'
+        ? 'Send this seller a warning now. If it does not improve, take their products off the store or suspend the account.'
+        : level === 'YELLOW'
+        ? 'Keep an eye on this seller and send a friendly reminder.'
+        : 'No action needed.';
+
+    return {
+      counts,
+      periods,
+      rates: { cancelRate, returnRate },
+      lateToShip: late.length,
+      oldestOpenDays,
+      products: productStats,
+      topProducts,
+      health: { level, score, reasons, advice },
+      earnings: summarizeEarnings(orders),
+      recentOrders: orders.slice(0, 15).map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        status: o.status,
+        total: o.total,
+        units: units(o),
+        customerName: o.customerName,
+        city: o.shippingAddressSummary ? String(o.shippingAddressSummary).split(',').slice(-2, -1)[0]?.trim() || '' : '',
+        createdAt: o.createdAt,
+      })),
+    };
+  };
+
+  const productsOf = async (sellerId: string) =>
+    d.allProductsOfSeller(sellerId) ||
+    (await adminDb.collection('products').where('sellerId', '==', sellerId).limit(5000).get()).docs.map((doc) => ({
+      ...(doc.data() as any),
+      id: doc.id,
+    }));
+
+  // Full report of one seller (opened from the admin's seller list)
+  app.get('/api/admin/sellers/:id/report', d.requireAdmin, async (req, res) => {
+    const id = str(req.params.id, 128);
+    try {
+      const [sellerSnap, privSnap, orders, products, payoutsSnap, threadsAgg] = await Promise.all([
+        sellersCol().doc(id).get(),
+        adminDb.collection('seller_private').doc(id).get(),
+        sellerOrdersCached(id),
+        productsOf(id),
+        adminDb.collection('payouts').where('sellerId', '==', id).limit(100).get(),
+        adminDb.collection('seller_threads').where('sellerId', '==', id).count().get().catch(() => null),
+      ]);
+      if (!sellerSnap.exists) return res.status(404).json({ error: 'Seller not found.' });
+      const seller = { ...(sellerSnap.data() as any), id };
+      const payouts = payoutsSnap.docs
+        .map((doc) => ({ ...(doc.data() as any), id: doc.id }))
+        .sort((a, b) => String(b.paidAt).localeCompare(String(a.paidAt)));
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        success: true,
+        seller,
+        privateData: privSnap.exists ? privSnap.data() : null,
+        commissionPercent: await commissionFor(seller),
+        report: buildSellerReport(seller, orders, products),
+        payouts,
+        conversations: threadsAgg ? threadsAgg.data().count : null,
+      });
+    } catch (err) {
+      console.error('[admin/sellers report] failed:', err);
+      res.status(503).json({ error: 'Could not load the seller report. Please try again.' });
+    }
+  });
+
   app.get('/api/admin/sellers', d.requireAdmin, async (_req, res) => {
     try {
       const [sellersSnap, privSnap] = await Promise.all([sellersCol().limit(500).get(), adminDb.collection('seller_private').limit(500).get()]);
@@ -793,17 +988,23 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const sellers = await Promise.all(
         sellersSnap.docs.map(async (doc) => {
           const s = doc.data() as any;
-          let summary = { pending: 0, available: 0, paid: 0, commission: 0 };
+          let summary: any = { pending: 0, available: 0, paid: 0, commission: 0 };
           let productCount = 0;
+          let overview: any = null;
           if (s.status === 'APPROVED' || s.status === 'SUSPENDED') {
-            const [orders, count] = await Promise.all([
-              sellerOrdersCached(doc.id),
-              adminDb.collection('products').where('sellerId', '==', doc.id).count().get(),
-            ]);
-            summary = summarizeEarnings(orders);
-            productCount = count.data().count;
+            const [orders, products] = await Promise.all([sellerOrdersCached(doc.id), productsOf(doc.id)]);
+            const report = buildSellerReport({ ...s, id: doc.id }, orders, products);
+            summary = report.earnings;
+            productCount = report.products.total;
+            overview = {
+              health: { level: report.health.level, score: report.health.score, reason: report.health.reasons[0]?.text || '' },
+              counts: report.counts,
+              unitsSold: report.periods.all.units,
+              sales: report.periods.all.sales,
+              lateToShip: report.lateToShip,
+            };
           }
-          return { ...s, id: doc.id, privateData: privById.get(doc.id) || null, summary, productCount };
+          return { ...s, id: doc.id, privateData: privById.get(doc.id) || null, summary, productCount, overview };
         })
       );
       sellers.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));

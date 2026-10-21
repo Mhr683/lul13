@@ -5,6 +5,7 @@ import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
 import type { SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 import { SellerAvatar } from './SellerAvatar';
+import { AdminSellerDetail, HEALTH_STYLE } from './AdminSellerDetail';
 
 // Admin: marketplace sellers (applications, approval, suspension, commission) and payouts.
 
@@ -12,6 +13,13 @@ type AdminSeller = SellerShop & {
   privateData: SellerPrivate | null;
   summary: { pending: number; available: number; paid: number; commission: number };
   productCount: number;
+  overview: null | {
+    health: { level: 'GREEN' | 'YELLOW' | 'RED'; score: number; reason: string };
+    counts: { total: number; new: number; toPack: number; packed: number; inTransit: number; delivered: number; cancelled: number; returned: number; refunded: number };
+    unitsSold: number;
+    sales: number;
+    lateToShip: number;
+  };
 };
 
 async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
@@ -40,6 +48,9 @@ export const AdminSellersPanel: React.FC = () => {
   const [filter, setFilter] = useState<'PENDING' | 'APPROVED' | 'OTHER' | 'ALL'>('PENDING');
   const [busy, setBusy] = useState<string | null>(null);
   const [commissionDraft, setCommissionDraft] = useState('');
+  const [search, setSearch] = useState('');
+  const [healthFilter, setHealthFilter] = useState<'ALL' | 'GREEN' | 'YELLOW' | 'RED'>('ALL');
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -62,12 +73,19 @@ export const AdminSellersPanel: React.FC = () => {
     if (sellers && filter === 'PENDING' && !sellers.some((s) => s.status === 'PENDING') && sellers.length > 0) setFilter('APPROVED');
   }, [sellers]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Search by shop / owner name, email, phone or city (e.g. the shop a complaint is about)
   const visible = useMemo(() => {
-    const list = sellers || [];
-    if (filter === 'ALL') return list;
-    if (filter === 'OTHER') return list.filter((s) => s.status === 'REJECTED' || s.status === 'SUSPENDED');
-    return list.filter((s) => s.status === filter);
-  }, [sellers, filter]);
+    const q = search.trim().toLowerCase();
+    let list = sellers || [];
+    if (q) {
+      list = list.filter((s) =>
+        [s.shopName, s.ownerName, s.ownerEmail, s.phone, s.city].some((v) => String(v || '').toLowerCase().includes(q))
+      );
+    } else if (filter === 'OTHER') list = list.filter((s) => s.status === 'REJECTED' || s.status === 'SUSPENDED');
+    else if (filter !== 'ALL') list = list.filter((s) => s.status === filter);
+    if (healthFilter !== 'ALL') list = list.filter((s) => s.overview?.health.level === healthFilter);
+    return list;
+  }, [sellers, filter, search, healthFilter]);
 
   const shopById = useMemo(() => new Map((sellers || []).map((s) => [s.id, s.shopName])), [sellers]);
 
@@ -108,6 +126,29 @@ export const AdminSellersPanel: React.FC = () => {
     APPROVED: (sellers || []).filter((s) => s.status === 'APPROVED').length,
     OTHER: (sellers || []).filter((s) => s.status === 'REJECTED' || s.status === 'SUSPENDED').length,
   };
+  const healthCount = (level: string) => (sellers || []).filter((s) => s.overview?.health.level === level).length;
+  const totals = (sellers || []).reduce(
+    (a, s) => ({
+      toShip: a.toShip + (s.overview ? s.overview.counts.new + s.overview.counts.toPack + s.overview.counts.packed : 0),
+      inTransit: a.inTransit + (s.overview?.counts.inTransit || 0),
+      delivered: a.delivered + (s.overview?.counts.delivered || 0),
+      returned: a.returned + (s.overview ? s.overview.counts.returned + s.overview.counts.refunded : 0),
+      sales: a.sales + (s.overview?.sales || 0),
+    }),
+    { toShip: 0, inTransit: 0, delivered: 0, returned: 0, sales: 0 }
+  );
+
+  if (detailId) {
+    return (
+      <AdminSellerDetail
+        id={detailId}
+        onBack={() => {
+          setDetailId(null);
+          load();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-5 text-[#141413]">
@@ -122,6 +163,42 @@ export const AdminSellersPanel: React.FC = () => {
         <button type="button" onClick={load} className="px-3 py-2 border border-black/20 bg-white text-xs cursor-pointer">
           <RefreshCw className="w-3.5 h-3.5 inline mr-1" /> Refresh
         </button>
+      </div>
+
+      {/* All sellers at a glance */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-xs">
+        {(
+          [
+            ['Sellers', (sellers || []).length, ''],
+            ['Active', counts.APPROVED, ''],
+            ['New applications', counts.PENDING, counts.PENDING > 0 ? 'bg-amber-50 border-amber-400' : ''],
+            ['Orders to ship', totals.toShip, ''],
+            ['In transit', totals.inTransit, ''],
+            ['Delivered', totals.delivered, ''],
+            ['Returned', totals.returned, ''],
+            ['Sales (all sellers)', formatPKR(totals.sales), ''],
+          ] as [string, React.ReactNode, string][]
+        ).map(([label, value, cls]) => (
+          <div key={label} className={`p-3 border ${cls || 'bg-white border-black/10'}`}>
+            <div className="text-[11px] text-[#575653]">{label}</div>
+            <div className="text-lg font-bold font-mono">{value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-bold">Account health:</span>
+        {(['ALL', 'GREEN', 'YELLOW', 'RED'] as const).map((lvl) => (
+          <button
+            key={lvl}
+            type="button"
+            onClick={() => setHealthFilter(lvl)}
+            className={`px-3 py-1.5 border font-semibold cursor-pointer ${
+              healthFilter === lvl ? 'bg-[#141413] text-white border-[#141413]' : 'bg-white border-black/20'
+            }`}
+          >
+            {lvl === 'ALL' ? 'All' : `${HEALTH_STYLE[lvl].label} (${healthCount(lvl)})`}
+          </button>
+        ))}
       </div>
 
       {/* Default commission */}
@@ -153,7 +230,13 @@ export const AdminSellersPanel: React.FC = () => {
         </span>
       </div>
 
-      {/* Filters */}
+      {/* Search and filters */}
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search a shop by name, owner, email, phone or city (e.g. the shop a complaint is about)"
+        className="w-full px-3 py-2.5 bg-white border border-black/20 text-xs"
+      />
       <div className="flex flex-wrap gap-2">
         {(
           [
@@ -185,13 +268,38 @@ export const AdminSellersPanel: React.FC = () => {
           {visible.map((s) => (
             <div key={s.id} className="p-4 bg-white border border-black/10 text-xs space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDetailId(s.id)}
+                  title="Open the full seller report"
+                  className="flex items-center gap-2 cursor-pointer text-left"
+                >
                   <SellerAvatar src={s.logoUrl} name={s.shopName} size={32} />
-                  <strong className="text-sm">{s.shopName}</strong>
+                  <strong className="text-sm underline decoration-dotted">{s.shopName}</strong>
                   <span className={`px-2 py-0.5 border text-[10px] font-bold ${tone[s.status]}`}>{s.status}</span>
-                </div>
+                  {s.overview && (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${HEALTH_STYLE[s.overview.health.level].badge}`}>
+                      {HEALTH_STYLE[s.overview.health.level].label} · {s.overview.health.score}
+                    </span>
+                  )}
+                </button>
                 <span className="text-[#575653]">Apply: {new Date(s.createdAt).toLocaleDateString('en-PK')}</span>
               </div>
+              {s.overview && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 p-2 bg-[#F4F3EF] border border-black/[0.06]">
+                  <span>To ship: <strong>{s.overview.counts.new + s.overview.counts.toPack + s.overview.counts.packed}</strong></span>
+                  <span>In transit: <strong>{s.overview.counts.inTransit}</strong></span>
+                  <span>Delivered: <strong>{s.overview.counts.delivered}</strong></span>
+                  <span>Returned: <strong>{s.overview.counts.returned + s.overview.counts.refunded}</strong></span>
+                  <span>Cancelled: <strong>{s.overview.counts.cancelled}</strong></span>
+                  <span>Units sold: <strong>{s.overview.unitsSold}</strong></span>
+                  {s.overview.lateToShip > 0 && <span className="text-rose-800 font-bold">{s.overview.lateToShip} late to ship</span>}
+                  {s.overview.health.level !== 'GREEN' && <span className="text-[#454441]">· {s.overview.health.reason}</span>}
+                  <button type="button" onClick={() => setDetailId(s.id)} className="ml-auto font-bold underline cursor-pointer">
+                    Full report →
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <div className="font-bold">Owner</div>
