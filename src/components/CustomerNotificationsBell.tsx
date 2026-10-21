@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, MapPin, X } from 'lucide-react';
+import { Bell, MapPin, Trash2, X } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import type { OrderTrackingEvent } from '../types/store';
 import { getSavedOrders, getUpdatesSeenAt, markUpdatesSeen } from '../services/myOrders';
@@ -22,6 +22,26 @@ interface Notice {
 
 const REFRESH_MS = 2 * 60 * 1000;
 
+// Deleted updates are only hidden on this device (the order's tracking history stays as it is)
+const HIDDEN_KEY = 'order_updates_hidden_v1';
+const CLEARED_KEY = 'order_updates_cleared_at_v1';
+const noticeKey = (n: Notice) => `${n.orderNumber}|${n.at}`;
+const readHidden = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+};
+const readClearedAt = () => {
+  try {
+    return localStorage.getItem(CLEARED_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+
 const formatWhen = (iso: string) => {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? '' : d.toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
@@ -32,7 +52,27 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
   const [deviceOrders, setDeviceOrders] = useState<OrderUpdates[]>([]);
   const [open, setOpen] = useState(false);
   const [seenAt, setSeenAt] = useState(() => getUpdatesSeenAt());
+  const [hidden, setHidden] = useState<string[]>(readHidden);
+  const [clearedAt, setClearedAt] = useState(readClearedAt);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  const deleteNotice = (n: Notice) => {
+    const next = [noticeKey(n), ...hidden].slice(0, 500);
+    setHidden(next);
+    try {
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify(next));
+    } catch {}
+  };
+  const clearAll = () => {
+    if (!notices.length) return;
+    const newest = notices[0].at;
+    setClearedAt(newest);
+    setHidden([]);
+    try {
+      localStorage.setItem(CLEARED_KEY, newest);
+      localStorage.removeItem(HIDDEN_KEY);
+    } catch {}
+  };
 
   const refresh = useCallback(async () => {
     const saved = getSavedOrders();
@@ -96,8 +136,12 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
         list.push({ orderNumber: o.orderNumber, at: ev.at, text: ev.note, location: ev.location });
       }
     }
-    return list.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
-  }, [deviceOrders, orders, firebaseUser]);
+    const hiddenSet = new Set(hidden);
+    return list
+      .filter((n) => (!clearedAt || n.at > clearedAt) && !hiddenSet.has(noticeKey(n)))
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, 40);
+  }, [deviceOrders, orders, firebaseUser, hidden, clearedAt]);
 
   const unread = notices.filter((n) => !seenAt || n.at > seenAt).length;
 
@@ -134,9 +178,20 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
         <div className="absolute right-0 top-full mt-2 z-50 w-[min(92vw,360px)] max-h-[70vh] overflow-y-auto bg-white border border-black/15 shadow-xl">
           <div className="sticky top-0 bg-white flex items-center justify-between px-4 py-3 border-b border-black/10">
             <strong className="text-sm text-[#141413]">Order updates</strong>
-            <button type="button" onClick={() => setOpen(false)} className="p-1 cursor-pointer" aria-label="Close">
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {notices.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => window.confirm('Delete all order updates from this list?') && clearAll()}
+                  className="px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Clear all
+                </button>
+              )}
+              <button type="button" onClick={() => setOpen(false)} className="p-1 cursor-pointer" aria-label="Close">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           {notices.length === 0 ? (
             <p className="p-4 text-xs text-[#575653]">No updates yet. Every update about your orders will appear here.</p>
@@ -145,14 +200,14 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
               {notices.map((n, idx) => {
                 const isNew = !seenAt || n.at > seenAt;
                 return (
-                  <li key={`${n.orderNumber}-${n.at}-${idx}`}>
+                  <li key={`${n.orderNumber}-${n.at}-${idx}`} className={`relative group ${isNew ? 'bg-amber-50' : ''}`}>
                     <button
                       type="button"
                       onClick={() => {
                         setOpen(false);
                         onOpenOrder(n.orderNumber);
                       }}
-                      className={`w-full text-left px-4 py-3 text-xs cursor-pointer hover:bg-black/[0.03] ${isNew ? 'bg-amber-50' : ''}`}
+                      className="w-full text-left pl-4 pr-10 py-3 text-xs cursor-pointer hover:bg-black/[0.03]"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono font-bold text-[#141413]">{n.orderNumber}</span>
@@ -167,6 +222,15 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
                         )}
                         {n.text}
                       </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteNotice(n)}
+                      aria-label="Delete this update"
+                      title="Delete"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-[#787774] hover:text-rose-700 hover:bg-rose-50 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </li>
                 );
