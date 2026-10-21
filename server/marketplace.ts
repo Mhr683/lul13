@@ -936,4 +936,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.status(503).json({ error: 'Could not record the payout. Please try again.' });
     }
   });
+
+  // Used by the seller inbox routes (server/sellerInbox.ts)
+  return { requireSeller, forgetSeller };
 }

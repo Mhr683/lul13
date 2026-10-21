@@ -31,6 +31,7 @@ import { ShippingCalculationService, generateCourierTrackingUrl } from './src/se
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
 import { createCatalogStore } from './server/catalogStore';
+import { registerSellerInboxRoutes } from './server/sellerInbox';
 import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
@@ -3336,7 +3337,7 @@ async function applyOrderStatusWithStock(
 }
 
 // Seller Center API and admin seller/payout management
-registerMarketplaceRoutes(app, {
+const marketplace = registerMarketplaceRoutes(app, {
   adminDb,
   requireAuth,
   requireAdmin,
@@ -3349,6 +3350,14 @@ registerMarketplaceRoutes(app, {
   supplierOf: (productId) => (catalogStore.privateReady ? catalogStore.supplierOf(productId) : undefined),
   HOUSE_SELLER_ID,
   DEFAULT_COMMISSION_PERCENT,
+});
+
+// Messages and notices between sellers and the store
+registerSellerInboxRoutes(app, {
+  adminDb,
+  requireSeller: marketplace.requireSeller,
+  requireAdmin,
+  forgetSeller: marketplace.forgetSeller,
 });
 
 app.post('/api/orders/update-status', requireAdmin, async (req, res) => {

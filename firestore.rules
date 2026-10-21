@@ -262,7 +262,7 @@ service cloud.firestore {
         data.keys().hasOnly(['id', 'userId', 'type', 'title', 'message', 'read', 'createdAt']) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
         data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
-        data.type is string && data.type in ['NEW_ORDER', 'LOW_STOCK', 'PAYMENT_FAILURE', 'NEW_REVIEW', 'REFUND', 'IMPORT_FAILED', 'AI_TASK_COMPLETED', 'AI_TASK_FAILED'] &&
+        data.type is string && data.type in ['NEW_ORDER', 'LOW_STOCK', 'PAYMENT_FAILURE', 'NEW_REVIEW', 'REFUND', 'IMPORT_FAILED', 'AI_TASK_COMPLETED', 'AI_TASK_FAILED', 'PAYMENT_RECEIVED'] &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
         data.message is string && data.message.size() >= 1 && data.message.size() <= 600 &&
         data.read is bool &&

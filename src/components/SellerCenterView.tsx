@@ -33,7 +33,31 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 // It opens instantly: the shop and product list from the last visit are shown at once (Firebase can
 // take many seconds to restore a sign-in) and refreshed in the background.
 
-type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'EARNINGS' | 'PROFILE';
+type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'EARNINGS' | 'MESSAGES' | 'PROFILE';
+
+type ThreadMessage = { id: string; from: 'SELLER' | 'ADMIN'; author: string; text: string; at: string };
+type SellerThread = {
+  id: string;
+  subject: string;
+  category: string;
+  orderNumber?: string;
+  status: 'OPEN' | 'ANSWERED' | 'CLOSED';
+  startedBy: 'SELLER' | 'ADMIN';
+  createdAt: string;
+  lastMessageAt: string;
+  lastFrom: 'SELLER' | 'ADMIN';
+  lastMessagePreview: string;
+  unreadForSeller: boolean;
+  messageCount?: number;
+  messages?: ThreadMessage[];
+};
+type StoreNotice = { id: string; title: string; body: string; level: 'INFO' | 'WARNING' | 'URGENT'; createdAt: string; audience: string };
+type SellerInbox = {
+  threads: SellerThread[];
+  notices: StoreNotice[];
+  noticesReadAt: string;
+  unread: { threads: number; notices: number };
+};
 type SupplierItem = { productId: string; supplierName?: string; supplierSku?: string; supplierProductUrl?: string; supplierCostPrice?: number };
 type SellerOrder = Order & {
   commissionAmount: number;
@@ -188,6 +212,24 @@ export const SellerCenterView: React.FC = () => {
     if (authReady) loadMe();
   }, [authReady, loadMe]);
 
+  // Messages with the store and store notices; checked every minute while the app is open
+  const [inbox, setInbox] = useState<SellerInbox | null>(null);
+  const loadInbox = useCallback(async () => {
+    try {
+      setInbox(await api<SellerInbox>('/api/seller/inbox'));
+    } catch {
+      // keep what is shown; the next check will try again
+    }
+  }, []);
+  const approved = seller?.status === 'APPROVED';
+  useEffect(() => {
+    if (!authReady || !approved) return;
+    loadInbox();
+    const t = setInterval(() => document.visibilityState === 'visible' && loadInbox(), 60_000);
+    return () => clearInterval(t);
+  }, [authReady, approved, loadInbox]);
+  const unreadTotal = (inbox?.unread.threads || 0) + (inbox?.unread.notices || 0);
+
   const handleSignOut = async () => {
     clearSellerCache();
     delete memo.orders;
@@ -301,13 +343,15 @@ export const SellerCenterView: React.FC = () => {
     );
   }
 
-  const tabs: { id: Tab; label: string; icon: any }[] = [
+  const tabs: { id: Tab; label: string; icon: any; badge?: number }[] = [
     { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'ORDERS', label: 'Orders', icon: ShoppingCart },
     { id: 'PRODUCTS', label: 'Products', icon: Package },
     { id: 'EARNINGS', label: 'Earnings', icon: Wallet },
+    { id: 'MESSAGES', label: 'Messages', icon: MessageSquare, badge: unreadTotal },
     { id: 'PROFILE', label: 'Profile', icon: UserCog },
   ];
+  const urgentNotice = inbox?.notices.find((n) => n.level === 'URGENT' && String(n.createdAt) > inbox.noticesReadAt);
 
   return shell(
     <div className="max-w-6xl mx-auto px-4 py-5 space-y-5">
@@ -335,14 +379,40 @@ export const SellerCenterView: React.FC = () => {
               }`}
             >
               <Icon className="w-4 h-4" /> {t.label}
+              {!!t.badge && (
+                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  {t.badge}
+                </span>
+              )}
             </button>
           );
         })}
       </nav>
+      {tab !== 'MESSAGES' && unreadTotal > 0 && (
+        <button
+          type="button"
+          onClick={() => setTab('MESSAGES')}
+          className={`w-full p-3 text-left text-xs border cursor-pointer ${
+            urgentNotice ? 'bg-rose-50 border-rose-400 text-rose-950' : 'bg-sky-50 border-sky-300 text-sky-950'
+          }`}
+        >
+          {urgentNotice ? (
+            <>
+              <strong>Urgent notice from the store:</strong> {urgentNotice.title} — tap to read.
+            </>
+          ) : (
+            <>
+              You have <strong>{unreadTotal}</strong> new {unreadTotal === 1 ? 'message / notice' : 'messages / notices'} from the
+              store. Tap to read.
+            </>
+          )}
+        </button>
+      )}
       {tab === 'DASHBOARD' && <DashboardTab onGo={setTab} />}
       {tab === 'ORDERS' && <OrdersTab />}
       {tab === 'PRODUCTS' && <ProductsTab uid={uid} categoryNames={categories.map((c) => c.name)} />}
       {tab === 'EARNINGS' && <EarningsTab />}
+      {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} />}
       {tab === 'PROFILE' &&
         (sellerPrivate ? (
           <ProfileTab seller={seller} privateData={sellerPrivate} onSaved={loadMe} />
@@ -1532,6 +1602,283 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
           )}
           <button type="button" onClick={onDone} className="mt-1 px-4 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer">
             View products
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ------------------------------------------------------------------ messages & notices
+
+const THREAD_CATEGORY_LABELS: Record<string, string> = {
+  ORDER: 'Order problem',
+  PAYOUT: 'Payout / payment',
+  PRODUCT: 'Product / listing',
+  ACCOUNT: 'Account',
+  OTHER: 'Other',
+};
+const threadStatusLabel: Record<string, string> = { OPEN: 'Waiting for store', ANSWERED: 'Store replied', CLOSED: 'Closed' };
+const noticeTone: Record<string, string> = {
+  INFO: 'bg-sky-50 border-sky-300 text-sky-950',
+  WARNING: 'bg-amber-50 border-amber-400 text-amber-950',
+  URGENT: 'bg-rose-50 border-rose-400 text-rose-950',
+};
+const when = (iso: string) =>
+  new Date(iso).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<void> }> = ({ inbox, reload }) => {
+  const { showToast } = useStore();
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [composing, setComposing] = useState(false);
+
+  // Opening this tab counts as reading the store's notices
+  useEffect(() => {
+    if (!inbox || inbox.unread.notices === 0) return;
+    api('/api/seller/notices/read', { method: 'POST' })
+      .then(() => reload())
+      .catch(() => {});
+  }, [inbox?.unread.notices]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!inbox) return <p className="text-xs text-[#575653]">Loading messages...</p>;
+
+  if (composing) {
+    return (
+      <NewThreadForm
+        onCancel={() => setComposing(false)}
+        onSent={async (id) => {
+          setComposing(false);
+          await reload();
+          setOpenId(id);
+          showToast('Message sent to the store.');
+        }}
+      />
+    );
+  }
+  if (openId) {
+    return <ThreadView id={openId} onBack={() => setOpenId(null)} onChanged={reload} />;
+  }
+
+  return (
+    <div className="space-y-5 text-xs">
+      <section className="space-y-2">
+        <h2 className="text-sm font-bold text-[#141413]">Notices from the store</h2>
+        {inbox.notices.length === 0 ? (
+          <p className="p-4 bg-white border border-black/10 text-[#575653]">No notices yet.</p>
+        ) : (
+          inbox.notices.slice(0, 20).map((n) => (
+            <div key={n.id} className={`p-3 border ${noticeTone[n.level] || noticeTone.INFO}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <strong className="text-[13px]">
+                  {n.level === 'URGENT' ? '⚠️ ' : n.level === 'WARNING' ? '❗ ' : ''}
+                  {n.title}
+                </strong>
+                <span className="opacity-70">
+                  {when(n.createdAt)}
+                  {String(n.createdAt) > inbox.noticesReadAt && <span className="ml-1 font-bold">· New</span>}
+                </span>
+              </div>
+              <p className="mt-1 whitespace-pre-line">{n.body}</p>
+            </div>
+          ))
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold text-[#141413]">Your conversations with the store</h2>
+          <div className="flex gap-2">
+            <button type="button" onClick={reload} className="px-3 py-1.5 border border-black/20 bg-white cursor-pointer">
+              <RefreshCw className="w-3.5 h-3.5 inline mr-1" /> Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => setComposing(true)}
+              className="px-4 py-1.5 bg-[#141413] text-white font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> New complaint / message
+            </button>
+          </div>
+        </div>
+        {inbox.threads.length === 0 ? (
+          <p className="p-4 bg-white border border-black/10 text-[#575653]">
+            No conversations yet. Have a problem with an order, a payout or your listings? Send the store a message.
+          </p>
+        ) : (
+          <div className="bg-white border border-black/10 divide-y divide-black/[0.06]">
+            {inbox.threads.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setOpenId(t.id)}
+                className={`w-full p-3 text-left flex flex-wrap items-center justify-between gap-2 cursor-pointer hover:bg-black/[0.02] ${
+                  t.unreadForSeller ? 'bg-emerald-50/60' : ''
+                }`}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    {t.unreadForSeller && <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />}
+                    <strong className="text-[13px] truncate">{t.subject}</strong>
+                  </span>
+                  <span className="block text-[#575653] truncate">
+                    {t.lastFrom === 'ADMIN' ? 'Store: ' : 'You: '}
+                    {t.lastMessagePreview}
+                  </span>
+                </span>
+                <span className="text-right text-[#575653] shrink-0">
+                  <span className="block font-semibold text-[#141413]">{threadStatusLabel[t.status] || t.status}</span>
+                  {THREAD_CATEGORY_LABELS[t.category] || t.category} · {when(t.lastMessageAt)}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+};
+
+const NewThreadForm: React.FC<{ onCancel: () => void; onSent: (id: string) => void }> = ({ onCancel, onSent }) => {
+  const { showToast } = useStore();
+  const [form, setForm] = useState({ category: 'ORDER', orderNumber: '', subject: '', text: '' });
+  const [sending, setSending] = useState(false);
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+  return (
+    <form
+      className="bg-white border border-black/10 p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSending(true);
+        try {
+          const { thread } = await api('/api/seller/threads', { method: 'POST', body: JSON.stringify(form) });
+          onSent(thread.id);
+        } catch (err: any) {
+          showToast(err.message);
+        } finally {
+          setSending(false);
+        }
+      }}
+    >
+      <h2 className="sm:col-span-2 text-lg font-display">New complaint / message to the store</h2>
+      <div>
+        <label className={labelCls}>What is it about?</label>
+        <select className={inputCls} value={form.category} onChange={set('category')}>
+          {Object.entries(THREAD_CATEGORY_LABELS).map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className={labelCls}>Order number (if it is about an order)</label>
+        <input className={inputCls} value={form.orderNumber} onChange={set('orderNumber')} placeholder="e.g. ORD-123456" />
+      </div>
+      <div className="sm:col-span-2">
+        <label className={labelCls}>Subject *</label>
+        <input className={inputCls} value={form.subject} onChange={set('subject')} placeholder="e.g. Payout not received" required />
+      </div>
+      <div className="sm:col-span-2">
+        <label className={labelCls}>Your message *</label>
+        <textarea className={inputCls} rows={6} value={form.text} onChange={set('text')} placeholder="Explain the problem in detail." required />
+      </div>
+      <div className="sm:col-span-2 flex gap-2">
+        <button type="submit" disabled={sending} className="px-5 py-2 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer">
+          {sending ? 'Sending...' : 'Send to store'}
+        </button>
+        <button type="button" onClick={onCancel} className="px-5 py-2 border border-black/20 cursor-pointer">
+          Back
+        </button>
+      </div>
+    </form>
+  );
+};
+
+const ThreadView: React.FC<{ id: string; onBack: () => void; onChanged: () => Promise<void> }> = ({ id, onBack, onChanged }) => {
+  const { showToast } = useStore();
+  const [thread, setThread] = useState<SellerThread | null>(null);
+  const [reply, setReply] = useState('');
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    api(`/api/seller/threads/${encodeURIComponent(id)}`)
+      .then((d) => {
+        setThread(d.thread);
+        onChanged();
+      })
+      .catch((err) => showToast(err.message));
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const send = async () => {
+    if (!reply.trim()) return;
+    setSending(true);
+    try {
+      const d = await api(`/api/seller/threads/${encodeURIComponent(id)}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ text: reply.trim() }),
+      });
+      setThread(d.thread);
+      setReply('');
+      onChanged();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-black/10 p-4 space-y-4 text-xs">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-display">{thread?.subject || 'Loading...'}</h2>
+          {thread && (
+            <p className="text-[#575653]">
+              {THREAD_CATEGORY_LABELS[thread.category] || thread.category}
+              {thread.orderNumber ? ` · Order ${thread.orderNumber}` : ''} · {threadStatusLabel[thread.status] || thread.status}
+            </p>
+          )}
+        </div>
+        <button type="button" onClick={onBack} className="px-4 py-1.5 border border-black/20 cursor-pointer">
+          Back
+        </button>
+      </div>
+      <div className="space-y-2 max-h-[55vh] overflow-y-auto">
+        {(thread?.messages || []).map((m) => (
+          <div key={m.id} className={`flex ${m.from === 'SELLER' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[85%] px-3 py-2 border whitespace-pre-line ${
+                m.from === 'SELLER' ? 'bg-[#141413] text-white border-[#141413]' : 'bg-emerald-50 border-emerald-300 text-[#141413]'
+              }`}
+            >
+              <div className={`text-[10px] font-bold mb-0.5 ${m.from === 'SELLER' ? 'text-white/70' : 'text-emerald-800'}`}>
+                {m.from === 'SELLER' ? 'You' : 'Store team'} · {when(m.at)}
+              </div>
+              {m.text}
+            </div>
+          </div>
+        ))}
+      </div>
+      {thread && (
+        <div className="space-y-2 pt-2 border-t border-black/10">
+          {thread.status === 'CLOSED' && (
+            <p className="text-[#575653]">The store closed this conversation. Writing again will reopen it.</p>
+          )}
+          <textarea
+            className={inputCls}
+            rows={3}
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder="Write a reply..."
+          />
+          <button
+            type="button"
+            disabled={sending || !reply.trim()}
+            onClick={send}
+            className="px-5 py-2 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer"
+          >
+            {sending ? 'Sending...' : 'Send'}
           </button>
         </div>
       )}

@@ -51,6 +51,7 @@ import { auth } from '../lib/firebase';
 import { AdminTeamPanel } from './AdminTeamPanel';
 import { PWAInstallButton } from './PWAInstallButton';
 import { AdminCatalogPanel } from './AdminCatalogPanel';
+import { AdminSellerInbox } from './AdminSellerInbox';
 import { BrandLogo } from './BrandLogo';
 import { AdminOrdersOverview } from './AdminOrdersOverview';
 import { StoreTextsPanel } from './StoreTextsPanel';
@@ -98,10 +99,11 @@ type AdminTab =
   | 'AUDIT_LOGS'
   | 'NOTIFICATIONS'
   | 'SETTINGS'
-  | 'SELLERS';
+  | 'SELLERS'
+  | 'SELLER_INBOX';
 
 const ADMIN_TABS: AdminTab[] = [
-  'DASHBOARD', 'CATALOG', 'ORDERS', 'COUPONS', 'REVIEWS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS',
+  'DASHBOARD', 'CATALOG', 'ORDERS', 'COUPONS', 'REVIEWS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
 ];
 // Tabs remembered from before the listing work moved to Seller Center fall back to the dashboard
 const validTab = (tab: string | undefined): AdminTab => (ADMIN_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'DASHBOARD');
@@ -206,6 +208,30 @@ export const AdminDashboardView: React.FC<{
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<AdminTab>(validTab(initialTab));
+
+  // Unread seller conversations (badge on "Seller Messages"); a count query, checked every 2 minutes
+  const [sellerUnread, setSellerUnread] = useState(0);
+  useEffect(() => {
+    let stop = false;
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        await auth.authStateReady();
+        if (!auth.currentUser) return;
+        const res = await fetch('/api/admin/seller-threads/unread-count', {
+          headers: { Authorization: `Bearer ${await auth.currentUser.getIdToken()}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!stop && res.ok) setSellerUnread(Number(data.unread) || 0);
+      } catch {}
+    };
+    check();
+    const t = setInterval(check, 120_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, []);
   const [dateFilter, setDateFilter] = useState<'TODAY' | '7D' | '30D' | 'ALL'>('30D');
   const [supplierFilter, setSupplierFilter] = useState<string>('ALL');
   const [selectedOrderForFulfillment, setSelectedOrderForFulfillment] = useState<Order | null>(null);
@@ -2544,7 +2570,8 @@ export const AdminDashboardView: React.FC<{
                 { id: 'REVIEWS', label: 'Client Reviews', icon: MessageSquare },
                 { id: 'AI_TASKS', label: 'AI Background Tasks', icon: Cpu },
                 { id: 'AUDIT_LOGS', label: 'Security Audit Log', icon: ShieldAlert },
-                { id: 'NOTIFICATIONS', label: 'Inbox', icon: Inbox },
+                { id: 'NOTIFICATIONS', label: 'Customer Inbox', icon: Inbox },
+                { id: 'SELLER_INBOX', label: 'Seller Messages', icon: MessageSquare },
                 { id: 'SELLERS', label: 'Sellers & Payouts', icon: Store },
                 { id: 'SETTINGS', label: 'Store & AI Settings', icon: Settings },
               ] as { id: AdminTab; label: string; icon: any }[]
@@ -2553,6 +2580,7 @@ export const AdminDashboardView: React.FC<{
               const active = activeTab === item.id;
               const isInbox = item.id === 'NOTIFICATIONS';
               const totalUnread = unreadTicketsCount + unreadAlertsCount;
+              const isSellerInbox = item.id === 'SELLER_INBOX';
 
               return (
                 <button
@@ -2582,6 +2610,16 @@ export const AdminDashboardView: React.FC<{
                       title={`${unreadTicketsCount} open inquiries, ${unreadAlertsCount} unread alerts`}
                     >
                       {totalUnread}
+                    </span>
+                  )}
+                  {isSellerInbox && sellerUnread > 0 && (
+                    <span
+                      className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                        active ? 'bg-black text-[#FBFBF9]' : 'bg-rose-600 text-white'
+                      }`}
+                      title={`${sellerUnread} seller conversations need a reply`}
+                    >
+                      {sellerUnread}
                     </span>
                   )}
                 </button>
@@ -4004,6 +4042,7 @@ export const AdminDashboardView: React.FC<{
 
           {/* ======================== TAB 12: STORE, MERCHANT, PAYMENT & LOGISTICS SETTINGS ======================== */}
           {activeTab === 'SELLERS' && <AdminSellersPanel />}
+          {activeTab === 'SELLER_INBOX' && <AdminSellerInbox onUnreadChange={setSellerUnread} />}
 
           {activeTab === 'SETTINGS' && (
             <div className="max-w-4xl bg-white border border-black/15 p-6 sm:p-8 space-y-8">
