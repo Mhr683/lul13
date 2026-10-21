@@ -17,7 +17,10 @@ import {
   Camera,
   Search,
   Star,
+  RotateCcw,
 } from 'lucide-react';
+import { PolicyDocument } from './PolicyDocument';
+import { CONDUCT_VERSION, SUPPLIER_CODE } from '../data/policies';
 import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
@@ -35,7 +38,7 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 // It opens instantly: the shop and product list from the last visit are shown at once (Firebase can
 // take many seconds to restore a sign-in) and refreshed in the background.
 
-type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'EARNINGS' | 'REVIEWS' | 'MESSAGES' | 'PROFILE';
+type Tab = 'DASHBOARD' | 'PRODUCTS' | 'ORDERS' | 'RETURNS' | 'EARNINGS' | 'REVIEWS' | 'MESSAGES' | 'PROFILE' | 'RULES';
 
 type ThreadMessage = { id: string; from: 'SELLER' | 'ADMIN'; author: string; text: string; at: string };
 type SellerThread = {
@@ -143,7 +146,10 @@ function clearSellerCache() {
 }
 
 // Orders and earnings stay in memory while the app is open, so switching tabs is instant
-const memo: { orders?: SellerOrder[]; earnings?: { summary: any; commissionPercent: number; payouts: SellerPayout[] } } = {};
+const memo: {
+  orders?: SellerOrder[];
+  earnings?: { summary: any; commissionPercent: number; payouts: SellerPayout[]; charges?: any[]; escrowDays?: number };
+} = {};
 
 const inputCls = 'w-full px-3 py-2 bg-white border border-black/20 text-xs text-[#141413] focus:border-black focus:outline-none';
 const labelCls = 'block text-[11px] font-bold text-[#141413] mb-1';
@@ -365,12 +371,27 @@ export const SellerCenterView: React.FC = () => {
     { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'ORDERS', label: 'Orders', icon: ShoppingCart },
     { id: 'PRODUCTS', label: 'Products', icon: Package },
+    { id: 'RETURNS', label: 'Returns', icon: RotateCcw },
     { id: 'EARNINGS', label: 'Earnings', icon: Wallet },
     { id: 'REVIEWS', label: 'Reviews', icon: Star, badge: activityUnread },
     { id: 'MESSAGES', label: 'Messages', icon: MessageSquare, badge: unreadTotal },
     { id: 'PROFILE', label: 'Profile', icon: UserCog },
   ];
   const urgentNotice = inbox?.notices.find((n) => n.level === 'URGENT' && String(n.createdAt) > inbox.noticesReadAt);
+
+  // Every seller accepts the current Supplier Code of Conduct before using Seller Center
+  if ((seller as any).conductVersion !== CONDUCT_VERSION) {
+    return shell(
+      <ConductGate
+        shopName={seller.shopName}
+        onAccepted={(version) => {
+          const next = { ...seller, conductVersion: version } as SellerShop;
+          setSeller(next);
+          writeCache(ME_CACHE_KEY, uid, { seller: next, commissionPercent });
+        }}
+      />
+    );
+  }
 
   return shell(
     <div className="max-w-6xl mx-auto px-4 py-5 space-y-5">
@@ -384,7 +405,11 @@ export const SellerCenterView: React.FC = () => {
             Commission: {commissionPercent ?? 0}% per sale · {seller.city} ·{' '}
             <a href={`/#shop/${encodeURIComponent(seller.id || uid)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#0E7A43] underline">
               My shop page
-            </a>
+            </a>{' '}
+            ·{' '}
+            <button type="button" onClick={() => setTab('RULES')} className="font-semibold text-[#0E7A43] underline cursor-pointer">
+              Seller rules
+            </button>
           </p>
         </div>
       </div>
@@ -434,6 +459,17 @@ export const SellerCenterView: React.FC = () => {
       {tab === 'ORDERS' && <OrdersTab />}
       {tab === 'PRODUCTS' && <ProductsTab uid={uid} categoryNames={categories.map((c) => c.name)} />}
       {tab === 'EARNINGS' && <EarningsTab />}
+      {tab === 'RETURNS' && <ReturnsTab />}
+      {tab === 'RULES' && (
+        <div className="bg-white border border-black/10 p-5 space-y-3">
+          <h2 className="text-lg font-display">Seller Rules (Supplier Code of Conduct)</h2>
+          <PolicyDocument intro={SUPPLIER_CODE.intro} sections={SUPPLIER_CODE.sections} />
+          <p className="text-[11px] text-[#575653]">
+            You accepted these rules on{' '}
+            {(seller as any).conductAcceptedAt ? new Date((seller as any).conductAcceptedAt).toLocaleDateString('en-PK') : 'joining'}.
+          </p>
+        </div>
+      )}
       {tab === 'REVIEWS' && <ReviewsTab onSeen={clearActivity} />}
       {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} />}
       {tab === 'PROFILE' &&
@@ -442,6 +478,168 @@ export const SellerCenterView: React.FC = () => {
         ) : (
           <p className="text-xs text-[#575653]">Loading your profile...</p>
         ))}
+    </div>
+  );
+};
+
+// ------------------------------------------------------------------ seller rules (code of conduct)
+
+const ConductGate: React.FC<{ shopName: string; onAccepted: (version: string) => void }> = ({ shopName, onAccepted }) => {
+  const { showToast } = useStore();
+  const [agreed, setAgreed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const accept = async () => {
+    setSaving(true);
+    try {
+      const d = await api('/api/seller/conduct/accept', { method: 'POST', body: JSON.stringify({ version: CONDUCT_VERSION }) });
+      onAccepted(d.conductVersion);
+      showToast('Thank you. Welcome to Seller Center.');
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="bg-white border border-black/10 p-5 sm:p-7 space-y-4">
+        <h1 className="text-2xl font-display">Seller Rules — please read and accept</h1>
+        <p className="text-xs text-[#575653]">
+          {shopName}: to keep selling, accept the store's Supplier Code of Conduct. Several rules are applied automatically.
+        </p>
+        <PolicyDocument intro={SUPPLIER_CODE.intro} sections={SUPPLIER_CODE.sections} />
+        <label className="flex items-start gap-2 text-sm font-semibold cursor-pointer pt-2 border-t border-black/10">
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-1" />
+          I have read these rules and my shop will follow them.
+        </label>
+        <button
+          type="button"
+          disabled={!agreed || saving}
+          onClick={accept}
+          className="px-6 py-2.5 bg-[#0E7A43] text-white text-sm font-bold disabled:opacity-40 cursor-pointer"
+        >
+          {saving ? 'Saving...' : 'Accept and continue'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ------------------------------------------------------------------ returns
+
+const REASON_LABEL: Record<string, string> = {
+  DAMAGED: 'Damaged or defective',
+  WRONG_ITEM: 'Wrong item, colour or size',
+  QUALITY: 'Quality does not match the description',
+  FAKE: 'Fake or replica product',
+};
+
+const ReturnsTab: React.FC = () => {
+  const { showToast } = useStore();
+  const [list, setList] = useState<any[] | null>(null);
+  const [replyFor, setReplyFor] = useState('');
+  const [reply, setReply] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api('/api/seller/returns')
+      .then((d) => setList(d.returns || []))
+      .catch((err) => {
+        showToast(err.message);
+        setList([]);
+      });
+  }, [showToast]);
+
+  const send = async (id: string) => {
+    setSaving(true);
+    try {
+      await api(`/api/seller/returns/${encodeURIComponent(id)}/respond`, { method: 'POST', body: JSON.stringify({ note: reply }) });
+      setList((l) => l && l.map((r) => (r.id === id ? { ...r, sellerResponse: reply } : r)));
+      setReplyFor('');
+      showToast('Your reply was sent to the store.');
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!list) return <p className="text-xs text-[#575653]">Loading return requests...</p>;
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-[#454441]">
+        Customers can ask for a return or replacement within 7 days of delivery. The store decides each request; give your side
+        before it does. Upheld complaints count against the product (3 customers = delisted; fake = locked) and the return shipping
+        is taken off your payout.
+      </p>
+      {list.length === 0 ? (
+        <p className="p-4 bg-white border border-black/10 text-xs text-[#575653]">No return requests. Keep it up!</p>
+      ) : (
+        list.map((r) => (
+          <div key={r.id} className="p-4 bg-white border border-black/10 space-y-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <strong className="font-mono">{r.orderNumber}</strong>
+              <span
+                className={`px-2 py-0.5 text-[10px] font-bold ${
+                  r.status === 'OPEN' ? 'bg-amber-100 text-amber-900' : r.status === 'APPROVED' ? 'bg-rose-100 text-rose-900' : 'bg-emerald-100 text-emerald-900'
+                }`}
+              >
+                {r.status === 'OPEN' ? 'Waiting for the store' : r.status === 'APPROVED' ? 'Return approved' : 'Rejected'}
+              </span>
+              <span className="text-[#575653]">{new Date(r.createdAt).toLocaleDateString('en-PK')}</span>
+              {r.fault === 'SELLER' && <span className="text-rose-700 font-bold">Your responsibility · −{formatPKR(r.returnCharge || 0)}</span>}
+            </div>
+            <p>
+              <strong>{REASON_LABEL[r.reason] || r.reason}</strong> · wants a {r.resolution === 'REPLACEMENT' ? 'replacement' : 'refund'} ·{' '}
+              {(r.items || []).map((it: any) => it.name).join(', ')}
+            </p>
+            <p className="whitespace-pre-line text-[#454441]">"{r.details}"</p>
+            {r.photos?.length > 0 && (
+              <div className="flex gap-2">
+                {r.photos.map((p: string) => (
+                  <a key={p} href={p} target="_blank" rel="noopener noreferrer">
+                    <img src={p} alt="" className="w-16 h-16 object-cover border border-black/10" />
+                  </a>
+                ))}
+              </div>
+            )}
+            {r.sellerResponse && (
+              <p className="pl-3 border-l-2 border-[#0E7A43]">
+                <strong>Your reply:</strong> {r.sellerResponse}
+              </p>
+            )}
+            {r.decisionNote && (
+              <p className="pl-3 border-l-2 border-black/30">
+                <strong>Store decision:</strong> {r.decisionNote}
+              </p>
+            )}
+            {r.status === 'OPEN' &&
+              (replyFor === r.id ? (
+                <div className="space-y-2">
+                  <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3} maxLength={1500} className={inputCls} placeholder="Your side (e.g. the item was checked before dispatch; packing photo...)" />
+                  <div className="flex gap-2">
+                    <button type="button" disabled={saving} onClick={() => send(r.id)} className="px-3 py-1.5 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer">
+                      {saving ? 'Sending...' : 'Send to the store'}
+                    </button>
+                    <button type="button" onClick={() => setReplyFor('')} className="px-3 py-1.5 border border-black/20 cursor-pointer">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplyFor(r.id);
+                    setReply(r.sellerResponse || '');
+                  }}
+                  className="text-[#0E7A43] font-semibold underline cursor-pointer"
+                >
+                  {r.sellerResponse ? 'Edit your reply' : 'Give your side'}
+                </button>
+              ))}
+          </div>
+        ))
+      )}
     </div>
   );
 };
@@ -1180,6 +1378,7 @@ const emptyProduct = {
   primaryImage: '',
   images: [] as string[],
   videoUrl: '',
+  brandProofUrl: '',
   shortDescription: '',
   description: '',
   weightKg: '0.5',
@@ -1259,8 +1458,9 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
   const openEditor = async (p: ListProduct) => {
     setOpening(p.id);
     try {
-      const { product: full, supplier } = await api(`/api/seller/products/${encodeURIComponent(p.id)}`);
+      const { product: full, supplier, brandProofUrl } = await api(`/api/seller/products/${encodeURIComponent(p.id)}`);
       setEditing({
+        brandProofUrl: brandProofUrl || '',
         supplierName: supplier?.supplierName || '',
         supplierCostPrice: supplier?.supplierCostPrice ? String(supplier.supplierCostPrice) : '',
         supplierProductUrl: supplier?.supplierProductUrl || '',
@@ -1291,7 +1491,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
     if (!editing) return;
     setSaving(true);
     try {
-      const { product } = await api('/api/seller/products', {
+      const { product, heldForProof } = await api('/api/seller/products', {
         method: 'POST',
         body: JSON.stringify({
           ...editing,
@@ -1305,6 +1505,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
       showToast(
         product.adminHidden
           ? 'Saved. The store has hidden this product, so it stays hidden until the store restores it.'
+          : heldForProof
+          ? 'Saved as a draft: electronics and branded items need a purchase invoice or brand approval. Upload it to go live.'
           : editing.status === 'ACTIVE'
           ? 'Product saved and live in the store.'
           : 'Draft saved.'
@@ -1430,6 +1632,51 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
               upload={uploadMedia}
               onError={showToast}
             />
+          </div>
+          <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
+            <span className="text-[11px] font-bold text-[#141413] block">
+              Purchase invoice or brand approval (required for electronics and branded items)
+            </span>
+            <p className="text-[11px] text-[#575653]">
+              Only the store sees this file. Electronics and well-known brands without it are saved as drafts.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {editing.brandProofUrl ? (
+                <>
+                  <a href={editing.brandProofUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-[#0E7A43] font-semibold underline">
+                    View uploaded file
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setEditing((p) => (p ? { ...p, brandProofUrl: '' } : p))}
+                    className="px-2 py-1 border border-black/20 text-[11px] cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </>
+              ) : (
+                <label className="px-3 py-1.5 border border-black/20 text-xs font-semibold cursor-pointer hover:border-black flex items-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5" /> Upload invoice (PDF or picture)
+                  <input
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!f) return;
+                      try {
+                        const url = await uploadMedia(f);
+                        setEditing((p) => (p ? { ...p, brandProofUrl: url } : p));
+                        showToast('Invoice uploaded. Save the product to keep it.');
+                      } catch (err: any) {
+                        showToast(err.message);
+                      }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
           </div>
           <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
             <span className="text-[11px] text-[#575653]">Let AI write the short and full description from the name and category.</span>
@@ -1699,6 +1946,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
     if (!ready.length) return;
     const total = ready.length;
     const sum = { created: 0, updated: 0, errors: [] as { row: number; error: string }[] };
+    let held = 0;
     setProgress({ done: 0, total });
     try {
       for (let i = 0; i < total; i += BULK_CHUNK) {
@@ -1706,11 +1954,15 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
         const d = await api('/api/seller/products/bulk', { method: 'POST', body: JSON.stringify({ products: chunk }) });
         sum.created += d.created || 0;
         sum.updated += d.updated || 0;
+        held += d.heldForProof || 0;
         sum.errors.push(...(d.errors || []));
         setProgress({ done: Math.min(total, i + BULK_CHUNK), total });
       }
       setResult(sum);
-      showToast(`${sum.created} new products, ${sum.updated} updated.`);
+      showToast(
+        `${sum.created} new products, ${sum.updated} updated.` +
+          (held ? ` ${held} electronics / branded items were saved as drafts: open each one and upload its invoice to go live.` : '')
+      );
     } catch (err: any) {
       setResult(sum);
       showToast(err.message);
@@ -2153,8 +2405,10 @@ const EarningsTab: React.FC = () => {
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          ['Ready for payout', s.available, 'Delivered orders, not yet paid out'],
+          ['Ready for payout', s.available, 'Return period over, not yet paid out'],
+          ['On hold (return period)', s.onHold ?? 0, `Delivered less than ${data.escrowDays ?? 7} days ago`],
           ['Upcoming earnings', s.pending, 'Orders not delivered yet'],
+          ...(Number(s.returnCharges) > 0 ? [['Return charges', -Number(s.returnCharges), 'Taken off your next payout']] : []),
           ['Paid out', s.paid, 'Already sent to your bank'],
           ['Store commission', s.commission, `${data.commissionPercent}% per sale`],
           ...(Number(s.supplierCost) > 0
@@ -2173,8 +2427,24 @@ const EarningsTab: React.FC = () => {
       </div>
       <p className="text-xs text-[#454441]">
         The store collects the customer's Cash on Delivery payment. Once an order is delivered, your earning (amount −
-        commission + shipping) moves to "Ready for payout" and the store transfers it to your bank account.
+        commission + shipping) is held for the customer's {data.escrowDays ?? 7}-day return period, then moves to "Ready for
+        payout" and the store transfers it to your bank account. Return shipping for returns that were your fault is taken
+        off the payout.
       </p>
+      {Array.isArray(data.charges) && data.charges.length > 0 && (
+        <div className="bg-white border border-black/10">
+          <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Return charges (unpaid)</div>
+          <ul className="divide-y divide-black/[0.06] text-xs">
+            {data.charges.map((c: any) => (
+              <li key={c.id} className="px-4 py-2 flex flex-wrap justify-between gap-2">
+                <span>Order {c.orderNumber}</span>
+                <span className="text-[#575653]">{c.reason}</span>
+                <span className="font-mono font-bold text-rose-700">−{formatPKR(c.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="bg-white border border-black/10">
         <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Payouts</div>
         {data.payouts.length === 0 ? (

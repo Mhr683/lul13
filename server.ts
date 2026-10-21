@@ -33,6 +33,7 @@ import { registerMarketplaceRoutes } from './server/marketplace';
 import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
+import { registerPolicyRoutes } from './server/policy';
 import {
   PRODUCT_PRIVATE_FIELDS,
   hasProductPrivateFields,
@@ -405,6 +406,7 @@ const PORT = 3000;
 app.set('trust proxy', 1);
 // Seller picture / video uploads arrive as the raw file (checked again in server/marketplace.ts)
 app.use('/api/seller/media/upload', express.raw({ type: () => true, limit: '52mb' }));
+app.use('/api/returns/upload', express.raw({ type: () => true, limit: '9mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // When the free Firestore database has used up its daily reads, say so plainly instead of the
@@ -3449,12 +3451,23 @@ const marketplace = registerMarketplaceRoutes(app, {
 });
 
 // Messages and notices between sellers and the store
-registerSellerInboxRoutes(app, {
+const sellerInbox = registerSellerInboxRoutes(app, {
   adminDb,
   requireSeller: marketplace.requireSeller,
   requireAdmin,
   forgetSeller: marketplace.forgetSeller,
 });
+
+// uid of a signed-in caller (Authorization: Bearer <Firebase ID token>), or null
+const callerUidOf = async (req: express.Request) => {
+  const header = req.headers.authorization || req.headers.Authorization;
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) return null;
+  try {
+    return (await admin.auth().verifyIdToken(header.slice(7).trim())).uid;
+  } catch {
+    return null;
+  }
+};
 
 // Customer ratings of sellers, product likes / dislikes and the sellers' notifications about them
 registerFeedbackRoutes(app, {
@@ -3463,16 +3476,28 @@ registerFeedbackRoutes(app, {
   requireAdmin,
   forgetSeller: marketplace.forgetSeller,
   forgetShop: marketplace.forgetShop,
+  suspendSeller: marketplace.suspendSeller,
+  postNotice: sellerInbox.postNotice,
   limitPerIp,
-  callerUid: async (req) => {
-    const header = req.headers.authorization || req.headers.Authorization;
-    if (typeof header !== 'string' || !header.startsWith('Bearer ')) return null;
-    try {
-      return (await admin.auth().verifyIdToken(header.slice(7).trim())).uid;
-    } catch {
-      return null;
-    }
-  },
+  callerUid: callerUidOf,
+});
+
+// Customer Protection Policy (returns within 7 days) and the Supplier Code of Conduct rules
+registerPolicyRoutes(app, {
+  adminDb,
+  requireSeller: marketplace.requireSeller,
+  requireAdmin,
+  callerUid: callerUidOf,
+  limitPerIp,
+  storeMedia,
+  applyOrderStatusWithStock: (ref, updates) => applyOrderStatusWithStock(ref, updates as any),
+  appendTrackingEvent,
+  postNotice: sellerInbox.postNotice,
+  suspendSeller: marketplace.suspendSeller,
+  forgetSeller: marketplace.forgetSeller,
+  forgetOrders: marketplace.forgetOrders,
+  isQuotaHit: firestoreQuotaHit,
+  HOUSE_SELLER_ID,
 });
 
 app.post('/api/orders/update-status', requireAdmin, async (req, res) => {

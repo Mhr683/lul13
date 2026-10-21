@@ -23,6 +23,9 @@ import {
 import { StoreSettings, Order } from '../types/store';
 import { OrderTimeline } from './OrderTimeline';
 import { RateSellerCard } from './RateSellerCard';
+import { ReturnRequestCard } from './ReturnRequestCard';
+import { PolicyDocument } from './PolicyDocument';
+import { CUSTOMER_PROTECTION } from '../data/policies';
 import { getSavedOrders, tokenForOrder } from '../services/myOrders';
 
 export type PolicyPageType =
@@ -227,8 +230,8 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
     switch (page) {
       case 'REFUND_POLICY':
         return {
-          title: 'Refund & Return Policy',
-          subtitle: 'Clear, customer-first return and refund guidelines',
+          title: 'Customer Protection & Returns',
+          subtitle: 'Original products, 7-day returns and simple refunds on every order',
           icon: <RefreshCw className="w-6 h-6 text-[#141413]" />,
         };
       case 'TERMS':
@@ -338,26 +341,43 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
             {/* 1. REFUND POLICY */}
             {page === 'REFUND_POLICY' && (
               <div className="space-y-4">
-                {renderFormattedContent(settings.refundPolicy)}
-                <div className="mt-8 p-4 bg-emerald-50 border border-emerald-300 rounded flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <h2 className="text-xl font-display font-medium text-[#141413]">Customer Protection Policy</h2>
+                <PolicyDocument intro={CUSTOMER_PROTECTION.intro} sections={CUSTOMER_PROTECTION.sections} />
+                <div className="mt-6 p-4 bg-emerald-50 border border-emerald-300 rounded flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <h4 className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
-                      Need to initiate a return or exchange?
+                      Need a return or replacement?
                     </h4>
                     <p className="text-xs text-emerald-800 mt-0.5">
-                      Chat directly with our support desk on WhatsApp with your Order ID.
+                      Open your delivered order on the tracking page and tap “Return or replace”. You can also reach us on WhatsApp.
                     </p>
                   </div>
-                  <a
-                    href={`https://wa.me/${cleanWa}?text=${encodeURIComponent('Assalam-o-Alaikum! I would like to request a return/refund for my order.')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded shrink-0 transition-colors"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    Request on WhatsApp
-                  </a>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('ORDER_TRACKING')}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-[#141413] text-white text-xs font-semibold rounded cursor-pointer"
+                    >
+                      <Package className="w-4 h-4" />
+                      My orders
+                    </button>
+                    <a
+                      href={`https://wa.me/${cleanWa}?text=${encodeURIComponent('Assalam-o-Alaikum! I would like to request a return/refund for my order.')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded transition-colors"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      WhatsApp
+                    </a>
+                  </div>
                 </div>
+                {settings.refundPolicy?.trim() && (
+                  <div className="pt-6 mt-6 border-t border-black/10">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-[#141413] mb-2">More details</h3>
+                    {renderFormattedContent(settings.refundPolicy)}
+                  </div>
+                )}
               </div>
             )}
 
@@ -780,6 +800,15 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                           token={(trackedOrder as any).reviewToken || lastTrackRef.current?.token || tokenForOrder(trackedOrder.orderNumber) || ''}
                           sellerId={(trackedOrder as any).sellerId}
                           sellerName={(trackedOrder as any).sellerName}
+                        />
+                      )}
+
+                      {/* Customer Protection: return / replacement within 7 days of delivery */}
+                      {['DELIVERED', 'RETURNED', 'REFUNDED'].includes(trackedOrder.status) && (
+                        <ReturnRequestCard
+                          order={trackedOrder}
+                          token={(trackedOrder as any).reviewToken || lastTrackRef.current?.token || tokenForOrder(trackedOrder.orderNumber) || ''}
+                          onPolicy={() => onNavigate('REFUND_POLICY')}
                         />
                       )}
 

@@ -74,8 +74,10 @@ service cloud.firestore {
           'featured', 'bestSeller', 'newArrival', 'seoTitle', 'seoDescription',
           'seoKeywords', 'primaryImage', 'rating', 'reviewCount', 'weightKg',
           'dimensions', 'createdAt', 'updatedAt', 'sellerId', 'sellerName', 'suspendedHidden',
-          'adminHidden', 'adminHiddenReason', 'likes', 'dislikes', 'images', 'videoUrl'
+          'adminHidden', 'adminHiddenReason', 'likes', 'dislikes', 'images', 'videoUrl', 'delisted', 'policyLock'
         ]) &&
+        (!('delisted' in data) || data.delisted is bool) &&
+        (!('policyLock' in data) || (data.policyLock is string && data.policyLock.size() <= 20)) &&
         (!('images' in data) || (data.images is list && data.images.size() <= 8)) &&
         (!('videoUrl' in data) || (data.videoUrl is string && data.videoUrl.size() <= 1000)) &&
         (!('likes' in data) || (data.likes is int && data.likes >= 0)) &&
@@ -138,7 +140,7 @@ service cloud.firestore {
           'couponCode', 'shippingAddressSummary', 'shippingCalculationSnapshot',
           'trackingNumber', 'courierName', 'shipments', 'confirmedByCustomer', 'confirmedAt', 'confirmedBy',
           'cancellationReason', 'cancelledAt', 'stockReleased', 'trackingEvents',
-          'sellerId', 'sellerName', 'checkoutId',
+          'sellerId', 'sellerName', 'checkoutId', 'returnRequestStatus', 'lateNoticeAt',
           'quoteAmount', 'quoteCourier', 'quoteEstimatedDays',
           'quoteCustomsMode', 'quoteAdminNotes', 'quoteExpiresAt', 'district', 'tehsil', 'city', 'notes', 'createdAt', 'updatedAt'
         ]) &&

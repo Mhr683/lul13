@@ -422,6 +422,22 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
     }
   });
 
+  /** A notice sent automatically by the store's rules (late dispatch, complaints, ...) to one seller */
+  const postNotice = async (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => {
+    const id = newId('ntc');
+    await notices().doc(id).set({
+      id,
+      title: title.slice(0, 140),
+      body: body.slice(0, 3000),
+      level,
+      audience: sellerId,
+      audienceName: sellerName || sellerId,
+      createdAt: new Date().toISOString(),
+      createdBy: 'Store rules (automatic)',
+    });
+    noticesCache = null;
+  };
+
   app.delete('/api/admin/seller-notices/:id', d.requireAdmin, async (req, res) => {
     try {
       await notices().doc(str(req.params.id, 128)).delete();
@@ -432,4 +448,6 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
       res.status(503).json({ error: 'Could not delete the notice.' });
     }
   });
+
+  return { postNotice };
 }

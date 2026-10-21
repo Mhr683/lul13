@@ -1,6 +1,7 @@
 import type express from 'express';
 import crypto from 'crypto';
 import { ratingSummary } from './feedback';
+import { POLICY, escrowReleased, dispatchClockStart, needsBrandProof } from './policyRules';
 
 // Marketplace: seller applications, the Seller Center API (own shop, products, orders, earnings)
 // and the admin side (approve/suspend sellers, commission, payouts).
@@ -97,6 +98,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
     });
 
+  // Listing products needs the current Supplier Code of Conduct accepted
+  const requireConduct: Handler = (req, res, next) => {
+    if ((req as any).seller?.conductVersion === POLICY.CONDUCT_VERSION) return next();
+    res.status(403).json({ error: 'Please read and accept the Seller Rules (Code of Conduct) first.', code: 'CONDUCT_REQUIRED' });
+  };
+
   // The store's default commission, re-read at most once a minute
   let defaultCommissionCache: { at: number; pct: number } | null = null;
   const commissionFor = async (seller: any) => {
@@ -155,8 +162,20 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   };
   const forgetOrders = (sellerId: string) => ordersCache.delete(sellerId);
 
-  const summarizeEarnings = (orders: any[]) => {
+  // Return charges not yet taken off a payout (seller_charges/{id}, written by server/policy.ts)
+  const unpaidChargesOf = async (sellerId: string) => {
+    const snap = await adminDb.collection('seller_charges').where('sellerId', '==', sellerId).limit(300).get();
+    return snap.docs
+      .map((doc) => ({ ...(doc.data() as any), id: doc.id }))
+      .filter((c) => !c.payoutId)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  };
+
+  // Money of delivered orders is held for the 7-day return window (escrow), then becomes payable;
+  // unpaid return charges (returns that were the seller's fault) are taken off the next payout
+  const summarizeEarnings = (orders: any[], unpaidCharges = 0) => {
     let pending = 0;
+    let onHold = 0;
     let available = 0;
     let paid = 0;
     let commission = 0;
@@ -169,14 +188,17 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       earnings += Number(o.sellerEarning) || 0;
       if (o.status === 'DELIVERED') {
         if (o.payoutId) paid += Number(o.sellerEarning) || 0;
-        else available += Number(o.sellerEarning) || 0;
+        else if (escrowReleased(o)) available += Number(o.sellerEarning) || 0;
+        else onHold += Number(o.sellerEarning) || 0;
       } else {
         pending += Number(o.sellerEarning) || 0;
       }
     }
     return {
       pending: money(pending),
-      available: money(available),
+      onHold: money(onHold),
+      returnCharges: money(unpaidCharges),
+      available: money(Math.max(0, available - unpaidCharges)),
       paid: money(paid),
       commission: money(commission),
       supplierCost: money(supplierCost),
@@ -196,13 +218,27 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
 
   // ---------------------------------------------------------------- seller: account
 
+  // The seller accepts the Supplier Code of Conduct (needed again whenever it changes)
+  app.post('/api/seller/conduct/accept', requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    if (req.body?.version !== POLICY.CONDUCT_VERSION) return res.status(409).json({ error: 'The rules have changed. Please reload and read them again.' });
+    try {
+      await sellersCol().doc(uid).set({ conductVersion: POLICY.CONDUCT_VERSION, conductAcceptedAt: new Date().toISOString() }, { merge: true });
+      forgetSeller(uid);
+      res.json({ success: true, conductVersion: POLICY.CONDUCT_VERSION });
+    } catch (err) {
+      console.error('[seller/conduct] failed:', err);
+      res.status(503).json({ error: 'Could not save. Please try again.' });
+    }
+  });
+
   app.get('/api/seller/me', d.requireAuth, async (req, res) => {
     try {
       const uid = (req as any).user.uid as string;
       const { seller, privateData } = await loadSeller(uid);
       let commissionPercent: number | null = null;
       if (seller) commissionPercent = await commissionFor(seller);
-      res.json({ success: true, seller, privateData, commissionPercent });
+      res.json({ success: true, seller, privateData, commissionPercent, conductVersion: POLICY.CONDUCT_VERSION });
     } catch (err) {
       console.error('[seller/me] failed:', err);
       res.status(503).json({ error: 'Could not load your seller account. Please try again.' });
@@ -402,6 +438,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           supplierProductUrl: p.supplierProductUrl || '',
           supplierSku: p.supplierSku || '',
         },
+        brandProofUrl: p.brandProofUrl || '',
+        needsBrandProof: needsBrandProof(product),
       });
     } catch (err) {
       console.error('[seller/product] failed:', err);
@@ -529,7 +567,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
 
   // Bulk listing from a CSV the seller uploads (parsed in the browser). A row whose SKU matches one of
   // the seller's existing products updates it, so re-uploading a sheet refreshes price and stock.
-  app.post('/api/seller/products/bulk', requireSeller, async (req, res) => {
+  app.post('/api/seller/products/bulk', requireSeller, requireConduct, async (req, res) => {
     const uid = (req as any).user.uid as string;
     const seller = (req as any).seller;
     const rows = Array.isArray(req.body?.products) ? req.body.products.slice(0, 500) : [];
@@ -548,6 +586,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const errors: { row: number; error: string }[] = [];
       let created = 0;
       let updated = 0;
+      let heldForProof = 0;
       let batch = adminDb.batch();
       let inBatch = 0;
       for (let i = 0; i < rows.length; i++) {
@@ -560,6 +599,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         const match = skuKey ? bySku.get(skuKey) : undefined;
         const id = match?.id || `prod-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}`;
         const product = buildSellerProduct(uid, seller, id, { ...rows[i], fromCsv: true }, checked.fields, match?.data || null);
+        // Electronics / branded items without an invoice on file wait as drafts (add it in the product form)
+        if (product.status === 'ACTIVE' && needsBrandProof(product) && !d.supplierOf(id)?.brandProofUrl) {
+          product.status = 'DRAFT';
+          heldForProof++;
+        }
         batch.set(adminDb.collection('products').doc(id), product);
         const supplier = readSupplier(rows[i] || {});
         if (supplier) {
@@ -576,14 +620,14 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         }
       }
       if (inBatch) await batch.commit();
-      res.json({ success: true, created, updated, errors });
+      res.json({ success: true, created, updated, errors, heldForProof });
     } catch (err) {
       console.error('[seller/products bulk] failed:', err);
       res.status(503).json({ error: 'Could not save the products. Please try again.' });
     }
   });
 
-  app.post('/api/seller/products', requireSeller, async (req, res) => {
+  app.post('/api/seller/products', requireSeller, requireConduct, async (req, res) => {
     const uid = (req as any).user.uid as string;
     const seller = (req as any).seller;
     const b = req.body || {};
@@ -607,11 +651,22 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       const product = buildSellerProduct(uid, seller, id, b, checked.fields, existing);
       const supplier = readSupplier(b);
+      // Electronics and branded items go live only with a purchase invoice / brand approval
+      const proofUrl = str(b.brandProofUrl, 980);
+      if (proofUrl && !/^https:\/\//i.test(proofUrl) && !/^\/media\/[a-zA-Z0-9_.-]+$/.test(proofUrl)) {
+        return res.status(400).json({ error: 'The invoice / brand approval file link is not valid.' });
+      }
+      const heldForProof = product.status === 'ACTIVE' && needsBrandProof(product) && !proofUrl;
+      if (heldForProof) product.status = 'DRAFT';
       const batch = adminDb.batch();
       batch.set(adminDb.collection('products').doc(id), product);
-      if (supplier) batch.set(adminDb.collection('product_private').doc(id), supplierDoc(id, supplier), { merge: true });
+      const privateData: Record<string, any> = supplier ? supplierDoc(id, supplier) : {};
+      if (b.brandProofUrl !== undefined) privateData.brandProofUrl = proofUrl;
+      if (Object.keys(privateData).length) {
+        batch.set(adminDb.collection('product_private').doc(id), { productId: id, ...privateData, updatedAt: new Date().toISOString() }, { merge: true });
+      }
       await batch.commit();
-      res.json({ success: true, product: listFields(product) });
+      res.json({ success: true, product: listFields(product), heldForProof });
     } catch (err) {
       console.error('[seller/products save] failed:', err);
       res.status(503).json({ error: 'Could not save the product. Please try again.' });
@@ -643,6 +698,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { ext: 'png', type: 'image/png', video: false };
     if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return { ext: 'webp', type: 'image/webp', video: false };
     if (b.toString('ascii', 0, 4) === 'GIF8') return { ext: 'gif', type: 'image/gif', video: false };
+    // invoices / brand approval letters
+    if (b.toString('ascii', 0, 5) === '%PDF-') return { ext: 'pdf', type: 'application/pdf', video: false };
     if (b.toString('ascii', 4, 8) === 'ftyp') {
       const brand = b.toString('ascii', 8, 12);
       if (brand.startsWith('qt')) return { ext: 'mov', type: 'video/quicktime', video: true };
@@ -657,7 +714,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const body = req.body;
     if (!Buffer.isBuffer(body) || !body.length) return res.status(400).json({ error: 'No file received.' });
     const kind = sniffMedia(body);
-    if (!kind) return res.status(415).json({ error: 'Use a JPG, PNG or WEBP picture, or an MP4 / WEBM / MOV video.' });
+    if (!kind) return res.status(415).json({ error: 'Use a JPG, PNG or WEBP picture, a PDF, or an MP4 / WEBM / MOV video.' });
     if (!kind.video && body.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'Pictures can be at most 8 MB.' });
     if (kind.video && body.length > 50 * 1024 * 1024) return res.status(413).json({ error: 'The video can be at most 50 MB.' });
     try {
@@ -823,9 +880,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   app.get('/api/seller/earnings', requireSeller, async (req, res) => {
     try {
       const uid = (req as any).user.uid as string;
-      const [orders, payoutsSnap] = await Promise.all([
+      const [orders, payoutsSnap, charges] = await Promise.all([
         sellerOrdersCached(uid),
         adminDb.collection('payouts').where('sellerId', '==', uid).limit(200).get(),
+        unpaidChargesOf(uid),
       ]);
       const payouts = payoutsSnap.docs
         .map((doc) => ({ ...(doc.data() as any), id: doc.id }))
@@ -833,7 +891,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         success: true,
-        summary: summarizeEarnings(orders),
+        charges,
+        escrowDays: POLICY.ESCROW_DAYS,
+        summary: summarizeEarnings(orders, charges.reduce((s, c) => s + Number(c.amount || 0), 0)),
         commissionPercent: await commissionFor((req as any).seller),
         payouts,
       });
@@ -904,7 +964,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const cancelRate = pct(basis.filter((o) => o.status === 'CANCELLED').length, basis.length);
     const finished = basis.filter((o) => ['DELIVERED', 'RETURNED', 'REFUNDED'].includes(o.status));
     const returnRate = pct(basis.filter((o) => ['RETURNED', 'REFUNDED'].includes(o.status)).length, finished.length);
-    const late = orders.filter((o) => OPEN_FOR_SHIPPING.includes(o.status) && now - Date.parse(o.createdAt || 0) > 3 * DAY);
+    // Late = confirmed but not handed to the courier within 48 hours (Supplier Code of Conduct)
+    const late = orders.filter(
+      (o) => [...TO_PACK_STATUSES, 'PACKED'].includes(o.status) && now - dispatchClockStart(o) > POLICY.DISPATCH_HOURS * 3600_000
+    );
     const oldestOpenDays = orders
       .filter((o) => OPEN_FOR_SHIPPING.includes(o.status))
       .reduce((m, o) => Math.max(m, Math.floor((now - Date.parse(o.createdAt || 0)) / DAY)), 0);
@@ -954,7 +1017,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
     rule(cancelRate > 5, cancelRate > 10, `Cancellation rate ${cancelRate}% (should stay under 5%).`, `Cancellation rate ${cancelRate}% is too high (over 10%).`, 15, 30);
     rule(returnRate > 5, returnRate > 10, `Return rate ${returnRate}% (should stay under 5%).`, `Return rate ${returnRate}% is too high (over 10%).`, 15, 30);
-    rule(late.length >= 1, late.length >= 3, `${late.length} order not shipped within 3 days.`, `${late.length} orders not shipped within 3 days.`, 10, 30);
+    rule(late.length >= 1, late.length >= 3, `${late.length} order not dispatched within 48 hours.`, `${late.length} orders not dispatched within 48 hours.`, 10, 30);
+    // Upheld customer complaints (fake / wrong / poor quality items)
+    const fakeStrikes = Number(seller.fakeStrikes) || 0;
+    rule(Number(seller.complaintStrikes) > 0, fakeStrikes > 0, `${seller.complaintStrikes} upheld customer complaint(s).`, `${fakeStrikes} confirmed fake / replica complaint(s).`, 10, 40);
     rule(productStats.hiddenByStore > 0, productStats.hiddenByStore >= 5, `${productStats.hiddenByStore} product(s) taken off the store by you.`, `${productStats.hiddenByStore} products taken off the store by you.`, 10, 25);
     rule(live.length > 0 && productStats.outOfStock / live.length > 0.5, false, `${productStats.outOfStock} of ${live.length} live products are out of stock.`, '', 10, 0);
     rule(productStats.avgRating > 0 && productStats.avgRating < 3.5, productStats.avgRating > 0 && productStats.avgRating < 2.5, `Average product rating ${productStats.avgRating}/5.`, `Average product rating ${productStats.avgRating}/5 is very low.`, 10, 25);
@@ -1094,6 +1160,41 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
+  // A suspended seller's live products leave the store; they come back when re-approved
+  // (products the store itself hid stay hidden)
+  const syncProductsWithSellerStatus = async (id: string, status: string) => {
+    if (status !== 'SUSPENDED' && status !== 'APPROVED') return 0;
+    const now = new Date().toISOString();
+    const products = await adminDb.collection('products').where('sellerId', '==', id).limit(2000).get();
+    const toChange = products.docs.filter((p) =>
+      status === 'SUSPENDED' ? p.data().status === 'ACTIVE' : p.data().suspendedHidden === true && p.data().adminHidden !== true
+    );
+    for (let i = 0; i < toChange.length; i += 400) {
+      const batch = adminDb.batch();
+      for (const p of toChange.slice(i, i + 400)) {
+        batch.update(
+          p.ref,
+          status === 'SUSPENDED'
+            ? { status: 'DRAFT', suspendedHidden: true, updatedAt: now }
+            : { status: 'ACTIVE', suspendedHidden: false, updatedAt: now }
+        );
+      }
+      await batch.commit();
+    }
+    return toChange.length;
+  };
+
+  /** Suspends a seller automatically under the store rules (low rating, fake products) */
+  const suspendSeller = async (id: string, reason: string) => {
+    const ref = sellersCol().doc(id);
+    const snap = await ref.get();
+    if (!snap.exists || (snap.data() as any).status === 'SUSPENDED') return false;
+    await ref.set({ status: 'SUSPENDED', statusReason: reason.slice(0, 300), suspendedAutomatically: true, updatedAt: new Date().toISOString() }, { merge: true });
+    forgetSeller(id);
+    await syncProductsWithSellerStatus(id, 'SUSPENDED');
+    return true;
+  };
+
   // Approve / reject / suspend a seller, or change their commission
   app.post('/api/admin/sellers/:id', d.requireAdmin, async (req, res) => {
     const id = String(req.params.id);
@@ -1122,28 +1223,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       await ref.set(updates, { merge: true });
       forgetSeller(id);
 
-      // A suspended seller's live products leave the store; they come back when re-approved
       const statusChanged = updates.status && updates.status !== current.status;
-      let changedProducts = 0;
-      if (statusChanged && (updates.status === 'SUSPENDED' || updates.status === 'APPROVED')) {
-        const products = await adminDb.collection('products').where('sellerId', '==', id).limit(2000).get();
-        const toChange = products.docs.filter((p) =>
-          updates.status === 'SUSPENDED' ? p.data().status === 'ACTIVE' : p.data().suspendedHidden === true
-        );
-        for (let i = 0; i < toChange.length; i += 400) {
-          const batch = adminDb.batch();
-          for (const p of toChange.slice(i, i + 400)) {
-            batch.update(
-              p.ref,
-              updates.status === 'SUSPENDED'
-                ? { status: 'DRAFT', suspendedHidden: true, updatedAt: now }
-                : { status: 'ACTIVE', suspendedHidden: false, updatedAt: now }
-            );
-          }
-          await batch.commit();
-        }
-        changedProducts = toChange.length;
-      }
+      const changedProducts = statusChanged ? await syncProductsWithSellerStatus(id, updates.status) : 0;
       res.json({ success: true, changedProducts });
     } catch (err) {
       console.error('[admin/sellers update] failed:', err);
@@ -1178,21 +1259,32 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     if (reference.length < 3) return res.status(400).json({ error: 'Enter the bank transfer reference / TID.' });
     try {
       forgetOrders(sellerId);
-      const orders = await loadSellerOrders(sellerId, 1000);
-      const due = orders.filter((o) => o.status === 'DELIVERED' && !o.payoutId && Number(o.sellerEarning) > 0);
-      if (due.length === 0) return res.status(409).json({ error: 'This seller has no payout due.' });
-      const amount = money(due.reduce((s, o) => s + Number(o.sellerEarning || 0), 0));
+      const [orders, charges] = await Promise.all([loadSellerOrders(sellerId, 1000), unpaidChargesOf(sellerId)]);
+      // Only orders whose 7-day return window is over (escrow) and without an open return request
+      const due = orders.filter((o) => !o.payoutId && Number(o.sellerEarning) > 0 && escrowReleased(o));
+      if (due.length === 0) return res.status(409).json({ error: `This seller has no payout due (money is released ${POLICY.ESCROW_DAYS} days after delivery).` });
+      const gross = money(due.reduce((s, o) => s + Number(o.sellerEarning || 0), 0));
+      const chargeTotal = money(charges.reduce((s, c) => s + Number(c.amount || 0), 0));
+      const amount = money(gross - chargeTotal);
+      if (amount <= 0) return res.status(409).json({ error: `Return charges (PKR ${chargeTotal}) are more than the money due (PKR ${gross}). Nothing to pay yet.` });
       const payoutRef = adminDb.collection('payouts').doc(`pay-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`);
       const paidAt = new Date().toISOString();
       await adminDb.runTransaction(async (tx) => {
         // Re-check inside the transaction so an order is never paid twice
         const privRefs = due.map((o) => adminDb.collection('order_private').doc(o.id));
-        const privs = await Promise.all(privRefs.map((r) => tx.get(r)));
-        if (privs.some((p) => p.data()?.payoutId)) throw new Error('ALREADY_PAID');
+        const chargeRefs = charges.map((c) => adminDb.collection('seller_charges').doc(c.id));
+        const [privs, chargeSnaps] = await Promise.all([
+          Promise.all(privRefs.map((r) => tx.get(r))),
+          Promise.all(chargeRefs.map((r) => tx.get(r))),
+        ]);
+        if (privs.some((p) => p.data()?.payoutId) || chargeSnaps.some((c) => c.data()?.payoutId)) throw new Error('ALREADY_PAID');
         tx.set(payoutRef, {
           id: payoutRef.id,
           sellerId,
           amount,
+          grossAmount: gross,
+          returnCharges: chargeTotal,
+          chargeIds: charges.map((c) => c.id),
           orderIds: due.map((o) => o.id),
           orderNumbers: due.map((o) => o.orderNumber),
           reference,
@@ -1201,6 +1293,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           paidBy: String((req as any).user?.email || 'admin'),
         });
         for (const r of privRefs) tx.set(r, { payoutId: payoutRef.id, paidOutAt: paidAt }, { merge: true });
+        for (const r of chargeRefs) tx.set(r, { payoutId: payoutRef.id, settledAt: paidAt }, { merge: true });
       });
       forgetOrders(sellerId);
       res.json({ success: true, payoutId: payoutRef.id, amount, orders: due.length });
@@ -1234,16 +1327,18 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const ev = (Array.isArray(o.trackingEvents) ? o.trackingEvents : []).find((e: any) => SHIPPED_OR_LATER.includes(String(e?.status)));
       return ev ? Date.parse(ev.at) : NaN;
     };
-    // On time = handed to the courier within 3 days; orders still waiting after 3 days count as late
+    // On time = handed to the courier within 48 hours of confirmation; orders still waiting after
+    // that count as late
+    const limit = POLICY.DISPATCH_HOURS * 3600_000;
     let onTime = 0;
     let due = 0;
     for (const o of orders) {
-      const placed = Date.parse(o.createdAt || 0);
+      const placed = dispatchClockStart(o);
       const shipped = shippedAt(o);
       if (SHIPPED_OR_LATER.includes(o.status) || ['RETURNED', 'REFUNDED'].includes(o.status) || !isNaN(shipped)) {
         due++;
-        if (isNaN(shipped) || shipped - placed <= 3 * DAY) onTime++;
-      } else if (OPEN_FOR_SHIPPING.includes(o.status) && now - placed > 3 * DAY) {
+        if (isNaN(shipped) || shipped - placed <= limit) onTime++;
+      } else if ([...TO_PACK_STATUSES, 'PACKED'].includes(o.status) && now - placed > limit) {
         due++;
       }
     }
@@ -1315,5 +1410,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   });
 
   // Used by the seller inbox and feedback routes (server/sellerInbox.ts, server/feedback.ts)
-  return { requireSeller, forgetSeller, forgetShop: (sellerId: string) => shopCache.delete(sellerId) };
+  return {
+    requireSeller,
+    forgetSeller,
+    forgetOrders,
+    suspendSeller,
+    forgetShop: (sellerId: string) => shopCache.delete(sellerId),
+  };
 }

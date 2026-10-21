@@ -1,5 +1,6 @@
 import type express from 'express';
 import crypto from 'crypto';
+import { POLICY } from './policyRules';
 
 // Customer feedback on sellers and likes / dislikes on products.
 //
@@ -21,6 +22,9 @@ export interface FeedbackDeps {
   callerUid: (req: express.Request) => Promise<string | null>;
   forgetSeller: (uid: string) => void;
   forgetShop: (sellerId: string) => void;
+  /** Supplier Code of Conduct: a rating below 3.0 suspends the seller */
+  suspendSeller: (sellerId: string, reason: string) => Promise<boolean>;
+  postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => Promise<void>;
   limitPerIp: (name: string, max: number, windowMs?: number) => Handler;
 }
 
@@ -162,10 +166,14 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
         userId: order.userId || '',
       };
       const productRefs = feedback.productIds.map((id) => adminDb.collection('products').doc(id));
+      let newCount = 0;
+      let newAvg = 0;
       const created = await adminDb.runTransaction(async (tx) => {
         const [existing, sellerSnap, ...productSnaps] = await Promise.all([tx.get(fbRef), tx.get(sellerRef), ...productRefs.map((r) => tx.get(r))]);
         if (existing.exists) return false;
         const s = (sellerSnap.data() as any) || {};
+        newCount = (Number(s.ratingCount) || 0) + 1;
+        newAvg = ((Number(s.ratingSum) || 0) + rating) / newCount;
         tx.set(fbRef, feedback);
         // Each product bought gets the stars too (shown on product cards and the product page)
         productSnaps.forEach((snap, i) => {
@@ -198,6 +206,16 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
       if (!created) return res.status(409).json({ error: 'You have already rated this order. Thank you!' });
       forgetFeedback(sellerId);
       feedback.productIds.forEach((id) => productReviewCache.delete(id));
+      // Seller Rules: a customer rating below 3.0 (from enough buyers) suspends the account
+      if (newCount >= POLICY.MIN_RATINGS && newAvg < POLICY.MIN_RATING) {
+        const avg = Math.round(newAvg * 10) / 10;
+        const reason = `Suspended automatically: customer rating ${avg} from ${newCount} buyers is below ${POLICY.MIN_RATING.toFixed(1)} (Seller Rules).`;
+        d.suspendSeller(sellerId, reason)
+          .then(async (done) => {
+            if (done) await d.postNotice(sellerId, feedback.sellerName, 'Account suspended', `${reason} Your products are off the store. Contact the store to discuss improving your service.`, 'URGENT');
+          })
+          .catch((err) => console.warn('[feedback] auto-suspend failed:', err?.message));
+      }
       res.json({ success: true, rating });
     } catch (err) {
       console.error('[feedback] failed:', err);
