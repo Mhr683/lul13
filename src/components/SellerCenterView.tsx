@@ -21,6 +21,7 @@ import {
   Bot,
 } from 'lucide-react';
 import { SellerAiAssistant } from './SellerAiAssistant';
+import { ShopCoachReport, type Coach } from './ShopCoachReport';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
 import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
@@ -149,6 +150,7 @@ function clearSellerCache() {
 
 // Orders and earnings stay in memory while the app is open, so switching tabs is instant
 const memo: {
+  coach?: Coach;
   orders?: SellerOrder[];
   earnings?: { summary: any; commissionPercent: number; payouts: SellerPayout[]; charges?: any[]; escrowDays?: number };
 } = {};
@@ -486,7 +488,9 @@ export const SellerCenterView: React.FC = () => {
         <SellerAiAssistant
           shopName={seller.shopName}
           call={api}
+          onGo={(t) => setTab(t as Tab)}
           onChanged={() => {
+            delete memo.coach;
             // product list and orders are re-read next time those tabs open
             delete memo.orders;
             delete memo.earnings;
@@ -1053,6 +1057,23 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void }> = ({ onGo }) => {
       })
       .catch(() => {});
   }, []);
+  const [coach, setCoach] = useState<Coach | null>(memo.coach || null);
+  const [coachBusy, setCoachBusy] = useState(false);
+  const loadCoach = useCallback(async (fresh = false) => {
+    setCoachBusy(true);
+    try {
+      const d = await api(`/api/seller/coach${fresh ? '?fresh=1' : ''}`);
+      memo.coach = d.coach;
+      setCoach(d.coach);
+    } catch {
+      // the rest of the dashboard still works
+    } finally {
+      setCoachBusy(false);
+    }
+  }, []);
+  useEffect(() => {
+    loadCoach();
+  }, [loadCoach]);
   const toShip = (orders || []).filter((o) => OPEN_STATUSES.includes(o.status)).length;
   const onTheWay = (orders || []).filter((o) => ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
   const cards = [
@@ -1075,6 +1096,34 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void }> = ({ onGo }) => {
             <div className="text-xl font-bold font-mono mt-1">{c.value}</div>
           </button>
         ))}
+      </div>
+      {/* Shop Coach: health, charts and what to fix (also in the AI Assistant) */}
+      <div className="p-4 bg-[#FBFBF9] border border-black/10 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Bot className="w-5 h-5 text-[#0E7A43]" />
+            <strong className="text-sm">Shop Coach</strong>
+            <span className="text-[11px] text-[#575653]">your shop's performance and what to improve</span>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => onGo('AI')} className="px-3 py-1.5 bg-[#0E7A43] text-white text-xs font-bold cursor-pointer">
+              Ask the AI coach
+            </button>
+            <button
+              type="button"
+              disabled={coachBusy}
+              onClick={() => loadCoach(true)}
+              className="px-3 py-1.5 border border-black/20 text-xs font-semibold disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 inline mr-1 ${coachBusy ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          </div>
+        </div>
+        {coach ? (
+          <ShopCoachReport coach={coach} onGo={(t) => onGo(t as Tab)} compact />
+        ) : (
+          <p className="text-xs text-[#575653]">{coachBusy ? 'Preparing your shop report...' : 'The shop report is not available right now.'}</p>
+        )}
       </div>
       <div className="p-4 bg-white border border-black/10 text-xs text-[#454441] space-y-1">
         <strong className="block text-[#141413]">When an order comes in</strong>

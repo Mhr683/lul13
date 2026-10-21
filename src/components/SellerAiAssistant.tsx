@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bot, Send, Check, X, Sparkles } from 'lucide-react';
+import { ShopCoachReport, type Coach } from './ShopCoachReport';
 
 // Seller Center → AI Assistant: the seller's own AI command center. It only works on this
 // seller's shop (the server enforces it; see server/sellerAi.ts). Changes appear as cards with an
 // "Apply" button and are made only after the seller confirms.
 
 type Action = { actionId: string; title: string; total: number; changes: Record<string, any>[]; state?: 'applied' | 'cancelled' | 'busy'; result?: string };
-type Message = { role: 'user' | 'model'; text: string; actions?: Action[] };
+type Message = { role: 'user' | 'model'; text: string; actions?: Action[]; reports?: Coach[] };
 
 const SUGGESTIONS = [
+  'How is my shop doing? Give me the full report',
   'Which orders do I need to ship today?',
   'Show my products with low stock',
   'Give me my sales report for the last 30 days',
@@ -23,7 +25,8 @@ export const SellerAiAssistant: React.FC<{
   shopName: string;
   call: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   onChanged: () => void;
-}> = ({ shopName, call, onChanged }) => {
+  onGo?: (tab: string) => void;
+}> = ({ shopName, call, onChanged, onGo }) => {
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
       return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || '[]');
@@ -37,7 +40,7 @@ export const SellerAiAssistant: React.FC<{
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-30)));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-30).map(({ reports, ...m }) => m)));
     } catch {}
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages]);
@@ -50,11 +53,11 @@ export const SellerAiAssistant: React.FC<{
     setInput('');
     setBusy(true);
     try {
-      const d = await call<{ text: string; actions: Action[] }>('/api/seller/ai/command', {
+      const d = await call<{ text: string; actions: Action[]; reports?: Coach[] }>('/api/seller/ai/command', {
         method: 'POST',
         body: JSON.stringify({ prompt, history }),
       });
-      setMessages((m) => [...m, { role: 'model', text: d.text, actions: d.actions || [] }]);
+      setMessages((m) => [...m, { role: 'model', text: d.text, actions: d.actions || [], reports: d.reports || [] }]);
     } catch (err: any) {
       setMessages((m) => [...m, { role: 'model', text: `⚠️ ${err.message}` }]);
     } finally {
@@ -121,6 +124,11 @@ export const SellerAiAssistant: React.FC<{
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[88%] space-y-2 ${m.role === 'user' ? 'bg-[#141413] text-white' : 'bg-[#F4F3EF] text-[#141413]'} px-3 py-2 rounded-lg`}>
               <p className="whitespace-pre-line">{m.text}</p>
+              {m.reports?.map((r, k) => (
+                <div key={k} className="bg-white rounded p-2 -mx-1">
+                  <ShopCoachReport coach={r} onGo={onGo} />
+                </div>
+              ))}
               {m.actions?.map((a) => (
                 <div key={a.actionId} className="bg-white text-[#141413] border border-black/15 rounded p-2.5 space-y-2 text-xs">
                   <div className="font-bold">{a.title}</div>

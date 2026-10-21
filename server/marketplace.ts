@@ -2,6 +2,7 @@ import type express from 'express';
 import crypto from 'crypto';
 import { ratingSummary } from './feedback';
 import { POLICY, escrowReleased, dispatchClockStart, needsBrandProof } from './policyRules';
+import { buildCoach } from './coach';
 
 // Marketplace: seller applications, the Seller Center API (own shop, products, orders, earnings)
 // and the admin side (approve/suspend sellers, commission, payouts).
@@ -1536,6 +1537,67 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     return summarizeEarnings(await ordersForAi(uid), c.total);
   };
 
+  // Shop Coach for one seller (Dashboard card and the AI Assistant's "shop report"). Kept 5 minutes
+  // per seller; orders come from the seller cache and products from the catalog mirror, so the
+  // only extra reads are two small queries (open returns, product complaints).
+  const coachCache = new Map<string, { at: number; coach: any }>();
+  const coachOf = async (uid: string, seller: any, fresh = false) => {
+    const hit = coachCache.get(uid);
+    if (hit && Date.now() - hit.at < (fresh ? 30_000 : 5 * 60_000)) return hit.coach;
+    const [orders, products, returnsSnap, strikesSnap, charges] = await Promise.all([
+      ordersForAi(uid),
+      productsOf(uid),
+      adminDb.collection('return_requests').where('sellerId', '==', uid).where('status', '==', 'OPEN').limit(50).get().catch(() => null),
+      adminDb.collection('product_strikes').where('sellerId', '==', uid).limit(200).get().catch(() => null),
+      unpaidChargesOf(uid).catch(() => [] as any[]),
+    ]);
+    const report = buildSellerReport(seller, orders, products);
+    const coach = buildCoach({
+      seller,
+      report,
+      orders,
+      products,
+      openReturns: returnsSnap?.size || 0,
+      unpaidCharges: charges.reduce((s: number, c: any) => s + Number(c.amount || 0), 0),
+      strikes: (strikesSnap?.docs || []).map((doc) => ({ productId: doc.id, customers: ((doc.data() as any).customers || []).length })),
+      hasBrandProof: (id) => Boolean(d.supplierOf(id)?.brandProofUrl),
+      needsBrandProof,
+    });
+    coachCache.set(uid, { at: Date.now(), coach });
+    if (coachCache.size > 5000) coachCache.clear();
+
+    // A new urgent problem also goes to the seller's Messages (each one at most every 3 days)
+    const notified: Record<string, string> = { ...(seller.coachNotified || {}) };
+    const fresh3d = (k: string) => notified[k] && Date.now() - Date.parse(notified[k]) < 3 * DAY;
+    const urgent = coach.issues.filter((i: any) => i.level === 'RED').filter((i: any) => !fresh3d(crypto.createHash('sha1').update(i.title.replace(/\d+/g, '#')).digest('hex').slice(0, 12)));
+    if (urgent.length) {
+      const now = new Date().toISOString();
+      for (const i of urgent) notified[crypto.createHash('sha1').update(i.title.replace(/\d+/g, '#')).digest('hex').slice(0, 12)] = now;
+      for (const k of Object.keys(notified)) if (Date.now() - Date.parse(notified[k]) > 30 * DAY) delete notified[k];
+      sellersCol().doc(uid).set({ coachNotified: notified }, { merge: true }).catch(() => {});
+      seller.coachNotified = notified;
+      d.postNotice(
+        uid,
+        seller.shopName || '',
+        `Shop Coach: ${urgent.length} urgent problem${urgent.length > 1 ? 's' : ''}`,
+        urgent.map((i: any) => `• ${i.title}\n  Why it matters: ${i.impact}\n  What to do: ${i.fix}`).join('\n\n') +
+          '\n\nOpen the Dashboard or ask the AI Assistant "how is my shop doing?" for the full report.',
+        'WARNING'
+      ).catch(() => {});
+    }
+    return coach;
+  };
+  app.get('/api/seller/coach', requireSeller, async (req, res) => {
+    try {
+      const uid = (req as any).user.uid as string;
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, coach: await coachOf(uid, (req as any).seller, req.query.fresh === '1') });
+    } catch (err) {
+      console.error('[seller/coach] failed:', err);
+      res.status(503).json({ error: 'Could not prepare your shop report. Please try again.' });
+    }
+  });
+
   const EDITABLE = ['price', 'compareAtPrice', 'stock', 'status', 'shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords'];
   /** Applies field changes to the seller's own products; anything not theirs is skipped */
   const applyProductPatches = async (uid: string, patches: Array<Record<string, any> & { id: string }>) => {
@@ -1603,7 +1665,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     forgetSeller,
     forgetOrders,
     suspendSeller,
-    sellerData: { productsOf, ordersOf, earningsOf, applyProductPatches, supplierOf: d.supplierOf },
+    sellerData: { productsOf, ordersOf, earningsOf, applyProductPatches, supplierOf: d.supplierOf, coachOf },
     forgetShop: (sellerId: string) => shopCache.delete(sellerId),
   };
 }
