@@ -55,6 +55,7 @@ import type { DetectedAddressPayload } from './GoogleMapsAddressDetector';
 import { CustomerHelplineDrawer } from './CustomerHelplineDrawer';
 import { PWAInstallButton } from './PWAInstallButton';
 import { BrandLogo } from './BrandLogo';
+import { SellerShopPage } from './SellerShopPage';
 import { PWAInstallModal } from './PWAInstallModal';
 import { HERO_IMAGE_PATH } from '../data/seedData';
 import { SHIPPING_METHODS, calculateShippingFee, formatDualPrice, formatPKR } from '../services/abstractions';
@@ -91,7 +92,8 @@ type StoreSubView =
   | 'PRIVACY_POLICY'
   | 'SHIPPING_POLICY'
   | 'CONTACT_US'
-  | 'ORDER_TRACKING';
+  | 'ORDER_TRACKING'
+  | 'SHOP';
 
 interface StorefrontViewProps {
   onOpenAdmin: (tab?: string, openNewProduct?: boolean) => void;
@@ -129,6 +131,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
   } = useStore();
 
   const [subView, setSubView] = useState<StoreSubView>('HOME');
+  // The seller whose shop page is open (#shop/<sellerId>)
+  const [shopSellerId, setShopSellerId] = useState<string | null>(null);
+  const openShop = (sellerId: string) => {
+    setShopSellerId(sellerId);
+    setSubView('SHOP');
+    window.history.pushState(null, '', `#shop/${encodeURIComponent(sellerId)}`);
+    window.scrollTo({ top: 0 });
+  };
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
@@ -147,7 +157,12 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
       const path = window.location.pathname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
 
-      if (path === '/refund-policy' || hash === '#refund-policy') {
+      // Seller ids are case-sensitive, so they are read from the original hash
+      const shopMatch = /^#shop\/(.+)$/i.exec(window.location.hash);
+      if (shopMatch) {
+        setShopSellerId(decodeURIComponent(shopMatch[1]));
+        setSubView('SHOP');
+      } else if (path === '/refund-policy' || hash === '#refund-policy') {
         setSubView('REFUND_POLICY');
       } else if (path === '/terms' || path === '/terms-and-conditions' || hash === '#terms' || hash === '#terms-and-conditions') {
         setSubView('TERMS');
@@ -2033,6 +2048,15 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                             <p className="text-xs text-black font-medium mt-1 line-clamp-2">
                               {product.shortDescription}
                             </p>
+                            {product.sellerId && product.sellerName && (
+                              <button
+                                type="button"
+                                onClick={() => openShop(product.sellerId!)}
+                                className="mt-1.5 text-[11px] font-semibold text-[#0E7A43] hover:underline cursor-pointer truncate max-w-full"
+                              >
+                                by {product.sellerName} · visit store
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -2071,6 +2095,22 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
               </div>
             </div>
           </div>
+        )}
+
+        {/* ======================== SELLER SHOP PAGE ======================== */}
+        {subView === 'SHOP' && shopSellerId && (
+          <SellerShopPage
+            sellerId={shopSellerId}
+            products={products}
+            onSelectProduct={handleSelectProduct}
+            onAddToCart={(p) => addToCart(p, 1)}
+            onBack={() => {
+              if (selectedProduct) setSubView('PRODUCT_DETAIL');
+              else setSubView('HOME');
+              window.history.pushState(null, '', '/');
+            }}
+            showToast={showToast}
+          />
         )}
 
         {/* ======================== 3. PRODUCT DETAIL VIEW (PDP) ======================== */}
@@ -2136,9 +2176,20 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({ onOpenAdmin }) =
                   <h1 className="text-3xl font-display font-medium text-[#141413]">
                     {selectedProduct.name}
                   </h1>
-                  <div className="text-xs text-[#575653]">
-                    Sold &amp; shipped by{' '}
-                    <strong className="text-[#141413]">{selectedProduct.sellerName || settings.storeName || 'My Store'}</strong>
+                  <div className="text-xs text-[#575653] flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span>
+                      Sold &amp; shipped by{' '}
+                      <strong className="text-[#141413]">{selectedProduct.sellerName || settings.storeName || 'My Store'}</strong>
+                    </span>
+                    {selectedProduct.sellerId && (
+                      <button
+                        type="button"
+                        onClick={() => openShop(selectedProduct.sellerId!)}
+                        className="px-2.5 py-1 border border-[#0E7A43] text-[#0E7A43] font-bold hover:bg-[#0E7A43] hover:text-white transition-colors cursor-pointer"
+                      >
+                        Visit store →
+                      </button>
+                    )}
                   </div>
 
                   <div className="space-y-1 font-mono tabular-nums">

@@ -937,6 +937,36 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
+  // ---------------------------------------------------------------- public: shop page
+
+  // What a customer sees on a seller's shop page (no private details); kept 10 minutes
+  const shopCache = new Map<string, { at: number; shop: any | null }>();
+  app.get('/api/shops/:id', async (req, res) => {
+    const id = str(req.params.id, 128);
+    try {
+      let hit = shopCache.get(id);
+      if (!hit || Date.now() - hit.at > 10 * 60_000) {
+        const snap = await sellersCol().doc(id).get();
+        const s = snap.exists ? (snap.data() as any) : null;
+        hit = {
+          at: Date.now(),
+          shop:
+            s && s.status === 'APPROVED'
+              ? { id, shopName: s.shopName, logoUrl: s.logoUrl || '', city: s.city || '', joinedAt: s.createdAt || '' }
+              : null,
+        };
+        shopCache.set(id, hit);
+        if (shopCache.size > 2000) shopCache.clear();
+      }
+      if (!hit.shop) return res.status(404).json({ error: 'Shop not found.' });
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.json({ success: true, shop: hit.shop });
+    } catch (err) {
+      console.error('[shops] failed:', err);
+      res.status(503).json({ error: 'Could not load this shop.' });
+    }
+  });
+
   // Used by the seller inbox routes (server/sellerInbox.ts)
   return { requireSeller, forgetSeller };
 }

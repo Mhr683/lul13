@@ -362,7 +362,10 @@ export const SellerCenterView: React.FC = () => {
         <div className="min-w-0">
           <h1 className="text-2xl font-display truncate">{seller.shopName}</h1>
           <p className="text-xs text-[#575653]">
-            Commission: {commissionPercent ?? 0}% per sale · {seller.city}
+            Commission: {commissionPercent ?? 0}% per sale · {seller.city} ·{' '}
+            <a href={`/#shop/${encodeURIComponent(seller.id || uid)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#0E7A43] underline">
+              My shop page
+            </a>
           </p>
         </div>
       </div>
