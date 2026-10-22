@@ -411,6 +411,14 @@ async function getOptionalUser(
 
 const app = express();
 const PORT = 3000;
+// Seller Center and Admin also answer on their own ports (see the end of this file)
+const PORTAL_PORTS: Record<string, 'seller' | 'admin'> = { '3001': 'seller', '3002': 'admin' };
+app.use((req, res, next) => {
+  const portal = PORTAL_PORTS[String(req.socket.localPort)];
+  // The home page of a portal port opens that portal
+  if (portal && (req.path === '/' || req.path === '/index.html')) return res.redirect(302, `/${portal}`);
+  next();
+});
 
 // Behind Cloud Run / AI Studio's proxy: take the visitor's address from X-Forwarded-For (one hop),
 // so per-visitor limits do not lump every customer together
@@ -5419,6 +5427,18 @@ async function startServer() {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+
+  // On one computer the three apps also get their own port, so the browser can install each as a
+  // separate app (on localhost:3000 the store app's scope "/" would swallow /seller and /admin).
+  // Same server and data; Firebase sign-in allows "localhost" on any port.
+  if (process.env.K_SERVICE === undefined) {
+    for (const [port, portal] of Object.entries(PORTAL_PORTS)) {
+      http
+        .createServer(app)
+        .on('error', (err: any) => console.warn(`[portal ports] ${portal} port ${port} not available:`, err?.code || err?.message))
+        .listen(Number(port), '0.0.0.0', () => console.log(`${portal} app on http://localhost:${port}/${portal}`));
+    }
+  }
 }
 
 startServer();
