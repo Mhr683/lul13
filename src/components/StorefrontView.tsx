@@ -57,7 +57,7 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { BrandLogo } from './BrandLogo';
 import { SellerShopPage } from './SellerShopPage';
 import { ProductReactions } from './ProductReactions';
-import { ProductRatingBadge, SellerRatingBadge, SellerScoreCards, useShopInfo } from './SellerRating';
+import { ProductRatingBadge, SellerRatingBadge, SellerScoreCards, useShopInfo, rankScore } from './SellerRating';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfoTabs } from './ProductInfoTabs';
 import { PolicyDocument } from './PolicyDocument';
@@ -758,10 +758,9 @@ export const StorefrontView: React.FC = () => {
       .sort((a, b) => {
         if (sortBy === 'PRICE_ASC') return a.price - b.price;
         if (sortBy === 'PRICE_DESC') return b.price - a.price;
-        // Unrated products (reviewCount 0) sort after rated ones, even though new products default to rating 5
+        // Fair "Top rated": real averages weighted by how many reviews they have (see rankScore)
         if (sortBy === 'RATING') {
-          const score = (p: Product) => (Number(p.reviewCount) > 0 ? Number(p.rating) || 0 : -1);
-          return score(b) - score(a) || (Number(b.reviewCount) || 0) - (Number(a.reviewCount) || 0);
+          return rankScore(b.rating, b.reviewCount) - rankScore(a.rating, a.reviewCount) || (Number(b.reviewCount) || 0) - (Number(a.reviewCount) || 0);
         }
         if (sortBy === 'NEWEST') return b.createdAt.localeCompare(a.createdAt);
         return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);

@@ -112,7 +112,15 @@ export const SellerScoreCards: React.FC<{ shop: ShopInfo | null; className?: str
   );
 };
 
-/** Product cards / product page: "★★★★☆ 4.6 (23)", or "No ratings yet". Product rating and
+/** Ranking score for "Top rated": the real average pulled towards 4.0 by 3 imaginary votes, so a
+ * product with one 5★ review does not outrank one with fifty 4.8★ reviews, and new products are
+ * not buried. Only used for sorting; customers always see the real rating. */
+export const rankScore = (rating?: number, reviewCount?: number) => {
+  const n = Number(reviewCount) || 0;
+  return (4 * 3 + (Number(rating) || 0) * n) / (3 + n);
+};
+
+/** Product cards / product page: "★★★★☆ 4.6 (23)", or "✨ New". Product rating and
  * reviewCount are updated by the server when a buyer rates a delivered order. */
 export const ProductRatingBadge: React.FC<{ rating?: number; reviewCount?: number; size?: number; className?: string }> = ({
   rating,
@@ -122,7 +130,15 @@ export const ProductRatingBadge: React.FC<{ rating?: number; reviewCount?: numbe
 }) => {
   const count = Number(reviewCount) || 0;
   if (!count) {
-    return <span className={`text-[11px] font-semibold text-[#787774] ${className}`}>No ratings yet</span>;
+    // Honest "new" label instead of an invented rating; real stars appear with the first review
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-emerald-800 ${className}`}
+        title="New on the store: no customer reviews yet"
+      >
+        ✨ New
+      </span>
+    );
   }
   const value = Math.max(0, Math.min(5, Number(rating) || 0));
   return (
@@ -141,7 +157,14 @@ export const SellerRatingBadge: React.FC<{ shop: Pick<ShopInfo, 'ratingAvg' | 'r
 }) => {
   if (!shop) return null;
   if (!shop.ratingCount) {
-    return <span className={`text-[11px] font-semibold text-[#575653] ${className}`}>New seller · no ratings yet</span>;
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 ${className}`}
+        title="New on the store: ratings appear after the first delivered orders"
+      >
+        ✨ New seller
+      </span>
+    );
   }
   return (
     <span className={`inline-flex flex-wrap items-center gap-1.5 text-xs ${className}`}>
