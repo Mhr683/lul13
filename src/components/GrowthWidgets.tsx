@@ -127,7 +127,7 @@ export const DailyDeals: React.FC<{
           {deals.map((p) => {
             const off = p.compareAtPrice ? Math.round((1 - p.price / p.compareAtPrice) * 100) : 0;
             return (
-              <div key={p.id} className="shrink-0 w-40 sm:w-48 bg-white text-[#141413] rounded-lg overflow-hidden">
+              <div key={p.id} data-pid={p.id} className="shrink-0 w-40 sm:w-48 bg-white text-[#141413] rounded-lg overflow-hidden">
                 <button type="button" onClick={() => onSelect(p)} className="block w-full aspect-square bg-[#F7F6F2] relative cursor-pointer">
                   <Image src={p.primaryImage} alt={p.name} />
                   {off > 0 && <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 bg-[#B91C1C] text-white text-[10px] font-bold rounded">-{off}%</span>}
@@ -282,7 +282,7 @@ export const CampaignPage: React.FC<{
     ) : (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {products.map((p) => (
-          <div key={p.id} className="bg-white border border-black/[0.08] rounded-lg overflow-hidden flex flex-col">
+          <div key={p.id} data-pid={p.id} className="bg-white border border-black/[0.08] rounded-lg overflow-hidden flex flex-col">
             <button type="button" onClick={() => onSelect(p)} className="aspect-square bg-[#F7F6F2] cursor-pointer">
               <Image src={p.primaryImage} alt={p.name} />
             </button>

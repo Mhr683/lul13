@@ -34,6 +34,8 @@ export interface PolicyDeps {
   forgetOrders: (sellerId: string) => void;
   isQuotaHit: () => boolean;
   HOUSE_SELLER_ID: string;
+  /** Analytics: an approved return and its reason */
+  recordReturn?: (reason: string) => void;
 }
 
 const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
@@ -371,6 +373,7 @@ export function registerPolicyRoutes(app: express.Express, d: PolicyDeps) {
           }
         }
         await reqRef.update({ status: 'APPROVED', fault: sellerFault ? 'SELLER' : 'OTHER', decisionNote: note, decidedAt: now, decidedBy: by, returnCharge: charge });
+        d.recordReturn?.(RETURN_REASON_LABEL[r.reason as ReturnReason] || 'Other');
 
         if (sellerFault && isSeller) {
           // Product strikes (lock / delist) and the seller's record

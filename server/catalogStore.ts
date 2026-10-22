@@ -314,9 +314,10 @@ export function createCatalogStore(
     // Cloud Run stops idle instances with SIGTERM: keep the latest copy for the next one
     process.once('SIGTERM', () => {
       const exit = () => process.exit(0);
-      if (dirty) save(true).then(exit, exit);
-      else exit();
-      setTimeout(exit, 4000).unref?.();
+      // other modules (e.g. analytics) register last-moment saves in globalThis.__shutdownTasks
+      const extra = ((globalThis as any).__shutdownTasks || []) as Array<() => Promise<unknown>>;
+      Promise.allSettled([dirty ? save(true) : Promise.resolve(), ...extra.map((f) => f())]).then(exit, exit);
+      setTimeout(exit, 6000).unref?.();
     });
   };
 

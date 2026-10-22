@@ -187,7 +187,7 @@ export const SellerShopPage: React.FC<{
             <>
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-5">
                 {visible.slice(0, shown).map((p) => (
-                  <article key={p.id} className="group flex flex-col justify-between border border-black/[0.07] bg-white [content-visibility:auto] [contain-intrinsic-size:auto_340px]">
+                  <article key={p.id} data-pid={p.id} className="group flex flex-col justify-between border border-black/[0.07] bg-white [content-visibility:auto] [contain-intrinsic-size:auto_340px]">
                     <div>
                       <div onClick={() => onSelectProduct(p)} className="aspect-square bg-[#F7F6F2] overflow-hidden cursor-pointer">
                         <ProductImage

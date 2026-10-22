@@ -36,6 +36,7 @@ import { registerFeedbackRoutes } from './server/feedback';
 import { registerPolicyRoutes } from './server/policy';
 import { registerSellerAiRoutes } from './server/sellerAi';
 import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
+import { createAnalytics } from './server/analytics';
 import { effectivePrice, isFlashActive, welcomeOf, referralOf, DEFAULT_NEW_SELLER_FREE_DAYS } from './src/services/promotions';
 import {
   PAYMENT_SECRET_FIELDS,
@@ -1203,6 +1204,16 @@ const catalogStore = createCatalogStore(adminDb, {
   onListenerError: noteFirestoreError,
 });
 catalogStore.start().catch((err) => console.warn('[Catalog] start failed:', err?.message));
+
+// Traffic / sales / conversion counters (names come from the catalog copy: no reads)
+const analytics = createAnalytics({
+  adminDb,
+  requireAdmin: (req, res, next) => requireAdmin(req, res, next),
+  limitPerIp: (name, max, windowMs) => limitPerIp(name, max, windowMs),
+  isQuotaHit: () => firestoreQuotaHit(),
+  productName: (id) => (catalogStore.ready ? catalogStore.product(id)?.name || null : null),
+  sellerName: (id) => (catalogStore.ready ? catalogStore.productsOfSeller(id)[0]?.sellerName || null : null),
+});
 
 // Optional filtering / paging for large catalogs: ?q=&category=&offset=&limit=
 function filterCatalog(all: any[], query: any) {
@@ -3035,6 +3046,7 @@ app.post('/api/orders/create', async (req, res) => {
     // 2. To Store Owner
     // If sending fails, it is logged in email_logs collection and never breaks the order.
     if (result && result.order) {
+      for (const c of result.created) analytics.recordOrder(c.order as any);
       // The checkout is done: drop the saved "abandoned cart" of this phone (no reminder needed)
       adminDb.collection('abandoned_carts').doc(phoneKey(cleanPhone)).delete().catch(() => {});
       (async () => {
@@ -3450,10 +3462,15 @@ async function applyOrderStatusWithStock(
   orderRef: FirebaseFirestore.DocumentReference,
   updates: Partial<Order> & { status: string }
 ): Promise<{ restored: boolean; retaken: boolean }> {
-  return adminDb.runTransaction(async (tx) => {
+  let cancelledReason: string | null = null;
+  const result = await adminDb.runTransaction(async (tx) => {
+    cancelledReason = null;
     const fresh = await tx.get(orderRef);
     if (!fresh.exists) throw new Error('Order not found.');
     const order = fresh.data() as Order;
+    if (updates.status === 'CANCELLED' && order.status !== 'CANCELLED') {
+      cancelledReason = String((updates as any).cancellationReason || (order as any).cancellationReason || '');
+    }
     const released = isStockReleased(order);
     const returnsStock = STOCK_RETURN_STATUSES.includes(updates.status);
     const keepsStock = updates.status === 'REFUNDED';
@@ -3508,6 +3525,8 @@ async function applyOrderStatusWithStock(
     } as any);
     return { restored: restore, retaken: retake };
   });
+  if (cancelledReason !== null) analytics.recordCancel(cancelledReason);
+  return result;
 }
 
 // Product pictures and videos uploaded by sellers. They go to Firebase Storage when the bucket
@@ -3588,6 +3607,9 @@ registerFeedbackRoutes(app, {
   callerUid: callerUidOf,
 });
 
+// Traffic, sales and conversion analytics (one document per day; see server/analytics.ts)
+analytics.register(app);
+
 // Growth: social proof, abandoned checkouts, refer & earn, flash deals
 registerGrowthRoutes(app, {
   adminDb,
@@ -3623,6 +3645,7 @@ registerPolicyRoutes(app, {
   forgetOrders: marketplace.forgetOrders,
   isQuotaHit: firestoreQuotaHit,
   HOUSE_SELLER_ID,
+  recordReturn: (reason) => analytics.recordReturn(reason),
 });
 
 app.post('/api/orders/update-status', requireAdmin, async (req, res) => {

@@ -154,6 +154,7 @@ import { ShippingCalculationService } from '../services/shippingService';
 import { welcomeOf } from '../services/promotions';
 import { stripPaymentSecrets } from '../services/paymentSecrets';
 import { getReferralCode } from '../services/referral';
+import { track } from '../services/analytics';
 
 interface StoreContextValue {
   // Auth
@@ -866,6 +867,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         },
       ];
     });
+    track.addToCart(product.id, quantity);
     showToast(`Added ${product.name} to shopping bag.`);
   };
 

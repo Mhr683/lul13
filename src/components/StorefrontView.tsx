@@ -63,6 +63,7 @@ import { ProductInfoTabs } from './ProductInfoTabs';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
+import { track } from '../services/analytics';
 import {
   WelcomeOfferPopup,
   DailyDeals,
@@ -191,6 +192,15 @@ export const StorefrontView: React.FC = () => {
   // WhatsApp number normalization for store links
   const rawWa = settings.whatsappNumber || settings.helplineWhatsApp || '923001234567';
   const cleanWa = rawWa.replace(/[^0-9]/g, '');
+
+  // Traffic analytics: each screen is a page view; the product page and checkout are funnel steps
+  useEffect(() => {
+    track.pageView();
+    if (subView === 'CHECKOUT') track.checkoutStarted();
+  }, [subView]);
+  useEffect(() => {
+    if (subView === 'PRODUCT_DETAIL' && selectedProduct?.id) track.productView(selectedProduct.id);
+  }, [subView, selectedProduct?.id]);
 
   // Festival campaign page (#campaign/<slug>)
   const campaignSlugRef = useRef('');
@@ -1675,6 +1685,7 @@ export const StorefrontView: React.FC = () => {
                 {filteredProducts.slice(0, 12).map((product) => (
                   <article
                     key={product.id}
+                    data-pid={product.id}
                     className="group flex flex-col justify-between border border-black/15 bg-white transition-transform duration-150 hover:-translate-y-0.5 shadow-sm"
                   >
                     <div>
@@ -2103,6 +2114,7 @@ export const StorefrontView: React.FC = () => {
                     {visibleCatalogProducts.map((product) => (
                       <article
                         key={product.id}
+                        data-pid={product.id}
                         className="group flex flex-col justify-between border border-black/[0.07] bg-white"
                       >
                         <div>
@@ -2443,6 +2455,7 @@ export const StorefrontView: React.FC = () => {
                   .map((rel) => (
                     <div
                       key={rel.id}
+                      data-pid={rel.id}
                       onClick={() => handleSelectProduct(rel)}
                       className="p-4 bg-white border border-black/[0.07] flex items-center gap-4 cursor-pointer hover:border-[#141413] transition-colors"
                     >
@@ -4375,6 +4388,7 @@ export const StorefrontView: React.FC = () => {
                   .map((product) => (
                     <div
                       key={product.id}
+                      data-pid={product.id}
                       className="p-5 bg-white border border-black/[0.07] flex flex-col justify-between gap-4"
                     >
                       <div>

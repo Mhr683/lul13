@@ -47,6 +47,7 @@ import {
   Store,
   RotateCcw,
   Rocket,
+  Activity,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
@@ -61,6 +62,7 @@ import { BackupRestorePanel } from './BackupRestorePanel';
 import { AdminSellersPanel } from './AdminSellersPanel';
 import { AdminReturnsPanel } from './AdminReturnsPanel';
 import { AdminGrowthPanel } from './AdminGrowthPanel';
+import { AdminTrafficPanel } from './AdminTrafficPanel';
 import { AdminPaymentKeysPanel } from './AdminPaymentKeysPanel';
 import {
   Product,
@@ -107,10 +109,11 @@ type AdminTab =
   | 'SELLERS'
   | 'SELLER_INBOX'
   | 'RETURNS'
-  | 'GROWTH';
+  | 'GROWTH'
+  | 'TRAFFIC';
 
 const ADMIN_TABS: AdminTab[] = [
-  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'GROWTH', 'COUPONS', 'REVIEWS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
+  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'GROWTH', 'TRAFFIC', 'COUPONS', 'REVIEWS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
 ];
 // Tabs remembered from before the listing work moved to Seller Center fall back to the dashboard
 const validTab = (tab: string | undefined): AdminTab => (ADMIN_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'DASHBOARD');
@@ -2562,6 +2565,7 @@ export const AdminDashboardView: React.FC<{
                 { id: 'ORDERS', label: 'Orders (all sellers)', icon: ShoppingCart },
                 { id: 'RETURNS', label: 'Returns & Complaints', icon: RotateCcw },
                 { id: 'GROWTH', label: 'Marketing & Growth', icon: Rocket },
+                { id: 'TRAFFIC', label: 'Traffic & Conversion', icon: Activity },
                 { id: 'COUPONS', label: 'Promotions & Coupons', icon: Tag },
                 { id: 'REVIEWS', label: 'Client Reviews', icon: MessageSquare },
                 { id: 'AI_TASKS', label: 'AI Background Tasks', icon: Cpu },
@@ -4040,6 +4044,7 @@ export const AdminDashboardView: React.FC<{
           {activeTab === 'SELLERS' && <AdminSellersPanel />}
           {activeTab === 'RETURNS' && <AdminReturnsPanel />}
           {activeTab === 'GROWTH' && <AdminGrowthPanel />}
+          {activeTab === 'TRAFFIC' && <AdminTrafficPanel />}
           {activeTab === 'SELLER_INBOX' && <AdminSellerInbox onUnreadChange={setSellerUnread} />}
 
           {activeTab === 'SETTINGS' && (
