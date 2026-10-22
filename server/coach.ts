@@ -11,6 +11,8 @@ export type CoachIssue = {
   impact: string;
   fix: string;
   tab?: string;
+  /** A one-click fix the Seller Center can run (e.g. rewrite every short description) */
+  action?: 'REWRITE_ALL';
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -70,19 +72,21 @@ export function buildCoach(input: {
   } else if (onTimeRate !== null && onTimeRate >= 90) strengths.push(`On-time dispatch ${onTimeRate}%: customers see a strong delivery score.`);
 
   // ---- cancellations and returns
+  // rates only count with enough real orders (test orders and customer / fake cancellations excluded)
+  const enough = report.rates?.enoughOrders !== false;
   const cancelRate = Number(report.rates?.cancelRate) || 0;
   const returnRate = Number(report.rates?.returnRate) || 0;
-  if (cancelRate > 5) {
+  if (enough && cancelRate > 5) {
     issues.push({
       level: cancelRate > 10 ? 'RED' : 'YELLOW',
       title: `Cancellation rate ${cancelRate}%`,
-      detail: 'Cancellations should stay under 5%.',
+      detail: 'Cancellations you caused (out of stock, cancelled by you, too slow) should stay under 5%. Fake customers, customer changes of mind and test orders do not count.',
       impact: 'Every cancelled order is a lost sale, and the Cancellation score customers see goes up, so fewer of them buy from your shop.',
       fix: 'Keep stock numbers correct, confirm orders quickly by phone / WhatsApp, and remove products you cannot supply.',
       tab: 'PRODUCTS',
     });
-  } else if (recent.length >= 5) strengths.push(`Low cancellations (${cancelRate}%).`);
-  if (returnRate > 5) {
+  } else if (enough) strengths.push(`Low cancellations (${cancelRate}%).`);
+  if (enough && returnRate > 5) {
     issues.push({
       level: returnRate > 10 ? 'RED' : 'YELLOW',
       title: `Return rate ${returnRate}%`,
@@ -193,8 +197,9 @@ export function buildCoach(input: {
       title: `${thin.length} product${thin.length > 1 ? 's have' : ' has'} a very short description`,
       detail: 'Customers want size, material, what is in the box.',
       impact: 'Short descriptions rank lower in search and cause "not as described" returns.',
-      fix: 'Ask the AI Assistant: "rewrite descriptions for <product>".',
+      fix: 'Press "Write them all with AI": the coach rewrites every short description in the background (a few per minute).',
       tab: 'AI',
+      action: 'REWRITE_ALL',
     });
   }
   const proofDrafts = products.filter((p) => p.status === 'DRAFT' && !p.adminHidden && input.needsBrandProof(p) && !input.hasBrandProof(p.id));
@@ -275,8 +280,8 @@ export function buildCoach(input: {
       : 'Your shop is in good shape. Keep it up!',
     scores: {
       onTimeDelivery: onTimeRate,
-      cancellation: cancelRate,
-      returns: returnRate,
+      cancellation: enough ? cancelRate : null,
+      returns: enough ? returnRate : null,
       rating: r.ratingCount ? r.ratingAvg : null,
       positivePercent: r.ratingCount ? r.positivePercent : null,
     },

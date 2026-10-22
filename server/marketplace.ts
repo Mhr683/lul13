@@ -1,7 +1,7 @@
 import type express from 'express';
 import crypto from 'crypto';
 import { ratingSummary } from './feedback';
-import { POLICY, escrowReleased, dispatchClockStart, needsBrandProof } from './policyRules';
+import { POLICY, escrowReleased, dispatchClockStart, needsBrandProof, isTestOrder, isSellerFaultCancel, MIN_ORDERS_FOR_RATES } from './policyRules';
 import { buildCoach } from './coach';
 
 // Marketplace: seller applications, the Seller Center API (own shop, products, orders, earnings)
@@ -971,9 +971,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     };
 
     // Rates over the last 30 days (all time while the shop is young)
-    const recent = orders.filter((o) => placedWithin(o, 30 * DAY));
-    const basis = recent.length >= 5 ? recent : orders;
-    const cancelRate = pct(basis.filter((o) => o.status === 'CANCELLED').length, basis.length);
+    // Test orders never count; only cancellations that were the seller's fault do (out of stock,
+    // cancelled by the seller, too slow) - not fake / unreachable customers or changes of mind
+    const real = orders.filter((o) => !isTestOrder(o));
+    const recent = real.filter((o) => placedWithin(o, 30 * DAY));
+    const basis = recent.length >= 5 ? recent : real;
+    const enoughOrders = basis.length >= MIN_ORDERS_FOR_RATES;
+    const cancelRate = pct(basis.filter(isSellerFaultCancel).length, basis.length);
     const finished = basis.filter((o) => ['DELIVERED', 'RETURNED', 'REFUNDED'].includes(o.status));
     const returnRate = pct(basis.filter((o) => ['RETURNED', 'REFUNDED'].includes(o.status)).length, finished.length);
     // Late = confirmed but not handed to the courier within 48 hours (Supplier Code of Conduct)
@@ -1027,8 +1031,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       reasons.push({ level: 'RED', text: 'The account is suspended.' });
       score -= 50;
     }
-    rule(cancelRate > 5, cancelRate > 10, `Cancellation rate ${cancelRate}% (should stay under 5%).`, `Cancellation rate ${cancelRate}% is too high (over 10%).`, 15, 30);
-    rule(returnRate > 5, returnRate > 10, `Return rate ${returnRate}% (should stay under 5%).`, `Return rate ${returnRate}% is too high (over 10%).`, 15, 30);
+    rule(enoughOrders && cancelRate > 5, enoughOrders && cancelRate > 10, `Cancellation rate ${cancelRate}% (should stay under 5%).`, `Cancellation rate ${cancelRate}% is too high (over 10%).`, 15, 30);
+    rule(enoughOrders && returnRate > 5, enoughOrders && returnRate > 10, `Return rate ${returnRate}% (should stay under 5%).`, `Return rate ${returnRate}% is too high (over 10%).`, 15, 30);
     rule(late.length >= 1, late.length >= 3, `${late.length} order not dispatched within 48 hours.`, `${late.length} orders not dispatched within 48 hours.`, 10, 30);
     // Upheld customer complaints (fake / wrong / poor quality items)
     const fakeStrikes = Number(seller.fakeStrikes) || 0;
@@ -1071,7 +1075,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     return {
       counts,
       periods,
-      rates: { cancelRate, returnRate },
+      rates: { cancelRate, returnRate, basisOrders: basis.length, enoughOrders },
       lateToShip: late.length,
       oldestOpenDays,
       products: productStats,
@@ -1429,11 +1433,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const snap = await adminDb
       .collection('orders')
       .where('sellerId', '==', sellerId)
-      .select('status', 'createdAt', 'trackingEvents')
+      .select('status', 'createdAt', 'trackingEvents', 'cancellationReason', 'customerName', 'notes')
       .limit(1000)
       .get();
     const now = Date.now();
-    const all = snap.docs.map((doc) => doc.data() as any);
+    const all = snap.docs.map((doc) => doc.data() as any).filter((o) => !isTestOrder(o));
     const recent = all.filter((o) => now - Date.parse(o.createdAt || 0) <= 90 * DAY);
     const orders = recent.length >= 5 ? recent : all;
     const shippedAt = (o: any) => {
@@ -1455,7 +1459,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         due++;
       }
     }
-    const cancelled = orders.filter((o) => o.status === 'CANCELLED').length;
+    const cancelled = orders.filter(isSellerFaultCancel).length;
     const finished = orders.filter((o) => ['DELIVERED', 'RETURNED', 'REFUNDED'].includes(o.status));
     const returned = finished.filter((o) => o.status !== 'DELIVERED').length;
     const r = ratingSummary(s);
@@ -1473,6 +1477,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       cancellation: orders.length ? Math.round(pct(cancelled, orders.length)) : null,
       qualityScore: quality,
       at: new Date().toISOString(),
+      v: 2, // v2: only seller-fault cancellations, no test orders
     };
     sellersCol().doc(sellerId).set({ publicMetrics: metrics }, { merge: true }).catch(() => {});
     return metrics;
@@ -1486,7 +1491,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         const snap = await sellersCol().doc(id).get();
         const s = snap.exists ? (snap.data() as any) : null;
         let metrics = s?.publicMetrics || null;
-        if (s && s.status === 'APPROVED' && (!metrics || Date.now() - Date.parse(metrics.at || 0) > METRICS_TTL)) {
+        if (s && s.status === 'APPROVED' && (!metrics || metrics.v !== 2 || Date.now() - Date.parse(metrics.at || 0) > METRICS_TTL)) {
           try {
             metrics = await computePublicMetrics(id, s);
           } catch (err) {
@@ -1553,6 +1558,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   // only extra reads are two small queries (open returns, product complaints).
   const coachCache = new Map<string, { at: number; coach: any }>();
   let coachViewedHook: ((uid: string, seller: any) => void) | null = null;
+  // The same tip keeps its key when its numbers change ("727 products..." -> "#")
+  const coachKey = (title: string) =>
+    crypto
+      .createHash('sha1')
+      .update(String(title).toLowerCase().replace(/\d+/g, '#').replace(/\b(has|have|is|are)\b/g, '').replace(/s\b/g, '').replace(/\s+/g, ' '))
+      .digest('hex')
+      .slice(0, 12);
   forgetCoach = (sellerId: string) => {
     coachCache.delete(sellerId);
   };
@@ -1578,6 +1590,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       hasBrandProof: (id) => Boolean(d.supplierOf(id)?.brandProofUrl),
       needsBrandProof,
     });
+    // Tips (blue) the seller chose to hide stay hidden; urgent / fix-soon problems always show
+    const hidden: string[] = Array.isArray(seller.coachHidden) ? seller.coachHidden : [];
+    coach.issues = coach.issues
+      .map((i: any) => ({ ...i, key: coachKey(i.title) }))
+      .filter((i: any) => !(i.level === 'INFO' && hidden.includes(i.key)));
     coachCache.set(uid, { at: Date.now(), coach });
     if (coachCache.size > 5000) coachCache.clear();
 
@@ -1602,6 +1619,24 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
     return coach;
   };
+  // Hide / show a blue tip on the seller's coach
+  app.post('/api/seller/coach/hide', requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const seller = (req as any).seller;
+    const key = str(req.body?.key, 40);
+    if (!key) return res.status(400).json({ error: 'Missing tip.' });
+    const cur: string[] = Array.isArray(seller.coachHidden) ? seller.coachHidden : [];
+    const next = req.body?.show === true ? cur.filter((k) => k !== key) : Array.from(new Set([...cur, key])).slice(-30);
+    try {
+      await sellersCol().doc(uid).set({ coachHidden: next }, { merge: true });
+      forgetSeller(uid);
+      coachCache.delete(uid);
+      res.json({ success: true, hidden: next });
+    } catch {
+      res.status(503).json({ error: 'Could not save.' });
+    }
+  });
+
   app.get('/api/seller/coach', requireSeller, async (req, res) => {
     try {
       const uid = (req as any).user.uid as string;

@@ -537,6 +537,97 @@ Be the seller's coach and partner: when they ask about performance, details or a
       .finally(() => autoRunning.delete(uid));
   });
 
+  // ---------------------------------------------------------------- rewrite every short description
+  // A background job per seller: one product every few seconds (stays inside the AI's rate
+  // limits), saved in batches of 10, at most 400 a day; stops after repeated AI errors and can be
+  // started again later (it only picks products that still have a short description).
+  type Job = { total: number; done: number; failed: number; running: boolean; startedAt: string; finishedAt?: string; error?: string };
+  const jobs = new Map<string, Job>();
+  const dayCount = new Map<string, { day: string; n: number }>();
+  const PER_DAY_REWRITES = 400;
+
+  const runRewriteAll = async (uid: string, seller: any, job: Job, list: any[]) => {
+    let batch: Array<Record<string, any> & { id: string }> = [];
+    let errorsInRow = 0;
+    const flushBatch = async () => {
+      if (!batch.length) return;
+      await d.sellerData.applyProductPatches(uid, batch).catch(() => {});
+      batch = [];
+    };
+    for (const p of list) {
+      if (!job.running) break;
+      try {
+        const copy = await writeCopy(p);
+        if (copy) {
+          batch.push({ id: p.id, ...copy });
+          job.done++;
+          errorsInRow = 0;
+        } else job.failed++;
+      } catch (err: any) {
+        job.failed++;
+        errorsInRow++;
+        job.error = String(err?.message || '').slice(0, 160);
+        if (errorsInRow >= 3) break; // AI limit reached: stop, the rest can be done later
+        await new Promise((r) => setTimeout(r, 20_000));
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      const c = dayCount.get(uid);
+      dayCount.set(uid, { day: today, n: (c?.day === today ? c.n : 0) + 1 });
+      if (batch.length >= 10) await flushBatch();
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    await flushBatch();
+    job.running = false;
+    job.finishedAt = new Date().toISOString();
+    d.sellerData.forgetCoach(uid);
+    const left = job.total - job.done;
+    await d.sellerData
+      .notify(
+        uid,
+        seller?.shopName || '',
+        'Descriptions written',
+        `The coach wrote clearer descriptions for ${job.done} product(s).${left > 0 ? ` ${left} are left: press "Write them all with AI" again later (the AI has a daily limit).` : ''} You can edit any of them in Products.`
+      )
+      .catch(() => {});
+  };
+
+  app.get('/api/seller/coach/rewrite-all', d.requireSeller, (req, res) => {
+    const job = jobs.get((req as any).user.uid);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, job: job || null });
+  });
+  app.post('/api/seller/coach/rewrite-all', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const seller = (req as any).seller;
+    const cur = jobs.get(uid);
+    if (req.body?.stop === true) {
+      if (cur) cur.running = false;
+      return res.json({ success: true, job: cur || null });
+    }
+    if (cur?.running) return res.json({ success: true, job: cur });
+    const today = new Date().toISOString().slice(0, 10);
+    const used = dayCount.get(uid)?.day === today ? dayCount.get(uid)!.n : 0;
+    const room = PER_DAY_REWRITES - used;
+    if (room <= 0) return res.status(429).json({ error: `Today's limit of ${PER_DAY_REWRITES} descriptions is reached. Please continue tomorrow.` });
+    try {
+      d.getAI(); // fails early with a clear message when the AI is not set up
+      const products = await d.sellerData.productsOf(uid);
+      const list = products
+        .filter((p) => p.status === 'ACTIVE' && !p.adminHidden && String(p.description || '').length < THIN)
+        .slice(0, room);
+      if (!list.length) return res.json({ success: true, job: null, message: 'All live products already have good descriptions.' });
+      const job: Job = { total: list.length, done: 0, failed: 0, running: true, startedAt: new Date().toISOString() };
+      jobs.set(uid, job);
+      runRewriteAll(uid, seller, job, list).catch((err) => {
+        job.running = false;
+        job.error = String(err?.message || '').slice(0, 160);
+      });
+      res.json({ success: true, job });
+    } catch (err: any) {
+      res.status(503).json({ error: String(err?.message || '').includes('GEMINI_API_KEY') ? 'The AI is not switched on yet.' : 'Could not start. Please try again.' });
+    }
+  });
+
   // What "Fix now" would do (no AI calls, no changes)
   app.get('/api/seller/coach/autofix', d.requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;

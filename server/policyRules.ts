@@ -40,6 +40,24 @@ export const deliveredAtOf = (o: any): number | null => {
   return isNaN(t) ? null : t;
 };
 
+/** Test orders (placed by the store to try things out) never count in a seller's scores */
+export const isTestOrder = (o: any) =>
+  /^test\b/i.test(String(o?.customerName || '').trim()) || /\btest order\b|system test/i.test(String(o?.cancellationReason || '') + ' ' + String(o?.notes || ''));
+
+/**
+ * Cancellations that count against the seller: out of stock / could not supply, cancelled by the
+ * seller, or too slow. Customer changes of mind, fake / unreachable customers and test orders
+ * do not.
+ */
+export const isSellerFaultCancel = (o: any) => {
+  if (o?.status !== 'CANCELLED' || isTestOrder(o)) return false;
+  const r = String(o?.cancellationReason || '').toLowerCase();
+  if (/fake|not respond|unreachable|no answer|wrong number|customer|changed (his|her|their)? ?mind|by buyer|duplicate/.test(r)) return false;
+  return /stock|un ?a[vw]ailable|not available|cannot supply|can't supply|by seller|seller cancel|late|delay|slow|supplier/.test(r);
+};
+/** Below this many orders, rates are too noisy to judge a shop by */
+export const MIN_ORDERS_FOR_RATES = 5;
+
 /** When the seller's 48-hour dispatch clock started: store confirmation, else the order time */
 export const dispatchClockStart = (o: any): number => {
   const ev = (Array.isArray(o?.trackingEvents) ? o.trackingEvents : []).find((e: any) => e?.status === 'CONFIRMED');

@@ -649,6 +649,66 @@ const AutoFixBox: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   );
 };
 
+// Writes every short description with AI in the background, with progress
+const RewriteAllButton: React.FC<{ onDone: () => void }> = ({ onDone }) => {
+  const { showToast } = useStore();
+  const [job, setJob] = useState<{ total: number; done: number; failed: number; running: boolean; error?: string } | null>(null);
+  const [starting, setStarting] = useState(false);
+  useEffect(() => {
+    api('/api/seller/coach/rewrite-all')
+      .then((d) => setJob(d.job))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!job?.running) return;
+    const t = setInterval(() => {
+      api('/api/seller/coach/rewrite-all')
+        .then((d) => {
+          setJob(d.job);
+          if (d.job && !d.job.running) onDone();
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, [job?.running, onDone]);
+  const start = async () => {
+    setStarting(true);
+    try {
+      const d = await api('/api/seller/coach/rewrite-all', { method: 'POST', body: '{}' });
+      if (d.message) showToast(d.message);
+      setJob(d.job);
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setStarting(false);
+    }
+  };
+  if (job?.running) {
+    const pct = Math.round((job.done / Math.max(1, job.total)) * 100);
+    return (
+      <div className="mt-1 flex items-center gap-2">
+        <div className="w-40 h-2 bg-black/10 rounded">
+          <div className="h-2 bg-[#0E7A43] rounded" style={{ width: `${pct}%` }} />
+        </div>
+        <span>
+          Writing {job.done} / {job.total}… (you can leave this page)
+        </span>
+        <button type="button" onClick={() => api('/api/seller/coach/rewrite-all', { method: 'POST', body: JSON.stringify({ stop: true }) }).then((d) => setJob(d.job))} className="underline cursor-pointer">
+          Stop
+        </button>
+      </div>
+    );
+  }
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-2">
+      <button type="button" disabled={starting} onClick={start} className="px-3 py-1.5 bg-[#0E7A43] text-white font-bold disabled:opacity-50 cursor-pointer">
+        {starting ? 'Starting...' : '✍️ Write them all with AI'}
+      </button>
+      {job && !job.running && job.done > 0 && <span className="text-emerald-800">Last run: {job.done} written.</span>}
+    </span>
+  );
+};
+
 // ------------------------------------------------------------------ flash deal on one product
 
 const FlashDealBox: React.FC<{ productId: string; price: number; current: { price: string; endsAt: string } | null }> = ({ productId, price, current }) => {
@@ -1326,7 +1386,18 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
         </div>
         <AutoFixBox onDone={() => loadCoach(true)} />
         {coach ? (
-          <ShopCoachReport coach={coach} onGo={(t) => onGo(t as Tab)} compact />
+          <ShopCoachReport
+            coach={coach}
+            onGo={(t) => onGo(t as Tab)}
+            compact
+            onHide={async (key) => {
+              try {
+                await api('/api/seller/coach/hide', { method: 'POST', body: JSON.stringify({ key }) });
+                loadCoach(true);
+              } catch {}
+            }}
+            renderAction={(action) => (action === 'REWRITE_ALL' ? <RewriteAllButton onDone={() => loadCoach(true)} /> : null)}
+          />
         ) : (
           <p className="text-xs text-[#575653]">{coachBusy ? 'Preparing your shop report...' : 'The shop report is not available right now.'}</p>
         )}

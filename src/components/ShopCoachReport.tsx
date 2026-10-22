@@ -8,11 +8,11 @@ export type Coach = {
   shopName: string;
   health: { level: 'GREEN' | 'YELLOW' | 'RED'; score: number };
   headline: string;
-  scores: { onTimeDelivery: number | null; cancellation: number; returns: number; rating: number | null; positivePercent: number | null };
+  scores: { onTimeDelivery: number | null; cancellation: number | null; returns: number | null; rating: number | null; positivePercent: number | null };
   last30: { orders: number; sales: number; avgOrder: number };
   lowStock?: { id: string; name: string; stock: number }[];
   newOrdersToday?: number;
-  issues: { level: 'RED' | 'YELLOW' | 'INFO'; title: string; detail: string; impact: string; fix: string; tab?: string }[];
+  issues: { level: 'RED' | 'YELLOW' | 'INFO'; title: string; detail: string; impact: string; fix: string; tab?: string; key?: string; action?: 'REWRITE_ALL' }[];
   strengths: string[];
   charts: {
     salesByDay: { date: string; orders: number; sales: number }[];
@@ -124,14 +124,23 @@ const BarList: React.FC<{ title: string; rows: { label: string; value: number; h
   );
 };
 
-export const ShopCoachReport: React.FC<{ coach: Coach; onGo?: (tab: string) => void; compact?: boolean }> = ({ coach, onGo, compact }) => {
+export const ShopCoachReport: React.FC<{
+  coach: Coach;
+  onGo?: (tab: string) => void;
+  compact?: boolean;
+  /** Hides a blue tip (urgent problems cannot be hidden) */
+  onHide?: (key: string) => void;
+  /** Button for a one-click fix the app can run (e.g. rewrite all descriptions) */
+  renderAction?: (action: 'REWRITE_ALL') => React.ReactNode;
+}> = ({ coach, onGo, compact, onHide, renderAction }) => {
   const [showAll, setShowAll] = useState(!compact);
   const h = HEALTH[coach.health.level] || HEALTH.GREEN;
   const s = coach.scores;
   const tiles = [
     { label: 'On-time delivery', value: s.onTimeDelivery === null ? '—' : `${s.onTimeDelivery}%`, good: s.onTimeDelivery === null || s.onTimeDelivery >= 90 },
-    { label: 'Cancellation', value: `${s.cancellation}%`, good: s.cancellation <= 5 },
-    { label: 'Returns', value: `${s.returns}%`, good: s.returns <= 5 },
+    // null = fewer than 5 real orders: too early to judge
+    { label: 'Cancellation', value: s.cancellation === null ? '—' : `${s.cancellation}%`, good: s.cancellation === null || s.cancellation <= 5 },
+    { label: 'Returns', value: s.returns === null ? '—' : `${s.returns}%`, good: s.returns === null || s.returns <= 5 },
     { label: 'Customer rating', value: s.rating === null ? 'New' : `${s.rating} ★`, good: s.rating === null || s.rating >= 4 },
   ];
   const issues = showAll ? coach.issues : coach.issues.slice(0, 3);
@@ -195,11 +204,19 @@ export const ShopCoachReport: React.FC<{ coach: Coach; onGo?: (tab: string) => v
               <div className="pl-6">
                 <strong>What to do:</strong> {i.fix}
               </div>
-              {onGo && i.tab && (
-                <div className="pl-6">
-                  <button type="button" onClick={() => onGo(i.tab!)} className="mt-1 px-2.5 py-1 bg-white border border-black/20 font-semibold cursor-pointer">
-                    Fix it →
-                  </button>
+              {(onGo || renderAction || onHide) && (
+                <div className="pl-6 flex flex-wrap items-center gap-2">
+                  {i.action && renderAction ? renderAction(i.action) : null}
+                  {onGo && i.tab && !i.action && (
+                    <button type="button" onClick={() => onGo(i.tab!)} className="mt-1 px-2.5 py-1 bg-white border border-black/20 font-semibold cursor-pointer">
+                      Fix it →
+                    </button>
+                  )}
+                  {onHide && i.level === 'INFO' && i.key && (
+                    <button type="button" onClick={() => onHide(i.key!)} className="mt-1 px-2 py-1 text-[#575653] underline cursor-pointer">
+                      Hide tip
+                    </button>
+                  )}
                 </div>
               )}
             </div>
