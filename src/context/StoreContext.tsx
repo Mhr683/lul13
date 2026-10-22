@@ -154,7 +154,7 @@ import { ShippingCalculationService } from '../services/shippingService';
 import { welcomeOf } from '../services/promotions';
 import { stripPaymentSecrets } from '../services/paymentSecrets';
 import { getReferralCode } from '../services/referral';
-import { track } from '../services/analytics';
+import { track, getAttribution } from '../services/analytics';
 
 interface StoreContextValue {
   // Auth
@@ -1019,6 +1019,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         couponCode: appliedCoupon?.code,
         referralCode: getReferralCode() || undefined,
+        // which ad / channel brought this customer (Traffic & Conversion → ads and ROAS)
+        attribution: getAttribution(),
         useReferralCredit: (payload as any).useReferralCredit === true,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,

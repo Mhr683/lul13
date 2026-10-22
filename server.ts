@@ -37,6 +37,7 @@ import { registerPolicyRoutes } from './server/policy';
 import { registerSellerAiRoutes } from './server/sellerAi';
 import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
 import { createAnalytics } from './server/analytics';
+import { createAds } from './server/ads';
 import { effectivePrice, isFlashActive, welcomeOf, referralOf, DEFAULT_NEW_SELLER_FREE_DAYS } from './src/services/promotions';
 import {
   PAYMENT_SECRET_FIELDS,
@@ -1213,6 +1214,16 @@ const analytics = createAnalytics({
   isQuotaHit: () => firestoreQuotaHit(),
   productName: (id) => (catalogStore.ready ? catalogStore.product(id)?.name || null : null),
   sellerName: (id) => (catalogStore.ready ? catalogStore.productsOfSeller(id)[0]?.sellerName || null : null),
+  onEvents: (visitor, events, req) => ads.onFunnelEvents(visitor, events, req),
+});
+
+// Meta / Google / TikTok ad stats (synced every 6 hours, keys in .env) and Meta Conversions API
+const ads = createAds({
+  adminDb,
+  requireAdmin: (req, res, next) => requireAdmin(req, res, next),
+  isQuotaHit: () => firestoreQuotaHit(),
+  usdToPkr: () => Number(catalogStore.settings()?.usdToPkrRate) || 278.5,
+  report: (from, to) => analytics.report(from, to),
 });
 
 // Optional filtering / paging for large catalogs: ?q=&category=&offset=&limit=
@@ -3046,7 +3057,9 @@ app.post('/api/orders/create', async (req, res) => {
     // 2. To Store Owner
     // If sending fails, it is logged in email_logs collection and never breaks the order.
     if (result && result.order) {
-      for (const c of result.created) analytics.recordOrder(c.order as any);
+      const attribution = req.body?.attribution && typeof req.body.attribution === 'object' ? req.body.attribution : undefined;
+      for (const c of result.created) analytics.recordOrder(c.order as any, attribution);
+      ads.onPurchase(result.created.map((c) => c.order as any), attribution, req);
       // The checkout is done: drop the saved "abandoned cart" of this phone (no reminder needed)
       adminDb.collection('abandoned_carts').doc(phoneKey(cleanPhone)).delete().catch(() => {});
       (async () => {
@@ -3609,6 +3622,7 @@ registerFeedbackRoutes(app, {
 
 // Traffic, sales and conversion analytics (one document per day; see server/analytics.ts)
 analytics.register(app);
+ads.register(app);
 
 // Growth: social proof, abandoned checkouts, refer & earn, flash deals
 registerGrowthRoutes(app, {

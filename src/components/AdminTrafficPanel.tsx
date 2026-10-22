@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Download, FileSpreadsheet, Printer, Users, Eye, MousePointerClick, Percent, ShoppingCart, TrendingDown } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
+import { AdminAdsSection } from './AdminAdsSection';
 
 // Admin → Traffic & Conversion: visitors, impressions, clicks, CTR, traffic sources, the conversion
 // funnel with drop-offs, most viewed vs most sold products, seller activity, cancellation / return
@@ -36,12 +37,15 @@ const PK = 5 * 3600_000;
 const day = (offsetDays = 0) => new Date(Date.now() + PK - offsetDays * 86400_000).toISOString().slice(0, 10);
 const SOURCE_LABEL: Record<string, string> = {
   direct: 'Direct',
-  social: 'Facebook / Instagram',
+  meta: 'Meta ads (FB / IG)',
+  google: 'Google ads',
+  tiktok: 'TikTok ads',
+  social: 'Facebook / Instagram (organic)',
   whatsapp: 'WhatsApp & referrals',
   search: 'Search (Google...)',
   other: 'Other websites',
 };
-const SOURCE_COLOR: Record<string, string> = { direct: '#141413', social: '#2563EB', whatsapp: '#16A34A', search: '#F59E0B', other: '#A8A29E' };
+const SOURCE_COLOR: Record<string, string> = { direct: '#141413', meta: '#1D4ED8', google: '#EA580C', tiktok: '#DB2777', social: '#60A5FA', whatsapp: '#16A34A', search: '#F59E0B', other: '#A8A29E' };
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const num = (n: number) => Math.round(n || 0).toLocaleString('en-PK');
 const card = 'p-4 bg-white border border-black/10 rounded-lg';
@@ -455,6 +459,8 @@ export const AdminTrafficPanel: React.FC = () => {
               </div>
             </div>
           </div>
+
+          <AdminAdsSection from={report.from} to={report.to} />
 
           <div className={`${card} space-y-2`}>
             <div className="font-bold">When customers visit (page views by day and hour)</div>

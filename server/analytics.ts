@@ -20,9 +20,11 @@ export interface AnalyticsDeps {
   isQuotaHit: () => boolean;
   productName: (id: string) => string | null;
   sellerName: (id: string) => string | null;
+  /** Called with each accepted batch (e.g. Meta Conversions API for add-to-cart / checkout) */
+  onEvents?: (visitor: string, events: { t: string; p?: string; n?: number }[], req: express.Request) => void;
 }
 
-export const SOURCES = ['direct', 'social', 'whatsapp', 'search', 'other'] as const;
+export const SOURCES = ['direct', 'meta', 'google', 'tiktok', 'social', 'whatsapp', 'search', 'other'] as const;
 type Source = (typeof SOURCES)[number];
 const EVENT_TYPES = { imp: 'impressions', clk: 'clicks', view: 'productViews', pv: 'pageViews', cart: 'addToCart', chk: 'checkoutStarted' } as const;
 type Counters = Record<string, number>;
@@ -34,13 +36,16 @@ type Day = {
   s: Record<string, number>; // orders per seller
   cr: Record<string, number>; // cancellations by reason
   rr: Record<string, number>; // returns by reason
+  os: Record<string, number>; // orders per traffic source
+  or: Record<string, number>; // revenue per traffic source
+  oc: Record<string, Record<string, number>>; // per "source|campaign": o (orders), r (revenue)
   visitors: string[]; // new visitor hashes for the HyperLogLog
 };
 
 const PK_OFFSET = 5 * 3600_000;
 export const dayKey = (t = Date.now()) => new Date(t + PK_OFFSET).toISOString().slice(0, 10);
 const hourOf = (t = Date.now()) => new Date(t + PK_OFFSET).getUTCHours();
-const emptyDay = (): Day => ({ c: {}, src: {}, hrs: {}, p: {}, s: {}, cr: {}, rr: {}, visitors: [] });
+const emptyDay = (): Day => ({ c: {}, src: {}, hrs: {}, p: {}, s: {}, cr: {}, rr: {}, os: {}, or: {}, oc: {}, visitors: [] });
 const add = (o: Record<string, number>, k: string, n = 1) => (o[k] = (o[k] || 0) + n);
 
 // ---------------------------------------------------------------- HyperLogLog (unique visitors)
@@ -139,10 +144,24 @@ export function createAnalytics(d: AnalyticsDeps) {
   };
 
   /** An order was placed (one per seller parcel) */
-  const recordOrder = (o: { sellerId?: string; total?: number; items?: { productId: string; quantity: number }[] }) => {
+  const recordOrder = (
+    o: { sellerId?: string; total?: number; items?: { productId: string; quantity: number }[] },
+    attribution?: { source?: string; campaign?: string }
+  ) => {
     const day = dayOf(dayKey());
+    const revenue = Math.round(Number(o.total) || 0);
     add(day.c, 'orders');
-    add(day.c, 'revenue', Math.round(Number(o.total) || 0));
+    add(day.c, 'revenue', revenue);
+    // Which channel / ad campaign brought the order (for ROAS)
+    const source = (SOURCES as readonly string[]).includes(String(attribution?.source)) ? String(attribution!.source) : 'direct';
+    add(day.os, source);
+    add(day.or, source, revenue);
+    const campaign = String(attribution?.campaign || '').replace(/[^\w\- ]+/g, '_').trim().slice(0, 60);
+    if (campaign) {
+      const k = `|`;
+      add((day.oc[k] ||= {}), 'o');
+      add(day.oc[k], 'r', revenue);
+    }
     if (o.sellerId) add(day.s, String(o.sellerId));
     for (const it of o.items || []) {
       if (!it.productId) continue;
@@ -193,6 +212,9 @@ export function createAnalytics(d: AnalyticsDeps) {
               s: inc(day.s),
               cr: inc(day.cr),
               rr: inc(day.rr),
+              os: inc(day.os),
+              or: inc(day.or),
+              oc: Object.fromEntries(Object.entries(day.oc).map(([k, v]) => [k, inc(v)])),
               ...(hll ? { hll } : {}),
               updatedAt: new Date().toISOString(),
             },
@@ -206,7 +228,8 @@ export function createAnalytics(d: AnalyticsDeps) {
       // put the numbers back so nothing is lost
       for (const [k, day] of batch) {
         const cur = dayOf(k);
-        for (const f of ['c', 'src', 'hrs', 's', 'cr', 'rr'] as const) for (const [key, n] of Object.entries(day[f])) add(cur[f], key, n);
+        for (const f of ['c', 'src', 'hrs', 's', 'cr', 'rr', 'os', 'or'] as const) for (const [key, n] of Object.entries(day[f])) add(cur[f], key, n);
+        for (const [k, v] of Object.entries(day.oc)) for (const [key, n] of Object.entries(v)) add((cur.oc[k] ||= {}), key, n);
         for (const [pid, v] of Object.entries(day.p)) for (const [key, n] of Object.entries(v)) add((cur.p[pid] ||= {}), key, n);
         cur.visitors.push(...day.visitors);
       }
@@ -261,6 +284,9 @@ export function createAnalytics(d: AnalyticsDeps) {
     const sellersByWeek = new Map<string, Map<string, number>>();
     const cancels: Record<string, number> = {};
     const returns: Record<string, number> = {};
+    const ordersBySource: Record<string, number> = {};
+    const revenueBySource: Record<string, number> = {};
+    const byCampaign: Record<string, Record<string, number>> = {};
     const rangeHll = hllEmpty();
     const series: any[] = [];
 
@@ -280,6 +306,12 @@ export function createAnalytics(d: AnalyticsDeps) {
       for (const [key, n] of Object.entries(merged('src'))) add(sources, key, n);
       for (const [key, n] of Object.entries(merged('cr'))) add(cancels, key, n);
       for (const [key, n] of Object.entries(merged('rr'))) add(returns, key, n);
+      for (const [key, n] of Object.entries(merged('os'))) add(ordersBySource, key, n);
+      for (const [key, n] of Object.entries(merged('or'))) add(revenueBySource, key, n);
+      const oc: Record<string, Record<string, number>> = {};
+      for (const [k, v] of Object.entries(doc.oc || {})) oc[k] = { ...(v as any) };
+      if (mem) for (const [k, v] of Object.entries(mem.oc)) for (const [key, n] of Object.entries(v)) add((oc[k] ||= {}), key, n);
+      for (const [k, v] of Object.entries(oc)) for (const [key, n] of Object.entries(v)) add((byCampaign[k] ||= {}), key, Number(n) || 0);
       const weekday = new Date(`${k}T00:00:00Z`).getUTCDay();
       for (const [h, n] of Object.entries(merged('hrs'))) hours[weekday][Number(h)] += n;
       const pp: Record<string, Record<string, number>> = { ...(doc.p || {}) };
@@ -365,7 +397,11 @@ export function createAnalytics(d: AnalyticsDeps) {
         returnRate: pct(totals.returns || 0, totals.orders || 0),
       },
       series,
-      sources: SOURCES.map((s) => ({ source: s, visitors: sources[s] || 0 })),
+      sources: SOURCES.map((s) => ({ source: s, visitors: sources[s] || 0, orders: ordersBySource[s] || 0, revenue: revenueBySource[s] || 0 })),
+      campaigns: Object.entries(byCampaign).map(([k, v]) => {
+        const [source, ...rest] = k.split('|');
+        return { source, campaign: rest.join('|'), orders: v.o || 0, revenue: v.r || 0 };
+      }),
       funnel: steps,
       mostViewed: [...rows].sort((a, b) => b.views - a.views || b.clicks - a.clicks).slice(0, 10),
       mostSold: [...rows].sort((a, b) => b.sold - a.sold).filter((r) => r.sold > 0).slice(0, 10),
@@ -403,6 +439,7 @@ export function createAnalytics(d: AnalyticsDeps) {
       if (!/^[a-f0-9]{16,64}$/.test(visitor) || !Array.isArray(b?.e)) return res.status(400).end();
       const source = (SOURCES as readonly string[]).includes(b?.s) ? (b.s as Source) : 'other';
       recordEvents(visitor, source, b.e);
+      d.onEvents?.(visitor, b.e, req);
       res.status(204).end();
     });
 
@@ -429,5 +466,5 @@ export function createAnalytics(d: AnalyticsDeps) {
     });
   };
 
-  return { register, recordOrder, recordCancel, recordReturn, flush };
+  return { register, recordOrder, recordCancel, recordReturn, flush, report };
 }
