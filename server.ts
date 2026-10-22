@@ -628,6 +628,11 @@ app.use('/api/orders/create', limitPerIp('create', 10));
 
 // Initialize Server-Side Gemini Client with mandatory User-Agent header
 function getGenAIClient() {
+  // Without a key the library falls back to Google Cloud credentials and fails with a confusing
+  // "Could not load the default credentials" message
+  if (!String(process.env.GEMINI_API_KEY || '').trim()) {
+    throw new Error('The AI is not set up on this server: add GEMINI_API_KEY to the .env file (free key from aistudio.google.com/apikey) and restart the server.');
+  }
   return new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
     httpOptions: {

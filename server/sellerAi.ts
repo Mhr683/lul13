@@ -436,7 +436,10 @@ Be the seller's coach and partner: when they ask about performance, details or a
       });
     } catch (err: any) {
       console.error('[seller ai] failed:', err?.message);
-      res.status(503).json({ error: 'The assistant is busy right now. Please try again in a minute.' });
+      const notSetUp = String(err?.message || '').includes('GEMINI_API_KEY');
+      res.status(503).json({
+        error: notSetUp ? 'The AI assistant is not switched on yet. Please ask the store to set it up.' : 'The assistant is busy right now. Please try again in a minute.',
+      });
     }
   });
 
