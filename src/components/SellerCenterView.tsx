@@ -549,6 +549,7 @@ const AutoFixBox: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   const [plan, setPlan] = useState<{ enabled: boolean; lastRunAt: string | null; hide: { id: string; name: string }[]; rewrite: { id: string; name: string }[] } | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState('');
   const load = useCallback(() => {
     api('/api/seller/coach/autofix')
       .then(setPlan)
@@ -569,12 +570,18 @@ const AutoFixBox: React.FC<{ onDone: () => void }> = ({ onDone }) => {
       showToast(err.message);
     }
   };
+  // One click: apply every safe fix now, switch the daily auto-fix on, and refresh the coach so the
+  // fixed problems disappear (the rest stay with their "Fix it" buttons for the seller)
   const run = async () => {
     setBusy(true);
+    setResult('');
     try {
       const r = await api('/api/seller/coach/autofix', { method: 'POST', body: '{}' });
-      showToast(r.updated ? `Done: ${r.hidden.length} hidden, ${r.rewritten.length} descriptions improved. Details are in Messages.` : 'Nothing needed fixing.');
-      setOpen(false);
+      const msg = r.updated
+        ? `Fixed: ${r.hidden.length} out-of-stock product(s) hidden, ${r.rewritten.length} description(s) improved. Daily auto-fix is on.`
+        : 'Everything the coach can fix is already fine. Daily auto-fix is on.';
+      setResult(msg);
+      showToast(msg);
       load();
       onDone();
     } catch (err: any) {
@@ -587,26 +594,31 @@ const AutoFixBox: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   return (
     <div className="p-3 bg-white border border-emerald-200 rounded-lg space-y-2 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <strong className="text-sm">🛠 Auto-fix</strong>
-          <span className="text-[#575653]">
-            {' '}
-            · {count ? `${count} thing${count > 1 ? 's' : ''} the coach can fix now` : 'nothing to fix right now'}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={run}
+          className="px-5 py-2.5 bg-[#0E7A43] hover:bg-[#0B5E34] text-white text-sm font-bold rounded disabled:opacity-60 cursor-pointer"
+        >
+          {busy ? 'Fixing your account health...' : '⚡ Auto-fix account health'}
+        </button>
+        <div className="flex flex-wrap items-center gap-3 text-[#575653]">
+          <span>
+            {count ? `${count} thing${count > 1 ? 's' : ''} can be fixed now` : 'Nothing to fix right now'}
             {plan.lastRunAt ? ` · last run ${new Date(plan.lastRunAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}
           </span>
-        </div>
-        <div className="flex items-center gap-2">
           <label className="flex items-center gap-1.5 cursor-pointer">
             <input type="checkbox" checked={plan.enabled} onChange={(e) => toggle(e.target.checked)} />
-            Fix automatically every day
+            Also every day
           </label>
           {count > 0 && (
-            <button type="button" onClick={() => setOpen((o) => !o)} className="px-3 py-1.5 bg-[#0E7A43] text-white font-bold cursor-pointer">
-              {open ? 'Close' : 'Fix now'}
+            <button type="button" onClick={() => setOpen((o) => !o)} className="underline cursor-pointer">
+              {open ? 'Hide details' : 'What will it change?'}
             </button>
           )}
         </div>
       </div>
+      {result && <p className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-900">{result} Anything still listed below needs you: press its “Fix it” button — once you fix it, it disappears from the list.</p>}
       {open && (
         <div className="p-2 bg-[#FBFBF9] border border-black/10 space-y-2">
           {plan.hide.length > 0 && (
@@ -631,9 +643,6 @@ const AutoFixBox: React.FC<{ onDone: () => void }> = ({ onDone }) => {
             </div>
           )}
           <p className="text-[#575653]">Prices, your health score and your account settings are never changed.</p>
-          <button type="button" disabled={busy} onClick={run} className="px-4 py-1.5 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer">
-            {busy ? 'Fixing...' : 'Apply these fixes'}
-          </button>
         </div>
       )}
     </div>

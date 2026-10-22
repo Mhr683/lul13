@@ -572,7 +572,8 @@ Be the seller's coach and partner: when they ask about performance, details or a
     if (autoRunning.has(uid)) return res.status(409).json({ error: 'Auto-fix is already running. Check Messages in a minute.' });
     autoRunning.add(uid);
     try {
-      await d.sellerData.setSellerFields(uid, { autoFixAt: new Date().toISOString() });
+      // The button also switches the daily auto-fix on
+      await d.sellerData.setSellerFields(uid, { autoFixAt: new Date().toISOString(), autoFix: true });
       res.json({ success: true, ...(await runAutoFix(uid, seller, 5)) });
     } catch (err: any) {
       console.error('[coach autofix] failed:', err?.message);

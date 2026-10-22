@@ -163,7 +163,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     ordersCache.set(sellerId, { at: Date.now(), orders });
     return orders;
   };
-  const forgetOrders = (sellerId: string) => ordersCache.delete(sellerId);
+  // An order change also makes the Shop Coach report recalculate (so a fixed problem disappears)
+  const forgetOrders = (sellerId: string) => {
+    ordersCache.delete(sellerId);
+    forgetCoach(sellerId);
+  };
+  // set once the coach cache exists (further down)
+  let forgetCoach: (sellerId: string) => void = () => {};
 
   // Return charges not yet taken off a payout (seller_charges/{id}, written by server/policy.ts)
   const unpaidChargesOf = async (sellerId: string) => {
@@ -623,6 +629,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         }
       }
       if (inBatch) await batch.commit();
+      forgetCoach(uid);
       res.json({ success: true, created, updated, errors, heldForProof });
     } catch (err) {
       console.error('[seller/products bulk] failed:', err);
@@ -669,6 +676,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         batch.set(adminDb.collection('product_private').doc(id), { productId: id, ...privateData, updatedAt: new Date().toISOString() }, { merge: true });
       }
       await batch.commit();
+      forgetCoach(uid);
       res.json({ success: true, product: listFields(product), heldForProof });
     } catch (err) {
       console.error('[seller/products save] failed:', err);
@@ -684,6 +692,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const snap = await ref.get();
       if (!snap.exists || snap.data()?.sellerId !== uid) return res.status(403).json({ error: 'This product does not belong to your shop.' });
       await ref.update({ status: 'ARCHIVED', updatedAt: new Date().toISOString() });
+      forgetCoach(uid);
       res.json({ success: true });
     } catch (err) {
       console.error('[seller/products archive] failed:', err);
@@ -1544,6 +1553,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   // only extra reads are two small queries (open returns, product complaints).
   const coachCache = new Map<string, { at: number; coach: any }>();
   let coachViewedHook: ((uid: string, seller: any) => void) | null = null;
+  forgetCoach = (sellerId: string) => {
+    coachCache.delete(sellerId);
+  };
   const coachOf = async (uid: string, seller: any, fresh = false) => {
     const hit = coachCache.get(uid);
     if (hit && Date.now() - hit.at < (fresh ? 30_000 : 5 * 60_000)) return hit.coach;
@@ -1662,6 +1674,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
     }
     if (inBatch) await batch.commit();
+    if (updated) forgetCoach(uid);
     return { updated, skipped };
   };
 
