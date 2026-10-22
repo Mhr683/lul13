@@ -3646,6 +3646,7 @@ registerSellerAiRoutes(app, {
   requireSeller: marketplace.requireSeller,
   getAI: getGenAIClient,
   sellerData: marketplace.sellerData,
+  setCoachViewedHook: marketplace.setCoachViewedHook,
 });
 
 // Customer Protection Policy (returns within 7 days) and the Supplier Code of Conduct rules

@@ -539,6 +539,107 @@ export const SellerCenterView: React.FC = () => {
   );
 };
 
+// ------------------------------------------------------------------ Shop Coach auto-fix
+
+// Safe fixes that stop the account health from getting worse (never prices, the score or settings):
+// hide live products with no stock, and write clearer descriptions. Runs daily by itself unless
+// the seller switches it off; "Fix now" runs it at once after showing what will change.
+const AutoFixBox: React.FC<{ onDone: () => void }> = ({ onDone }) => {
+  const { showToast } = useStore();
+  const [plan, setPlan] = useState<{ enabled: boolean; lastRunAt: string | null; hide: { id: string; name: string }[]; rewrite: { id: string; name: string }[] } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    api('/api/seller/coach/autofix')
+      .then(setPlan)
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  if (!plan) return null;
+  const count = plan.hide.length + plan.rewrite.length;
+
+  const toggle = async (enabled: boolean) => {
+    try {
+      await api('/api/seller/coach/autofix', { method: 'POST', body: JSON.stringify({ enabled }) });
+      setPlan((p) => p && { ...p, enabled });
+      showToast(enabled ? 'Auto-fix is on: the coach fixes these things once a day.' : 'Auto-fix is off.');
+    } catch (err: any) {
+      showToast(err.message);
+    }
+  };
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await api('/api/seller/coach/autofix', { method: 'POST', body: '{}' });
+      showToast(r.updated ? `Done: ${r.hidden.length} hidden, ${r.rewritten.length} descriptions improved. Details are in Messages.` : 'Nothing needed fixing.');
+      setOpen(false);
+      load();
+      onDone();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="p-3 bg-white border border-emerald-200 rounded-lg space-y-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <strong className="text-sm">🛠 Auto-fix</strong>
+          <span className="text-[#575653]">
+            {' '}
+            · {count ? `${count} thing${count > 1 ? 's' : ''} the coach can fix now` : 'nothing to fix right now'}
+            {plan.lastRunAt ? ` · last run ${new Date(plan.lastRunAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={plan.enabled} onChange={(e) => toggle(e.target.checked)} />
+            Fix automatically every day
+          </label>
+          {count > 0 && (
+            <button type="button" onClick={() => setOpen((o) => !o)} className="px-3 py-1.5 bg-[#0E7A43] text-white font-bold cursor-pointer">
+              {open ? 'Close' : 'Fix now'}
+            </button>
+          )}
+        </div>
+      </div>
+      {open && (
+        <div className="p-2 bg-[#FBFBF9] border border-black/10 space-y-2">
+          {plan.hide.length > 0 && (
+            <div>
+              <strong>Hide (out of stock, so no order gets cancelled):</strong>
+              <ul className="list-disc pl-5">
+                {plan.hide.slice(0, 10).map((p) => (
+                  <li key={p.id}>{p.name}</li>
+                ))}
+                {plan.hide.length > 10 && <li>…and {plan.hide.length - 10} more</li>}
+              </ul>
+            </div>
+          )}
+          {plan.rewrite.length > 0 && (
+            <div>
+              <strong>Write clearer descriptions (AI):</strong>
+              <ul className="list-disc pl-5">
+                {plan.rewrite.map((p) => (
+                  <li key={p.id}>{p.name}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-[#575653]">Prices, your health score and your account settings are never changed.</p>
+          <button type="button" disabled={busy} onClick={run} className="px-4 py-1.5 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer">
+            {busy ? 'Fixing...' : 'Apply these fixes'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ------------------------------------------------------------------ flash deal on one product
 
 const FlashDealBox: React.FC<{ productId: string; price: number; current: { price: string; endsAt: string } | null }> = ({ productId, price, current }) => {
@@ -1214,6 +1315,7 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
             </button>
           </div>
         </div>
+        <AutoFixBox onDone={() => loadCoach(true)} />
         {coach ? (
           <ShopCoachReport coach={coach} onGo={(t) => onGo(t as Tab)} compact />
         ) : (

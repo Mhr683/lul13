@@ -1543,6 +1543,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   // per seller; orders come from the seller cache and products from the catalog mirror, so the
   // only extra reads are two small queries (open returns, product complaints).
   const coachCache = new Map<string, { at: number; coach: any }>();
+  let coachViewedHook: ((uid: string, seller: any) => void) | null = null;
   const coachOf = async (uid: string, seller: any, fresh = false) => {
     const hit = coachCache.get(uid);
     if (hit && Date.now() - hit.at < (fresh ? 30_000 : 5 * 60_000)) return hit.coach;
@@ -1594,6 +1595,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const uid = (req as any).user.uid as string;
       res.setHeader('Cache-Control', 'no-store');
       res.json({ success: true, coach: await coachOf(uid, (req as any).seller, req.query.fresh === '1') });
+      // Daily auto-fix (server/sellerAi.ts) runs in the background when the seller opens the coach
+      coachViewedHook?.(uid, (req as any).seller);
     } catch (err) {
       console.error('[seller/coach] failed:', err);
       res.status(503).json({ error: 'Could not prepare your shop report. Please try again.' });
@@ -1667,7 +1670,23 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     forgetSeller,
     forgetOrders,
     suspendSeller,
-    sellerData: { productsOf, ordersOf, earningsOf, applyProductPatches, supplierOf: d.supplierOf, coachOf },
+    sellerData: {
+      productsOf,
+      ordersOf,
+      earningsOf,
+      applyProductPatches,
+      supplierOf: d.supplierOf,
+      coachOf,
+      setSellerFields: async (uid: string, fields: Record<string, any>) => {
+        await sellersCol().doc(uid).set(fields, { merge: true });
+        forgetSeller(uid);
+      },
+      notify: (uid: string, shopName: string, title: string, body: string) => d.postNotice(uid, shopName, title, body, 'INFO'),
+      forgetCoach: (uid: string) => coachCache.delete(uid),
+    },
+    setCoachViewedHook: (fn: (uid: string, seller: any) => void) => {
+      coachViewedHook = fn;
+    },
     forgetShop: (sellerId: string) => shopCache.delete(sellerId),
   };
 }
