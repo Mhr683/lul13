@@ -14,3 +14,6 @@ coverage/
 
 # Seller uploads kept on disk until Firebase Storage is available (server.ts storeMedia)
 .media/
+
+# PWA service worker built by the dev server
+dev-dist/
