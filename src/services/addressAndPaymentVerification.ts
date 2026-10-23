@@ -1,5 +1,6 @@
 import { PaymentMethod } from '../types/store';
 import { GEO_COUNTRIES, GEO_STATES, GEO_PK_CITIES } from '../data/geoData';
+import { checkPhone, checkPostal, postalRuleFor } from './intlAddress';
 
 // Same shapes as country-state-city's IState / ICity (only the fields the store uses)
 export interface IState {
@@ -838,8 +839,11 @@ export function verifyAddressAndIdentity(input: {
 }): AddressVerificationStatus {
   const countryObj = ALL_WORLD_COUNTRIES.find((c) => c.isoCode === input.countryIsoCode);
   const countryValid = Boolean(countryObj);
-  const stateValid = Boolean(input.stateName && input.stateName.trim().length >= 2);
-  const activeDistrict = (input.districtName || input.cityName || '').trim();
+  const isPk = input.countryIsoCode === 'PK';
+  // Outside Pakistan the state / province is optional (many countries have none on their addresses)
+  const stateValid = !isPk || Boolean(input.stateName && input.stateName.trim().length >= 2);
+  // Pakistan: district from the list; elsewhere: the city the customer typed
+  const activeDistrict = (isPk ? input.districtName || input.cityName : input.cityName || '').trim();
   const districtValid = activeDistrict.length >= 2;
   const cityValid = districtValid;
   const activeTehsil = (input.tehsilName || '').trim();
@@ -852,25 +856,24 @@ export function verifyAddressAndIdentity(input: {
     /[a-zA-Z]/.test(streetTrimmed) &&
     !/^(.)\1{5,}$/.test(streetTrimmed);
 
-  const postalVerification = verifyPostalCodeForLocation({
-    countryIsoCode: input.countryIsoCode,
-    cityName: input.districtName || input.cityName,
-    stateName: input.stateName,
-    postalCode: input.postalCode,
-  });
-  // Many Pakistani customers don't know their post code, so it is optional there (checked only if entered)
-  const postalOptional = input.countryIsoCode === 'PK' && !input.postalCode.trim();
-  const postalValid = postalOptional || postalVerification.valid;
+  // Pakistan: the post code is optional and, when entered, checked against the district.
+  // Elsewhere: the country's own format; hidden for countries without postal codes.
+  const pkPostal = isPk
+    ? verifyPostalCodeForLocation({
+        countryIsoCode: input.countryIsoCode,
+        cityName: input.districtName || input.cityName,
+        stateName: input.stateName,
+        postalCode: input.postalCode,
+      })
+    : null;
+  const intlPostal = isPk ? null : checkPostal(input.countryIsoCode, input.postalCode);
+  const postalOptional = isPk ? !input.postalCode.trim() : !postalRuleFor(input.countryIsoCode).required && !input.postalCode.trim();
+  const postalValid = isPk ? postalOptional || Boolean(pkPostal?.valid) : Boolean(intlPostal?.valid);
 
-  const phoneTrimmed = input.phone.trim();
+  // Phone: numbering rules of the selected country (local or +code form); Pakistan: mobiles only
   const prefix = countryObj?.phonePrefix || '+';
-  const digitsOnly = phoneTrimmed.replace(/\D/g, '');
-  const phoneValid =
-    input.countryIsoCode === 'PK'
-      ? /^(\+92|0)?\s?3[0-9]{2}[\s\-]?[0-9]{7}$/.test(phoneTrimmed)
-      : (phoneTrimmed.startsWith(prefix) || phoneTrimmed.startsWith('+')) &&
-        digitsOnly.length >= 8 &&
-        digitsOnly.length <= 15;
+  const phoneCheck = checkPhone(input.countryIsoCode, input.phone);
+  const phoneValid = phoneCheck.valid;
 
   const emailTrimmed = input.email.trim();
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailTrimmed);
@@ -899,17 +902,17 @@ export function verifyAddressAndIdentity(input: {
     fieldMessages: {
       location:
         countryValid && stateValid && districtValid
-          ? `Verified Global Address: ${activeTehsil ? activeTehsil + ', ' : ''}${activeDistrict}, ${input.stateName}, ${input.countryName} (${input.countryIsoCode})`
-          : 'Select a valid Country, Province / State, and District.',
-      district: districtValid ? 'Verified District' : 'Select a valid District',
+          ? `Verified Global Address: ${activeTehsil ? activeTehsil + ', ' : ''}${activeDistrict}${input.stateName ? `, ${input.stateName}` : ''}, ${input.countryName} (${input.countryIsoCode})`
+          : isPk
+          ? 'Select a valid Country, Province / State, and District.'
+          : 'Enter the city.',
+      district: districtValid ? (isPk ? 'Verified District' : 'City entered') : isPk ? 'Select a valid District' : 'Enter the city',
       tehsil: tehsilValid ? 'Verified Tehsil' : 'Select or enter Tehsil',
       street: streetValid
         ? 'Verified Street & Building format'
         : 'Wrong Address: Enter complete house/building number, street, and sector/area (min 6 chars).',
-      postal: postalOptional ? 'Postal code (optional)' : postalVerification.message,
-      phone: phoneValid
-        ? `Verified Courier Receiver Ph. No. (${prefix})`
-        : `Wrong Receiver Phone Format: Must include dial code ${prefix} and valid subscriber digits (e.g. ${prefix} 300 1234567).`,
+      postal: isPk ? (postalOptional ? 'Postal code (optional)' : pkPostal!.message) : intlPostal!.message,
+      phone: phoneValid ? `Verified receiver phone: ${phoneCheck.international}` : phoneCheck.message || `Enter a valid ${prefix} phone number.`,
       email: emailValid
         ? 'Verified Client Email'
         : 'Wrong Email: Enter a valid email address for receipt notifications.',

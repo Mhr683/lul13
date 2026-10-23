@@ -212,6 +212,9 @@ interface StoreContextValue {
     stateProvince?: string;
     postalCode?: string;
     countryName?: string;
+    /** International address: second line (apartment, floor, area) and the city typed by the customer */
+    addressLine2?: string;
+    city?: string;
     notes?: string;
     isQuoteRequest?: boolean;
     directAutoDebit?: boolean;
@@ -1025,9 +1028,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
         customerEmail: payload.customerEmail,
+        // The server checks it again by the delivery country's rules (src/services/intlAddress.ts)
         shippingAddress: {
-          address: payload.shippingAddressSummary,
-          city: payload.district || '',
+          line1: payload.shippingAddressSummary,
+          line2: payload.addressLine2 || '',
+          city: payload.city || payload.district || '',
           district: payload.district,
           tehsil: payload.tehsil,
           state: payload.stateProvince || '',

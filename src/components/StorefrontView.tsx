@@ -64,6 +64,7 @@ import { BackInStockForm, BoughtTogether, RecentlyViewedStrip, useRecentlyViewed
 import { FollowStoreButton } from './FollowStoreButton';
 import { NO_BRAND_LABEL } from '../services/brandRules';
 import { CardShareButton, ShareProductButton } from './ShareProductButton';
+import { callingCodeOf, postalRuleFor } from '../services/intlAddress';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -101,7 +102,6 @@ import {
   ALL_WORLD_COUNTRIES,
   getStatesForCountry,
   getCitiesForState,
-  getPostalRuleForCountry,
   getSuggestedPakistanPostalCode,
   getTehsilsForDistrict,
   verifyAddressAndIdentity,
@@ -116,6 +116,9 @@ const GoogleMapsAddressDetector = lazy(() =>
 );
 const StorePolicyPages = lazy(() => import('./StorePolicyPages').then((m) => ({ default: m.StorePolicyPages })));
 import { AuthModal } from './AuthPanel';
+
+// Last delivery address used on this device (prefills the next checkout)
+const SAVED_ADDRESS_KEY = 'store_checkout_address_v1';
 
 type StoreSubView =
   | 'HOME'
@@ -355,6 +358,10 @@ export const StorefrontView: React.FC = () => {
   const city = district;
   const setCity = setDistrict;
   const [streetAddress, setStreetAddress] = useState('');
+  // International addresses: the city is typed (Pakistan picks a district from the list), plus a
+  // second address line (apartment, floor, area) for every country
+  const [intlCity, setIntlCity] = useState('');
+  const [addressLine2, setAddressLine2] = useState('');
   const [postalCode, setPostalCode] = useState('');
   const [customerPhone, setCustomerPhone] = useState(userProfile?.phone || '');
 
@@ -364,6 +371,54 @@ export const StorefrontView: React.FC = () => {
     setCustomerName((prev) => prev || userProfile.name || '');
     setCustomerEmail((prev) => prev || userProfile.email || '');
     setCustomerPhone((prev) => prev || userProfile.phone || '');
+  }, [userProfile]);
+
+  // Last delivery address: this device's saved one first, else the one on the customer's account
+  // (users/{uid}.defaultAddress, kept by the server with each order). Applied once, before typing.
+  const addressPrefilledRef = useRef(false);
+  useEffect(() => {
+    if (addressPrefilledRef.current || streetAddress.trim()) return;
+    let saved: any = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(SAVED_ADDRESS_KEY) || 'null');
+    } catch {}
+    const fromAccount = userProfile?.defaultAddress;
+    if (!saved && !fromAccount) return;
+    addressPrefilledRef.current = true;
+    if (saved && saved.countryIso) {
+      setCountryIso(saved.countryIso);
+      setCountry(saved.country || saved.countryIso);
+      setStateIso(saved.stateIso || '');
+      setStateProvince(saved.stateProvince || '');
+      setDistrict(saved.district || '');
+      setTehsil(saved.tehsil || '');
+      setIntlCity(saved.intlCity || '');
+      setStreetAddress(saved.streetAddress || '');
+      setAddressLine2(saved.addressLine2 || '');
+      setPostalCode(saved.postalCode || '');
+      setCustomerPhone((p) => p || saved.phone || '');
+      setCustomerName((p) => p || saved.name || '');
+      setCustomerEmail((p) => p || saved.email || '');
+      return;
+    }
+    const a = fromAccount!;
+    const iso = String(a.countryCode || 'PK').toUpperCase();
+    setCountryIso(iso);
+    setCountry(a.countryName || iso);
+    const st = getStatesForCountry(iso).find((s) => s.name === a.state);
+    setStateIso(st?.isoCode || 'CENTRAL');
+    setStateProvince(a.state || '');
+    if (iso === 'PK') {
+      setDistrict(a.city);
+      if (a.area && !getTehsilsForDistrict(a.city).includes(a.area)) {
+        setIsCustomTehsil(true);
+        setCustomTehsil(a.area);
+      } else setTehsil(a.area || '');
+    } else setIntlCity(a.city);
+    setStreetAddress(a.line1 || '');
+    setAddressLine2(a.line2 || '');
+    setPostalCode(a.postalCode || '');
+    setCustomerPhone((p) => p || a.phoneNumber || '');
   }, [userProfile]);
   const [shippingMethodId, setShippingMethodId] = useState(SHIPPING_METHODS[0].id);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
@@ -496,10 +551,11 @@ export const StorefrontView: React.FC = () => {
 
   const effectiveTehsil = isCustomTehsil && customTehsil.trim() ? customTehsil.trim() : tehsil;
 
-  const postalRule = useMemo(
-    () => getPostalRuleForCountry(countryIso),
-    [countryIso]
-  );
+  // Postal code: hidden where the country has none, optional / required and its format per country
+  const postalRule = useMemo(() => postalRuleFor(countryIso), [countryIso]);
+  const phoneCallingCode = useMemo(() => callingCodeOf(countryIso), [countryIso]);
+  // A real state / province list exists for this country (not just the "Metropolitan Region" stand-in)
+  const hasStateList = availableStates.length > 0 && availableStates[0].isoCode !== 'CENTRAL';
 
   const suggestedPakistanPostalCode = useMemo(() => {
     if (!isNationalPakistan) return null;
@@ -541,7 +597,8 @@ export const StorefrontView: React.FC = () => {
       ? getSuggestedPakistanPostalCode(tehsils[0] || defaultDistrict) || getSuggestedPakistanPostalCode(defaultDistrict) || ''
       : '';
     setPostalCode(initialPostal);
-    setCustomerPhone(userProfile?.phone || '');
+    // The city belongs to the old country; the phone is kept (the check shows if it fits the new one)
+    setIntlCity('');
   };
 
   const handleAddressAutoDetected = (payload: DetectedAddressPayload) => {
@@ -607,6 +664,8 @@ export const StorefrontView: React.FC = () => {
 
       finalDistrict = matchedDistrict ? matchedDistrict.name : (cleanTarget || rawCity);
       setDistrict(finalDistrict);
+      // Outside Pakistan the city is typed, so the detected one goes into the City box
+      if (currentCountryIso !== 'PK') setIntlCity(cleanTarget || rawCity);
 
       const tehsils = getTehsilsForDistrict(finalDistrict);
       if (tehsils.length > 0) {
@@ -681,9 +740,9 @@ export const StorefrontView: React.FC = () => {
       verifyAddressAndIdentity({
         countryIsoCode: countryIso,
         countryName: country,
-        stateName: stateProvince,
-        cityName: district,
-        districtName: district,
+        stateName: isNationalPakistan || hasStateList ? stateProvince : '',
+        cityName: isNationalPakistan ? district : intlCity,
+        districtName: isNationalPakistan ? district : intlCity,
         tehsilName: effectiveTehsil,
         streetAddress,
         postalCode,
@@ -695,6 +754,9 @@ export const StorefrontView: React.FC = () => {
       country,
       stateProvince,
       district,
+      intlCity,
+      hasStateList,
+      isNationalPakistan,
       effectiveTehsil,
       streetAddress,
       postalCode,
@@ -972,8 +1034,9 @@ export const StorefrontView: React.FC = () => {
     // Direct submit for Cash on Delivery or Manual Transfer with TID (stays PENDING_VERIFICATION)
     setIsSubmittingOrder(true);
     try {
-      // Street + area only; the server appends city, province, postal code, country and phone
-      const fullAddress = `${streetAddress.trim()}${effectiveTehsil ? `, ${effectiveTehsil}` : ''}`;
+      // Address line 1 only; the server builds the full address from the separate fields
+      // (line 2, tehsil / area, city, state, postal code, country, phone)
+      const fullAddress = streetAddress.trim();
       const isCod = paymentMethod === 'COD';
       const effectiveTid = isCod
         ? 'COD_DOORSTEP'
@@ -996,10 +1059,12 @@ export const StorefrontView: React.FC = () => {
         customerPhone,
         destCountryIso: countryIso,
         shippingAddressSummary: fullAddress,
-        district,
-        tehsil: effectiveTehsil,
-        stateProvince,
-        postalCode: postalCode.trim(),
+        addressLine2: addressLine2.trim(),
+        city: isNationalPakistan ? district : intlCity.trim(),
+        district: isNationalPakistan ? district : intlCity.trim(),
+        tehsil: isNationalPakistan ? effectiveTehsil : '',
+        stateProvince: isNationalPakistan || hasStateList ? stateProvince : '',
+        postalCode: postalRule.used ? postalCode.trim() : '',
         countryName: country,
         shippingMethodId: liveShippingCalc.carrier,
         shippingFee: liveShippingCalc.finalShippingFee,
@@ -1012,6 +1077,27 @@ export const StorefrontView: React.FC = () => {
         directAutoDebit: false,
         ...({ useReferralCredit: creditAmount > 0 } as any),
       });
+      // Remember this address on the device for the next checkout (guests too)
+      try {
+        localStorage.setItem(
+          SAVED_ADDRESS_KEY,
+          JSON.stringify({
+            countryIso,
+            country,
+            stateIso,
+            stateProvince,
+            district,
+            tehsil: effectiveTehsil,
+            intlCity,
+            streetAddress,
+            addressLine2,
+            postalCode,
+            phone: customerPhone,
+            name: customerName,
+            email: customerEmail,
+          })
+        );
+      } catch {}
       setConfirmedOrderNumber(order.orderNumber);
       setConfirmedSplitOrders(order.splitOrders || []);
       if (order.orderAccessToken) {
@@ -3179,11 +3265,12 @@ export const StorefrontView: React.FC = () => {
                         </select>
                       </div>
 
-                      {/* Complete States / Provinces Selector for Selected Country */}
+                      {/* States / Provinces of the selected country (hidden where the country has no list) */}
+                      {(isNationalPakistan || hasStateList) && (
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs text-[#575653]">
-                            State / Province ({availableStates.length} in {country})
+                            State / Province / Region{isNationalPakistan ? '' : ' (optional)'} ({availableStates.length} in {country})
                           </label>
                           <span
                             className={`text-[10px] font-mono ${
@@ -3217,8 +3304,34 @@ export const StorefrontView: React.FC = () => {
                           ))}
                         </select>
                       </div>
+                      )}
 
-                      {/* District Selector (Replaced City with District as requested) */}
+                      {/* Outside Pakistan: the customer types the city (no district / tehsil lists) */}
+                      {!isNationalPakistan && (
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs text-[#575653]">City / Town</label>
+                            <span className={`text-[10px] font-mono ${addressVerification.districtValid ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              {addressVerification.districtValid ? '✓ City entered' : '✕ Enter city'}
+                            </span>
+                          </div>
+                          <input
+                            type="text"
+                            required
+                            autoComplete="address-level2"
+                            value={intlCity}
+                            onChange={(e) => setIntlCity(e.target.value)}
+                            maxLength={80}
+                            placeholder="e.g. Dubai, London, Toronto"
+                            className={`w-full px-3.5 py-2.5 border text-xs ${
+                              addressVerification.districtValid ? 'border-emerald-600/60 bg-emerald-50/20' : 'border-rose-600 bg-rose-50/30'
+                            }`}
+                          />
+                        </div>
+                      )}
+
+                      {/* Pakistan: District from the list (stands for the city) */}
+                      {isNationalPakistan && (
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs text-[#575653]">
@@ -3244,8 +3357,10 @@ export const StorefrontView: React.FC = () => {
                           ))}
                         </select>
                       </div>
+                      )}
 
-                      {/* Tehsil Selector Box (As requested: box for selecting Tehsil) */}
+                      {/* Pakistan: Tehsil / area */}
+                      {isNationalPakistan && (
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs text-[#575653]">
@@ -3308,12 +3423,14 @@ export const StorefrontView: React.FC = () => {
                           </div>
                         )}
                       </div>
+                      )}
 
-                      {/* Postal / ZIP Code with Real-Time District/Tehsil Validation */}
+                      {/* Postal / ZIP code: format of the selected country; hidden where none is used */}
+                      {postalRule.used && (
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs text-[#575653]">
-                            Postal / ZIP Code ({selectedCountryRecord.isoCode})
+                            {postalRule.label} ({selectedCountryRecord.isoCode}){postalRule.required ? '' : ' (optional)'}
                           </label>
                           <span
                             className={`text-[10px] font-mono font-semibold ${
@@ -3325,10 +3442,11 @@ export const StorefrontView: React.FC = () => {
                         </div>
                         <input
                           type="text"
-                          required
+                          required={postalRule.required}
+                          autoComplete="postal-code"
                           value={postalCode}
                           onChange={(e) => setPostalCode(e.target.value)}
-                          placeholder={postalRule.example}
+                          placeholder={postalRule.example ? `e.g. ${postalRule.example}` : ''}
                           className={`w-full px-3.5 py-2.5 border text-xs font-mono ${
                             addressVerification.postalValid
                               ? 'border-emerald-600/60 bg-emerald-50/20'
@@ -3350,6 +3468,7 @@ export const StorefrontView: React.FC = () => {
                           )}
                         </div>
                       </div>
+                      )}
 
                       {/* Receiver Phone with Real-Time Country Dial Code Check */}
                       <div>
@@ -3365,18 +3484,26 @@ export const StorefrontView: React.FC = () => {
                             {addressVerification.phoneValid ? '✓ Right Phone' : '✕ Wrong Phone'}
                           </span>
                         </div>
-                        <input
-                          type="tel"
-                          required
-                          value={customerPhone}
-                          onChange={(e) => setCustomerPhone(e.target.value)}
-                          placeholder={`${selectedCountryRecord.phonePrefix} 300 1234567`}
-                          className={`w-full px-3.5 py-2.5 border text-xs font-mono ${
-                            addressVerification.phoneValid
-                              ? 'border-emerald-600/60 bg-emerald-50/20'
-                              : 'border-rose-600 bg-rose-50/30'
-                          }`}
-                        />
+                        <div className="flex">
+                          {/* The country's dialling code; the customer types the local number (or +code number) */}
+                          <span className="shrink-0 px-2.5 py-2.5 border border-r-0 border-black/15 bg-[#F4F3EF] text-xs font-mono font-semibold" title={country}>
+                            {selectedCountryRecord.flag} +{phoneCallingCode}
+                          </span>
+                          <input
+                            type="tel"
+                            required
+                            autoComplete="tel"
+                            inputMode="tel"
+                            value={customerPhone}
+                            onChange={(e) => setCustomerPhone(e.target.value)}
+                            placeholder={isNationalPakistan ? '0300 1234567' : 'Local number, e.g. 50 123 4567'}
+                            className={`w-full min-w-0 px-3.5 py-2.5 border text-xs font-mono ${
+                              addressVerification.phoneValid
+                                ? 'border-emerald-600/60 bg-emerald-50/20'
+                                : 'border-rose-600 bg-rose-50/30'
+                            }`}
+                          />
+                        </div>
                         <span className="block text-[10px] text-[#787774] mt-1">
                           {addressVerification.fieldMessages.phone}
                         </span>
@@ -3390,7 +3517,7 @@ export const StorefrontView: React.FC = () => {
                       <div className="sm:col-span-2">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs text-[#575653]">
-                            Complete Street, House / Building & Sector Address
+                            Address line 1: house / building number and street
                           </label>
                           <span
                             className={`text-[10px] font-mono font-semibold ${
@@ -3403,9 +3530,11 @@ export const StorefrontView: React.FC = () => {
                         <input
                           type="text"
                           required
+                          autoComplete="address-line1"
                           value={streetAddress}
                           onChange={(e) => setStreetAddress(e.target.value)}
-                          placeholder="House/Plot #, Street #, Sector/Phase, Landmark"
+                          maxLength={200}
+                          placeholder={isNationalPakistan ? 'House/Plot #, Street #, Sector/Phase' : 'e.g. Flat 402, Al Noor Building, Street 12'}
                           className={`w-full px-3.5 py-2.5 border text-xs ${
                             addressVerification.streetValid
                               ? 'border-emerald-600/60 bg-emerald-50/20'
@@ -3415,6 +3544,20 @@ export const StorefrontView: React.FC = () => {
                         <span className="block text-[10px] text-[#787774] mt-1">
                           {addressVerification.fieldMessages.street} · {addressVerification.fieldMessages.location}
                         </span>
+                      </div>
+
+                      {/* Address line 2 (optional, every country) */}
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs text-[#575653] mb-1">Address line 2: apartment, floor, area, landmark (optional)</label>
+                        <input
+                          type="text"
+                          autoComplete="address-line2"
+                          value={addressLine2}
+                          onChange={(e) => setAddressLine2(e.target.value)}
+                          maxLength={120}
+                          placeholder={isNationalPakistan ? 'e.g. Near Jamia Masjid, Block C' : 'e.g. Al Barsha 1, near Mall of the Emirates'}
+                          className="w-full px-3.5 py-2.5 border border-black/15 text-xs"
+                        />
                       </div>
                     </div>
                   </div>

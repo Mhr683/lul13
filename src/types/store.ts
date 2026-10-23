@@ -12,6 +12,8 @@ export interface UserProfile {
   name: string;
   role: UserRole;
   phone?: string;
+  /** Address of the customer's last order, saved by the server (prefills the next checkout) */
+  defaultAddress?: import('../services/intlAddress').ShippingAddress & { updatedAt?: string };
   createdAt: string;
   updatedAt?: string;
 }
@@ -331,6 +333,8 @@ export interface Order {
   exchangeRateSnapshot?: number;
   couponCode?: string;
   shippingAddressSummary?: string;
+  /** Structured delivery address (country, lines, city, state, postal code, phone +code, currency) */
+  shippingAddress?: import('../services/intlAddress').ShippingAddress;
   shippingCalculationSnapshot?: ShippingCalculationSnapshot;
   trackingNumber?: string;
   courierName?: string;

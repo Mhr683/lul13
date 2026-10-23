@@ -65,7 +65,9 @@ service cloud.firestore {
     // Validation Blueprints
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'name', 'role', 'createdAt']) &&
-        data.keys().hasOnly(['uid', 'email', 'name', 'role', 'phone', 'createdAt', 'updatedAt']) &&
+        // defaultAddress / referral fields are written only by the server; listed so a customer's own
+        // name / phone update still passes when they exist
+        data.keys().hasOnly(['uid', 'email', 'name', 'role', 'phone', 'createdAt', 'updatedAt', 'defaultAddress', 'referralCode', 'referralCreditUsed']) &&
         data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
         data.email is string && data.email.size() >= 3 && data.email.size() <= 255 &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
@@ -151,7 +153,7 @@ service cloud.firestore {
           'paymentVerifiedBy', 'paymentVerifiedAt', 'paymentVerificationNote', 'paymentReceiptEmailSent', 'paymentReceiptEmailSentAt',
           'paymentReceiptEmailSubject', 'paymentReceiptEmailRecipient', 'paymentReceiptEmailHtml',
           'subtotal', 'discount', 'tax', 'shippingFee', 'total', 'currency', 'exchangeRateSnapshot',
-          'couponCode', 'shippingAddressSummary', 'shippingCalculationSnapshot',
+          'couponCode', 'shippingAddressSummary', 'shippingAddress', 'shippingCalculationSnapshot',
           'trackingNumber', 'courierName', 'shipments', 'confirmedByCustomer', 'confirmedAt', 'confirmedBy',
           'cancellationReason', 'cancelledAt', 'stockReleased', 'trackingEvents',
           'sellerId', 'sellerName', 'checkoutId', 'returnRequestStatus', 'lateNoticeAt',
@@ -195,6 +197,8 @@ service cloud.firestore {
         (!('couponCode' in data) || (data.couponCode is string && data.couponCode.size() <= 64)) &&
         (!('shippingAddressSummary' in data) || (data.shippingAddressSummary is string && data.shippingAddressSummary.size() <= 500)) &&
         (!('shippingCalculationSnapshot' in data) || (data.shippingCalculationSnapshot is map)) &&
+        // Structured international address (written by the server, see src/services/intlAddress.ts)
+        (!('shippingAddress' in data) || (data.shippingAddress is map && data.shippingAddress.size() <= 15)) &&
         (!('trackingNumber' in data) || (data.trackingNumber is string && data.trackingNumber.size() <= 120)) &&
         (!('courierName' in data) || (data.courierName is string && data.courierName.size() <= 100)) &&
         (!('shipments' in data) || data.shipments is list) &&

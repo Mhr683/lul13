@@ -37,6 +37,8 @@ import { registerFeedbackRoutes } from './server/feedback';
 import { registerProductExtrasRoutes } from './server/productExtras';
 import { cleanProductInfo } from './src/services/productInfo';
 import { registerFollowRoutes } from './server/follows';
+import { checkShippingAddress, addressOneLine } from './src/services/intlAddress';
+import { ALL_WORLD_COUNTRIES } from './src/services/addressAndPaymentVerification';
 import { registerPolicyRoutes } from './server/policy';
 import { registerSellerAiRoutes } from './server/sellerAi';
 import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
@@ -2627,65 +2629,44 @@ app.post('/api/orders/create', async (req, res) => {
       }
     }
 
-    // 1. Validate Pakistani mobile number (03XXXXXXXXX - 11 digits)
-    let cleanPhone = (customerPhone || '').toString().trim().replace(/[\s\-\(\)]/g, '');
-    if (cleanPhone.startsWith('+92')) {
-      cleanPhone = '0' + cleanPhone.slice(3);
-    } else if (cleanPhone.startsWith('92') && cleanPhone.length === 12) {
-      cleanPhone = '0' + cleanPhone.slice(2);
+    // 1-2. Delivery address and phone, checked by the rules of the delivery country
+    // (src/services/intlAddress.ts: phone numbering per country, postal code per country, city)
+    const destIso = String(destCountryIso || 'PK').toUpperCase();
+    const sa: any = typeof shippingAddress === 'object' && shippingAddress !== null ? shippingAddress : {};
+    const destCountry = ALL_WORLD_COUNTRIES.find((c) => c.isoCode === destIso);
+    const addressCheck = checkShippingAddress(
+      {
+        countryCode: destIso,
+        countryName: String(sa.country || destCountry?.name || destIso),
+        line1: String(sa.line1 || sa.address || sa.streetAddress || sa.summary || (typeof shippingAddress === 'string' ? shippingAddress : '')),
+        line2: sa.line2,
+        city: String(req.body.city || sa.city || sa.district || ''),
+        state: sa.state,
+        postalCode: sa.postalCode,
+        // Pakistan: the tehsil / area chosen from the list
+        area: destIso === 'PK' ? String(req.body.tehsil || sa.tehsil || '') : '',
+        phoneNumber: String(customerPhone || ''),
+      },
+      { currency: destCountry?.currency }
+    );
+    if (!addressCheck.ok) {
+      const code =
+        addressCheck.field === 'phone'
+          ? 'INVALID_PHONE_NUMBER'
+          : addressCheck.field === 'city'
+          ? 'MISSING_CITY'
+          : addressCheck.field === 'postalCode'
+          ? 'INVALID_POSTAL_CODE'
+          : 'MISSING_ADDRESS';
+      return res.status(400).json({ error: addressCheck.message, code, field: addressCheck.field });
     }
-    const pkPhoneRegex = /^03\d{9}$/;
-    const isDomesticPhoneCheck = String(destCountryIso || 'PK').toUpperCase() === 'PK';
-    const intlDigits = String(customerPhone || '').replace(/\D/g, '');
-    if (!isDomesticPhoneCheck) {
-      // International quote requests: accept any full international number
-      if (intlDigits.length < 8 || intlDigits.length > 15) {
-        return res.status(400).json({
-          error: 'Please enter a valid international phone number with country code.',
-          code: 'INVALID_PHONE_NUMBER',
-        });
-      }
-      cleanPhone = String(customerPhone).trim();
-    } else if (!pkPhoneRegex.test(cleanPhone)) {
-      return res.status(400).json({
-        error: 'Invalid Pakistani mobile number. Must be 11 digits in the format 03XXXXXXXXX (e.g., 03001234567).',
-        code: 'INVALID_PHONE_NUMBER',
-      });
-    }
-
-    // 2. Validate full street address and city
-    let addressLine = '';
-    let city = (req.body.city || '').toString().trim();
-    let district = (req.body.district || '').toString().trim();
-    let tehsil = (req.body.tehsil || '').toString().trim();
-
-    if (typeof shippingAddress === 'object' && shippingAddress !== null) {
-      addressLine = (shippingAddress.address || shippingAddress.streetAddress || shippingAddress.summary || '').toString().trim();
-      city = city || (shippingAddress.city || shippingAddress.district || '').toString().trim();
-      district = district || (shippingAddress.district || '').toString().trim();
-      tehsil = tehsil || (shippingAddress.tehsil || '').toString().trim();
-    } else if (typeof shippingAddress === 'string') {
-      addressLine = shippingAddress.trim();
-    }
-
-    if (!city && district) city = district;
-    // Keep the saved address within the 500 characters the order record allows (phone included)
-    addressLine = addressLine.slice(0, 300);
-    city = city.slice(0, 80);
-
-    if (!addressLine || addressLine.length < 5) {
-      return res.status(400).json({
-        error: 'Full delivery street address is required (minimum 5 characters).',
-        code: 'MISSING_ADDRESS',
-      });
-    }
-
-    if (!city || city.length < 2) {
-      return res.status(400).json({
-        error: 'City name is required.',
-        code: 'MISSING_CITY',
-      });
-    }
+    const deliveryAddress = addressCheck.address;
+    // Pakistani numbers stay in the local 03XXXXXXXXX form (tracking, couriers); others in +E.164
+    let cleanPhone = destIso === 'PK' ? `0${deliveryAddress.phoneNumber.slice(3)}` : deliveryAddress.phoneNumber;
+    let addressLine = [deliveryAddress.line1, deliveryAddress.line2].filter(Boolean).join(', ').slice(0, 300);
+    let city = deliveryAddress.city;
+    let district = destIso === 'PK' ? String(req.body.district || sa.district || city).trim().slice(0, 80) : city;
+    let tehsil = deliveryAddress.area || '';
 
     // 3. Validate items
     if (!Array.isArray(items) || items.length === 0) {
@@ -3023,18 +3004,17 @@ app.post('/api/orders/create', async (req, res) => {
           initialPaymentStatus = 'PENDING';
         }
 
-        const fullAddressSummary = typeof shippingAddress === 'string'
-          ? shippingAddress
-          : [
-              addressLine,
-              city,
-              district && district !== city ? district : '',
-              String(shippingAddress?.state || '').trim(),
-              String(shippingAddress?.postalCode || '').trim(),
-              String(shippingAddress?.country || (isDomestic ? 'Pakistan' : destCountryIso || '')).trim(),
-            ]
-              .filter(Boolean)
-              .join(', ') + ` (Phone: ${cleanPhone})`;
+        // One line for admin lists, emails and the courier; the structured address is saved as well
+        const fullAddressSummary = `${addressOneLine(deliveryAddress)} (Phone: ${cleanPhone})`;
+
+        // The customer's address is kept on their account for the next checkout (no extra read)
+        if (userId) {
+          transaction.set(
+            adminDb.collection('users').doc(userId),
+            { defaultAddress: { ...deliveryAddress, updatedAt: new Date().toISOString() } },
+            { merge: true }
+          );
+        }
 
         const created: Array<{ order: Order; ownerOrder: Order }> = [];
         for (const g of groups) {
@@ -3074,6 +3054,8 @@ app.post('/api/orders/create', async (req, res) => {
             // The friend who shared the link earns credit once this (first) order is delivered
             ...(referredBy && g === groups[0] ? { referredBy, referralFirstOrder: true } : {}),
             shippingAddressSummary: fullAddressSummary.slice(0, 500),
+            // Country, address lines, city, state, postal code, phone (+code), local currency
+            shippingAddress: deliveryAddress,
             shippingCalculationSnapshot: ShippingCalculationService.createSnapshot(g.calc),
             district: String(district || city).slice(0, 100),
             tehsil: String(tehsil || '').slice(0, 100),
