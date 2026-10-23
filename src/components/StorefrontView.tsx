@@ -2515,6 +2515,7 @@ export const StorefrontView: React.FC = () => {
               ].filter((d) => d.value)}
               info={selectedProduct.info}
               productName={selectedProduct.name}
+              reviewCount={selectedProduct.reviewCount}
               legacyReviews={reviews.filter((r) => r.productId === selectedProduct.id && r.status === 'APPROVED') as any}
             />
 

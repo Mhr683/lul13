@@ -35,7 +35,8 @@ async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
 
 /** Number of unanswered questions on the seller's products (for the tab badge) */
 export async function sellerWaitingQuestions(): Promise<number> {
-  const d = await api<{ waiting: number }>('/api/seller/questions');
+  // A count only (1 database read), not the whole list
+  const d = await api<{ waiting: number }>('/api/seller/questions/waiting');
   return Number(d.waiting) || 0;
 }
 

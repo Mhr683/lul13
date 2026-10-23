@@ -46,7 +46,7 @@ const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 const MAX_ALERT_EMAILS = 500;
 const QUESTION_CACHE_MS = 5 * 60_000;
 const LIST_CACHE_MS = 60_000;
-const PAIR_CACHE_MS = 30 * 60_000;
+const PAIR_CACHE_MS = 6 * 60 * 60_000;
 
 // "Ayesha K." from "Ayesha Khan"
 const shortName = (name: string) => {
@@ -140,7 +140,10 @@ export function registerProductExtrasRoutes(app: express.Express, d: ProductExtr
   const adminQuestionsCache = new Map<string, { at: number; list: Doc[] }>();
   const forgetQuestions = (q: { productId?: string; sellerId?: string }) => {
     if (q.productId) productQuestionsCache.delete(q.productId);
-    if (q.sellerId) sellerQuestionsCache.delete(q.sellerId);
+    if (q.sellerId) {
+      sellerQuestionsCache.delete(q.sellerId);
+      waitingCountCache.delete(q.sellerId);
+    }
     adminQuestionsCache.clear();
   };
 
@@ -149,10 +152,11 @@ export function registerProductExtrasRoutes(app: express.Express, d: ProductExtr
     try {
       let hit = productQuestionsCache.get(productId);
       if (!hit || Date.now() - hit.at > QUESTION_CACHE_MS) {
-        const snap = await questionsCol().where('productId', '==', productId).limit(100).get();
+        // Only answered questions are read (waiting / hidden ones would cost reads for nothing);
+        // two equality filters need no extra index
+        const snap = await questionsCol().where('productId', '==', productId).where('status', '==', 'ANSWERED').limit(50).get();
         const list = snap.docs
           .map((doc) => doc.data())
-          .filter((q) => q.status === 'ANSWERED')
           .sort((a, b) => String(b.answeredAt || b.createdAt).localeCompare(String(a.answeredAt || a.createdAt)))
           .slice(0, 50)
           .map(publicQuestion);
@@ -235,6 +239,25 @@ export function registerProductExtrasRoutes(app: express.Express, d: ProductExtr
       }).catch(() => {});
     }
   };
+
+  // Badge count of waiting questions: a count query costs 1 read per 1,000 matches (cached 2 minutes)
+  const waitingCountCache = new Map<string, { at: number; n: number }>();
+  app.get('/api/seller/questions/waiting', d.requireSeller, async (req, res) => {
+    const sellerId = String((req as any).user?.uid || '');
+    try {
+      let hit = waitingCountCache.get(sellerId);
+      if (!hit || Date.now() - hit.at > 2 * 60_000) {
+        const agg = await questionsCol().where('sellerId', '==', sellerId).where('status', '==', 'PENDING').count().get();
+        hit = { at: Date.now(), n: agg.data().count };
+        waitingCountCache.set(sellerId, hit);
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, waiting: hit.n });
+    } catch (err) {
+      console.error('[seller questions count] failed:', err);
+      res.status(503).json({ error: 'Could not count questions.' });
+    }
+  });
 
   app.get('/api/seller/questions', d.requireSeller, async (req, res) => {
     const sellerId = String((req as any).user?.uid || '');
@@ -323,20 +346,38 @@ export function registerProductExtrasRoutes(app: express.Express, d: ProductExtr
 
   // ================================================================ bought together
 
-  const pairCache = new Map<string, { at: number; counts: Record<string, number> }>();
+  // All pair counts are kept in memory: read once (one read per product that has pairs), then
+  // refreshed every 6 hours; this server's own new orders are added as they come. A product page
+  // therefore costs no read, and products nobody bought together cost nothing at all.
+  let pairs = new Map<string, Record<string, number>>();
+  let pairsLoadedAt = 0;
+  let pairsLoading: Promise<void> | null = null;
+  const loadPairs = () => {
+    if (pairsLoading) return pairsLoading;
+    pairsLoading = adminDb
+      .collection('copurchase')
+      .limit(20000)
+      .get()
+      .then((snap) => {
+        const next = new Map<string, Record<string, number>>();
+        for (const doc of snap.docs) next.set(doc.id, (doc.data().counts as Record<string, number>) || {});
+        pairs = next;
+        pairsLoadedAt = Date.now();
+        console.log(`[bought-together] ${snap.size} products with pairs loaded`);
+      })
+      .finally(() => {
+        pairsLoading = null;
+      });
+    return pairsLoading;
+  };
 
   app.get('/api/products/:id/bought-together', async (req, res) => {
     const productId = str(req.params.id, 128);
     try {
-      let hit = pairCache.get(productId);
-      if (!hit || Date.now() - hit.at > PAIR_CACHE_MS) {
-        const snap = await adminDb.collection('copurchase').doc(productId).get();
-        hit = { at: Date.now(), counts: (snap.data()?.counts as Record<string, number>) || {} };
-        pairCache.set(productId, hit);
-        if (pairCache.size > 5000) pairCache.clear();
-      }
+      if (!pairsLoadedAt || Date.now() - pairsLoadedAt > PAIR_CACHE_MS) await loadPairs();
+      const counts = pairs.get(productId) || {};
       // Only products a customer can buy right now, most often bought together first
-      const ids = Object.entries(hit.counts)
+      const ids = Object.entries(counts)
         .filter(([id, n]) => n > 0 && id !== productId)
         .filter(([id]) => {
           const p = d.productById(id);
@@ -361,9 +402,14 @@ export function registerProductExtrasRoutes(app: express.Express, d: ProductExtr
       const batch = adminDb.batch();
       for (const id of ids) {
         const counts: Record<string, any> = {};
-        for (const other of ids) if (other !== id) counts[other] = FieldValue.increment(1);
+        const mine = pairs.get(id) || {};
+        for (const other of ids) {
+          if (other === id) continue;
+          counts[other] = FieldValue.increment(1);
+          mine[other] = (mine[other] || 0) + 1; // the in-memory copy follows at once (no read)
+        }
+        pairs.set(id, mine);
         batch.set(adminDb.collection('copurchase').doc(id), { counts, updatedAt: new Date().toISOString() }, { merge: true });
-        pairCache.delete(id);
       }
       batch.commit().catch((err) => console.warn('[bought-together] count failed:', err?.message));
     },

@@ -108,7 +108,9 @@ export const ProductInfoTabs: React.FC<{
   legacyReviews?: LegacyReview[];
   info?: ProductInfo;
   productName?: string;
-}> = ({ productId, description, shortDescription, details, legacyReviews = [], info, productName = '' }) => {
+  /** The product's verified review count (kept by the server): 0 = nothing to load */
+  reviewCount?: number;
+}> = ({ productId, description, shortDescription, details, legacyReviews = [], info, productName = '', reviewCount }) => {
   const [tab, setTab] = useState<'DESCRIPTION' | 'USAGE' | 'REVIEWS' | 'QUESTIONS'>('DESCRIPTION');
   const showUsage = hasUsage(info);
   const [reviews, setReviews] = useState<ProductReview[] | null>(() => reviewCache.get(productId) || null);
@@ -120,6 +122,11 @@ export const ProductInfoTabs: React.FC<{
     const cached = reviewCache.get(productId);
     setReviews(cached || null);
     if (cached) return;
+    // No verified reviews yet: nothing to ask the server (saves a database read per product view)
+    if (reviewCount !== undefined && Number(reviewCount) <= 0) {
+      setReviews([]);
+      return;
+    }
     let live = true;
     fetch(`/api/products/${encodeURIComponent(productId)}/reviews`)
       .then((r) => r.json())
