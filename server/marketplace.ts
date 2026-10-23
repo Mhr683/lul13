@@ -1707,7 +1707,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
-  const EDITABLE = ['price', 'compareAtPrice', 'stock', 'status', 'shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords'];
+  const EDITABLE = ['name', 'price', 'compareAtPrice', 'stock', 'status', 'shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords'];
   /** Applies field changes to the seller's own products; anything not theirs is skipped */
   const applyProductPatches = async (uid: string, patches: Array<Record<string, any> & { id: string }>) => {
     const skipped: { id: string; name?: string; reason: string }[] = [];
@@ -1755,6 +1755,27 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       for (const [k, max] of Object.entries({ shortDescription: 480, description: 4800, seoTitle: 150, seoDescription: 310, seoKeywords: 390 })) {
         if (patch[k] !== undefined) patch[k] = str(patch[k], max);
+      }
+      if (patch.name !== undefined) {
+        patch.name = str(patch.name, 190);
+        if (patch.name.length < 3) {
+          skipped.push({ id: snap.id, name: current.name, reason: 'The product name must be at least 3 characters.' });
+          continue;
+        }
+        if (patch.name !== current.name) patch.slug = slugify(patch.name);
+      }
+      // "No brand": the brand becomes the shop name (shown as "No brand" on the product page)
+      if (patches[i].brandType === 'NONE') {
+        patch['info.brandType'] = 'NONE';
+        patch.brand = current.sellerName || current.brand;
+      }
+      // A product that is not a proven branded item may not present itself as a famous brand
+      const isBranded = (patches[i].brandType || current.info?.brandType) === 'BRANDED' && Boolean(d.supplierOf(snap.id)?.brandProofUrl);
+      const nextName = patch.name ?? current.name;
+      const nextShort = patch.shortDescription ?? current.shortDescription;
+      if (!isBranded && (patch.name !== undefined || patch.shortDescription !== undefined) && famousBrandIn(`${nextName} ${nextShort || ''}`)) {
+        skipped.push({ id: snap.id, name: current.name, reason: `The title or short description would use the brand name "${famousBrandIn(`${nextName} ${nextShort || ''}`)}".` });
+        continue;
       }
       if (!Object.keys(patch).length) continue;
       batch.update(snap.ref, { ...patch, updatedAt: now });

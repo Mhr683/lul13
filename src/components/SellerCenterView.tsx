@@ -672,6 +672,64 @@ const AutoFixBox: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   );
 };
 
+// A product the Products tab should open in the form as soon as it shows (Shop Coach "Fix it myself")
+let pendingEditId: string | null = null;
+
+// Shop Coach: listings that use a famous brand's name. "Self fix it" lets the coach fix them all;
+// "Fix it myself" lists them, each with Edit to open its form.
+const BrandFixActions: React.FC<{
+  products: { id: string; name: string; brand: string }[];
+  onDone: () => void;
+  onEdit: (productId: string) => void;
+}> = ({ products, onDone, onEdit }) => {
+  const { showToast } = useStore();
+  const [busy, setBusy] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
+  const selfFix = async () => {
+    if (!window.confirm(`Fix ${products.length} product(s)? The brand name will be removed from the title, an honest note added to the description, and the product marked "No brand".`)) return;
+    setBusy(true);
+    try {
+      const r = await api('/api/seller/coach/fix-brands', { method: 'POST', body: JSON.stringify({}) });
+      const skipped = (r.skipped || []).length;
+      showToast(
+        `Fixed ${r.updated} product(s)${r.usedAi ? ' with AI' : ''}.${skipped ? ` ${skipped} could not be changed: open them with "Fix it myself".` : ''} Details are in Messages.`
+      );
+      onDone();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="w-full space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={selfFix} className="mt-1 px-3 py-1.5 bg-[#0E7A43] text-white font-bold cursor-pointer disabled:opacity-50">
+          {busy ? 'Fixing...' : '✨ Self fix it'}
+        </button>
+        <button type="button" onClick={() => setListOpen((o) => !o)} className="mt-1 px-3 py-1.5 bg-white border border-black/25 font-semibold cursor-pointer">
+          {listOpen ? 'Hide list' : `Fix it myself (${products.length})`}
+        </button>
+      </div>
+      {listOpen && (
+        <ul className="bg-white border border-black/10 divide-y divide-black/[0.06] max-h-72 overflow-y-auto">
+          {products.map((p) => (
+            <li key={p.id} className="px-3 py-2 flex items-center gap-2">
+              <span className="flex-1 min-w-0 truncate" title={p.name}>
+                {p.name}
+              </span>
+              <span className="shrink-0 px-1.5 py-0.5 bg-rose-100 text-rose-900 text-[10px] font-bold">{p.brand}</span>
+              <button type="button" onClick={() => onEdit(p.id)} className="shrink-0 px-2 py-1 border border-black/30 font-semibold cursor-pointer">
+                Edit
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 // Writes every short description with AI in the background, with progress
 const RewriteAllButton: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   const { showToast } = useStore();
@@ -1419,7 +1477,20 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
                 loadCoach(true);
               } catch {}
             }}
-            renderAction={(action) => (action === 'REWRITE_ALL' ? <RewriteAllButton onDone={() => loadCoach(true)} /> : null)}
+            renderAction={(action, issue) =>
+              action === 'REWRITE_ALL' ? (
+                <RewriteAllButton onDone={() => loadCoach(true)} />
+              ) : action === 'FIX_BRAND_NAMES' ? (
+                <BrandFixActions
+                  products={issue.products || []}
+                  onDone={() => loadCoach(true)}
+                  onEdit={(id) => {
+                    pendingEditId = id;
+                    onGo('PRODUCTS' as Tab);
+                  }}
+                />
+              ) : null
+            }
           />
         ) : (
           <p className="text-xs text-[#575653]">{coachBusy ? 'Preparing your shop report...' : 'The shop report is not available right now.'}</p>
@@ -1903,6 +1974,14 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
       setOpening(null);
     }
   };
+
+  // Opened from the Shop Coach ("Fix it myself" → Edit): show that product's form right away
+  useEffect(() => {
+    if (!pendingEditId) return;
+    const id = pendingEditId;
+    pendingEditId = null;
+    openEditor({ id } as ListProduct);
+  }, []);
 
   const save = async () => {
     if (!editing) return;

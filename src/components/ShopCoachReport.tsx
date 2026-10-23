@@ -4,6 +4,20 @@ import { AlertTriangle, AlertOctagon, Info, CheckCircle2, TrendingUp } from 'luc
 // Shop Coach report for a seller: health, scores, charts (drawn as plain SVG, no chart library) and
 // every problem with what it costs and how to fix it. Data comes from /api/seller/coach.
 
+export type CoachIssue = {
+  level: 'RED' | 'YELLOW' | 'INFO';
+  title: string;
+  detail: string;
+  impact: string;
+  fix: string;
+  tab?: string;
+  key?: string;
+  /** A fix the app can run for the seller */
+  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES';
+  /** The products the issue is about */
+  products?: { id: string; name: string; brand: string }[];
+};
+
 export type Coach = {
   shopName: string;
   health: { level: 'GREEN' | 'YELLOW' | 'RED'; score: number };
@@ -12,7 +26,7 @@ export type Coach = {
   last30: { orders: number; sales: number; avgOrder: number };
   lowStock?: { id: string; name: string; stock: number }[];
   newOrdersToday?: number;
-  issues: { level: 'RED' | 'YELLOW' | 'INFO'; title: string; detail: string; impact: string; fix: string; tab?: string; key?: string; action?: 'REWRITE_ALL' }[];
+  issues: CoachIssue[];
   strengths: string[];
   charts: {
     salesByDay: { date: string; orders: number; sales: number }[];
@@ -130,8 +144,8 @@ export const ShopCoachReport: React.FC<{
   compact?: boolean;
   /** Hides a blue tip (urgent problems cannot be hidden) */
   onHide?: (key: string) => void;
-  /** Button for a one-click fix the app can run (e.g. rewrite all descriptions) */
-  renderAction?: (action: 'REWRITE_ALL') => React.ReactNode;
+  /** Buttons for a fix the app can run (e.g. rewrite all descriptions, remove brand names) */
+  renderAction?: (action: NonNullable<CoachIssue['action']>, issue: CoachIssue) => React.ReactNode;
 }> = ({ coach, onGo, compact, onHide, renderAction }) => {
   const [showAll, setShowAll] = useState(!compact);
   const h = HEALTH[coach.health.level] || HEALTH.GREEN;
@@ -206,7 +220,7 @@ export const ShopCoachReport: React.FC<{
               </div>
               {(onGo || renderAction || onHide) && (
                 <div className="pl-6 flex flex-wrap items-center gap-2">
-                  {i.action && renderAction ? renderAction(i.action) : null}
+                  {i.action && renderAction ? renderAction(i.action, i) : null}
                   {onGo && i.tab && !i.action && (
                     <button type="button" onClick={() => onGo(i.tab!)} className="mt-1 px-2.5 py-1 bg-white border border-black/20 font-semibold cursor-pointer">
                       Fix it →

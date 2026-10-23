@@ -1,4 +1,5 @@
 import { POLICY, dispatchClockStart } from './policyRules';
+import { famousBrandIn, hasBrandNameProblem } from '../src/services/brandRules';
 
 // Shop Coach: turns a seller's numbers into a clear list of what is wrong, what it will cost them
 // and how to fix it, plus chart data. Pure function: the caller passes data it already has (orders
@@ -12,7 +13,9 @@ export type CoachIssue = {
   fix: string;
   tab?: string;
   /** A one-click fix the Seller Center can run (e.g. rewrite every short description) */
-  action?: 'REWRITE_ALL';
+  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES';
+  /** The products this issue is about (for "Fix it myself": each opens in the product form) */
+  products?: { id: string; name: string; brand: string }[];
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -200,6 +203,28 @@ export function buildCoach(input: {
       fix: 'Press "Write them all with AI": the coach rewrites every short description in the background (a few per minute).',
       tab: 'AI',
       action: 'REWRITE_ALL',
+    });
+  }
+  // Listings that present themselves as a famous brand ("AirPods Max", "Samsung Galaxy Buds") without
+  // being a proven branded product: customers who expect the real brand return them and complain, and
+  // brand owners can file a trademark complaint
+  const brandNamed = products.filter((p) => p.status !== 'ARCHIVED' && !p.adminHidden && hasBrandNameProblem(p, input.hasBrandProof(p.id)));
+  if (brandNamed.length) {
+    issues.push({
+      level: 'RED',
+      title: `${brandNamed.length} product${brandNamed.length > 1 ? 's use' : ' uses'} a famous brand's name`,
+      detail:
+        'The title or short description names a brand (e.g. AirPods, Samsung, Remington) but the product is not a branded item with an invoice on file. Saying what it fits ("for iPhone") is fine.',
+      impact:
+        'Customers who expect the original return it and leave 1-star "fake" reviews, which lowers your rating and account health. The brand owner can also file a trademark complaint and the listing can be removed.',
+      fix: 'Press "Self fix it": the brand name and "genuine / original" claims are removed from the title, an honest note is added to the description and the product is marked "No brand". Or fix each one yourself.',
+      tab: 'PRODUCTS',
+      action: 'FIX_BRAND_NAMES',
+      products: brandNamed.slice(0, 50).map((p) => ({
+        id: p.id,
+        name: String(p.name).slice(0, 90),
+        brand: famousBrandIn(`${p.name || ''} ${p.shortDescription || ''}`),
+      })),
     });
   }
   const proofDrafts = products.filter((p) => p.status === 'DRAFT' && !p.adminHidden && input.needsBrandProof(p) && !input.hasBrandProof(p.id));
