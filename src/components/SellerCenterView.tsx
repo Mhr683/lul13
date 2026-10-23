@@ -25,6 +25,7 @@ import { SellerAiAssistant } from './SellerAiAssistant';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
 import { ProductInfoEditor } from './ProductInfoEditor';
 import type { ProductInfo } from '../services/productInfo';
+import { famousBrandIn } from '../services/brandRules';
 import { ShopCoachReport, type Coach } from './ShopCoachReport';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
@@ -1888,7 +1889,11 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
         description: full.description || '',
         weightKg: String(full.weightKg || 0.5),
         dimensions: full.dimensions || '',
-        info: full.info || {},
+        // Older products have no choice saved: their brand is the shop name unless a real one was set
+        info: {
+          ...(full.info || {}),
+          brandType: full.info?.brandType || (full.brand && full.brand !== full.sellerName ? 'BRANDED' : 'NONE'),
+        },
         status: full.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
       });
     } catch (err: any) {
@@ -1900,6 +1905,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
 
   const save = async () => {
     if (!editing) return;
+    if (!editing.info.brandType) return showToast('Choose "Branded" or "No brand" for this product.');
     setSaving(true);
     try {
       const { product, heldForProof } = await api('/api/seller/products', {
@@ -2035,15 +2041,44 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
               ))}
             </datalist>
           </div>
-          <div className="sm:col-span-2">
-            <label className={labelCls}>Brand</label>
-            <input
-              className={inputCls}
-              value={editing.brand}
-              onChange={set('brand')}
-              maxLength={75}
-              placeholder="The maker's brand, e.g. Samsung, Dawlance. Leave empty to show your shop name"
-            />
+          <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
+            <span className={labelCls}>Brand *</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(
+                [
+                  ['BRANDED', 'Branded', 'Made by a known brand (e.g. Dolphin, Kemei, Samsung). Big brands and electronics need the purchase invoice.'],
+                  ['NONE', 'No brand', 'Unbranded / generic item. Shown as "No brand"; the title may not use a brand’s name.'],
+                ] as const
+              ).map(([value, title, hint]) => (
+                <label
+                  key={value}
+                  className={`p-2.5 border cursor-pointer flex gap-2 ${
+                    editing.info.brandType === value ? 'border-[#0E7A43] bg-[#0E7A43]/[0.06]' : 'border-black/15 bg-white hover:border-black/40'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="brandType"
+                    checked={editing.info.brandType === value}
+                    onChange={() => setEditing((p) => (p ? { ...p, info: { ...p.info, brandType: value } } : p))}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-xs font-bold text-[#141413]">{title}</span>
+                    <span className="block text-[11px] text-[#575653]">{hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {editing.info.brandType === 'BRANDED' && (
+              <input className={inputCls} value={editing.brand} onChange={set('brand')} maxLength={75} placeholder="Brand name, e.g. Dolphin" />
+            )}
+            {editing.info.brandType === 'NONE' && famousBrandIn(`${editing.name} ${editing.shortDescription}`) && (
+              <p className="text-[11px] font-semibold text-rose-700">
+                The title or short description mentions “{famousBrandIn(`${editing.name} ${editing.shortDescription}`)}”. Remove the brand’s name, or
+                choose “Branded” and upload the purchase invoice.
+              </p>
+            )}
           </div>
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9]">
             <ProductMediaEditor

@@ -62,6 +62,7 @@ import { ProductGallery } from './ProductGallery';
 import { ProductInfoTabs } from './ProductInfoTabs';
 import { BackInStockForm, BoughtTogether, RecentlyViewedStrip, useRecentlyViewed } from './ProductExtras';
 import { FollowStoreButton } from './FollowStoreButton';
+import { NO_BRAND_LABEL } from '../services/brandRules';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -2293,7 +2294,7 @@ export const StorefrontView: React.FC = () => {
                 <div className="lg:col-span-5 bg-white border border-black/[0.08] p-8 space-y-6">
                   <div className="flex items-center gap-2 text-xs text-[#787774]">
                     <span className="uppercase tracking-widest text-[#8C6D46] font-medium">
-                      {selectedProduct.brand}
+                      {selectedProduct.info?.brandType === 'NONE' ? NO_BRAND_LABEL : selectedProduct.brand}
                     </span>
                     <span aria-hidden="true">·</span>
                     <span>{selectedProduct.category}</span>
@@ -2488,7 +2489,10 @@ export const StorefrontView: React.FC = () => {
               details={[
                 { label: 'Product code (SKU)', value: selectedProduct.sku },
                 { label: 'Barcode / EAN', value: selectedProduct.info?.barcode },
-                { label: 'Brand', value: selectedProduct.brand },
+                {
+                  label: 'Brand',
+                  value: selectedProduct.info?.brandType === 'NONE' ? `${NO_BRAND_LABEL} (generic)` : selectedProduct.brand,
+                },
                 { label: 'Model number', value: selectedProduct.info?.modelNumber },
                 { label: 'Material', value: selectedProduct.info?.material },
                 { label: 'Dimensions', value: selectedProduct.dimensions },

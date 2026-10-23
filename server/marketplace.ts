@@ -4,6 +4,7 @@ import { ratingSummary } from './feedback';
 import { POLICY, escrowReleased, dispatchClockStart, needsBrandProof, isTestOrder, isSellerFaultCancel, MIN_ORDERS_FOR_RATES } from './policyRules';
 import { buildCoach } from './coach';
 import { cleanProductInfo, type ProductInfo } from '../src/services/productInfo';
+import { famousBrandIn } from '../src/services/brandRules';
 
 // Marketplace: seller applications, the Seller Center API (own shop, products, orders, earnings)
 // and the admin side (approve/suspend sellers, commission, payouts).
@@ -491,6 +492,19 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const cleaned = cleanProductInfo(b.info);
       if ('error' in cleaned) return { error: cleaned.error };
       info = cleaned.info;
+      // The form asks "Branded" or "No brand". A branded product names its brand; a no-brand product
+      // may not use a well-known brand's name (copies listed as the real brand mislead customers).
+      if (info.brandType === 'BRANDED' && str(b.brand, 75).length < 2) {
+        return { error: 'Enter the brand name, or choose "No brand".' };
+      }
+      if (info.brandType === 'NONE') {
+        const used = famousBrandIn(`${name} ${str(b.shortDescription, 480)}`);
+        if (used) {
+          return {
+            error: `The title or short description mentions "${used}". A no-brand product cannot use a brand's name: remove it, or choose "Branded" and upload the purchase invoice / brand approval.`,
+          };
+        }
+      }
     }
     return {
       fields: {
@@ -554,8 +568,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       lowStockThreshold: existing?.lowStockThreshold ?? 5,
       category,
       subcategory: str(b.subcategory, 75) || existing?.subcategory || 'Marketplace',
-      // The form always sends brand (empty = the shop name); a CSV row without one keeps the old brand
-      brand: str(b.brand, 75) || (b.fromCsv ? existing?.brand : '') || seller.shopName,
+      // "No brand" products carry the shop name; the form always sends brand (empty = the shop name);
+      // a CSV row without one keeps the old brand
+      brand:
+        f.info?.brandType === 'NONE'
+          ? seller.shopName
+          : str(b.brand, 75) || (b.fromCsv ? existing?.brand : '') || seller.shopName,
       status: adminHidden ? 'DRAFT' : status,
       featured: existing?.featured ?? false,
       bestSeller: existing?.bestSeller ?? false,

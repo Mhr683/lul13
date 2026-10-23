@@ -1,5 +1,6 @@
 // The store's Customer Protection Policy and Supplier Code of Conduct, as numbers the server
 // enforces. The wording customers and sellers read is in src/data/policies.ts; keep both in step.
+import { FAMOUS_BRANDS } from '../src/services/brandRules';
 
 export const POLICY = {
   /** Sellers must hand an order to the courier within this many hours of it being confirmed */
@@ -82,7 +83,5 @@ export const returnDaysLeft = (o: any, now = Date.now()) => {
 
 // Listings that need a purchase invoice or brand approval (electronics and well-known brands)
 const ELECTRONICS = /electronic|gadget|airpod|earbud|headset|headphone|speaker|charger|power ?bank|smart ?watch|mobile|phone|camera|laptop|tablet|bluetooth|console/i;
-const BRANDS =
-  /\b(apple|iphone|samsung|xiaomi|redmi|oppo|vivo|infinix|huawei|sony|jbl|bose|anker|nike|adidas|puma|gucci|chanel|dior|versace|armani|prada|louis vuitton|rolex|casio|fossil|tissot|omega|creed|tom ford|calvin klein|hugo boss|ray-?ban|michael kors|coach)\b/i;
 export const needsBrandProof = (p: { name?: string; category?: string; brand?: string }) =>
-  ELECTRONICS.test(`${p.category || ''} ${p.name || ''}`) || BRANDS.test(`${p.name || ''} ${p.brand || ''}`);
+  ELECTRONICS.test(`${p.category || ''} ${p.name || ''}`) || FAMOUS_BRANDS.test(`${p.name || ''} ${p.brand || ''}`);

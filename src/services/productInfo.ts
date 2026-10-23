@@ -3,6 +3,8 @@
 // (firestore.rules allows the "info" key); cleaned by the server before saving.
 
 export interface ProductInfo {
+  /** Chosen by the seller when listing: a real brand, or no brand (generic) */
+  brandType?: 'BRANDED' | 'NONE';
   /** Barcode / GTIN / EAN printed on the pack */
   barcode?: string;
   modelNumber?: string;
@@ -21,6 +23,7 @@ export interface ProductInfo {
 }
 
 const LIMITS: Record<keyof ProductInfo, number> = {
+  brandType: 10,
   barcode: 40,
   modelNumber: 60,
   material: 120,
@@ -57,9 +60,10 @@ export function cleanProductInfo(raw: unknown): { info: ProductInfo } | { error:
       .replace(/\r\n/g, '\n')
       .trim()
       .slice(0, LIMITS[key]);
-    if (v) info[key] = v;
+    if (v) (info as Record<string, string>)[key] = v;
   }
   if (info.barcode) info.barcode = info.barcode.replace(/[^0-9A-Za-z-]/g, '');
+  if (info.brandType && info.brandType !== 'BRANDED' && info.brandType !== 'NONE') delete info.brandType;
   if (info.howToUseVideoUrl && !isLink(info.howToUseVideoUrl)) return { error: 'The "How to use" video link must start with https://' };
   if (info.manualUrl && !isLink(info.manualUrl)) return { error: 'The user manual link must start with https://' };
   return { info };
