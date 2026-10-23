@@ -1316,6 +1316,54 @@ app.get('/api/catalog/products', async (req, res) => {
   }
 });
 
+// Share link of one product (/p/<productId>): WhatsApp, Facebook etc. read the preview (picture, name,
+// price) from these tags; a person is sent straight on to the product page. From the catalog copy,
+// so sharing costs no database reads.
+const escAttr = (s: unknown) =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+app.get('/p/:id', (req, res) => {
+  const id = String(req.params.id || '').slice(0, 128);
+  const p = catalogStore.ready ? catalogStore.product(id) : null;
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const target = `/#product/${encodeURIComponent(id)}`;
+  if (!p || p.status !== 'ACTIVE') return res.redirect(302, '/');
+  const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
+  const price = Number(effectivePrice(p as any)) || Number(p.price) || 0;
+  const title = `${p.name} | PKR ${price.toLocaleString('en-PK')}`;
+  const description = String(p.shortDescription || p.description || `Buy ${p.name} at ${store}. Cash on Delivery across Pakistan.`).slice(0, 200);
+  const rawImage = String(p.primaryImage || (Array.isArray(p.images) ? p.images[0] : '') || '');
+  const image = /^https?:\/\//i.test(rawImage) ? rawImage : rawImage.startsWith('/') ? `${origin}${rawImage}` : '';
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.type('html').send(`<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escAttr(title)}</title>
+<meta name="description" content="${escAttr(description)}">
+<meta property="og:type" content="product">
+<meta property="og:site_name" content="${escAttr(store)}">
+<meta property="og:title" content="${escAttr(title)}">
+<meta property="og:description" content="${escAttr(description)}">
+<meta property="og:url" content="${escAttr(`${origin}/p/${encodeURIComponent(id)}`)}">
+${image ? `<meta property="og:image" content="${escAttr(image)}">` : ''}
+<meta property="product:price:amount" content="${price}">
+<meta property="product:price:currency" content="PKR">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escAttr(title)}">
+${image ? `<meta name="twitter:image" content="${escAttr(image)}">` : ''}
+<meta http-equiv="refresh" content="0;url=${escAttr(target)}">
+<link rel="canonical" href="${escAttr(`${origin}/p/${encodeURIComponent(id)}`)}">
+</head><body style="font-family:system-ui,sans-serif;text-align:center;padding:40px">
+<p>Opening <a href="${escAttr(target)}">${escAttr(p.name)}</a>...</p>
+<script>location.replace(${JSON.stringify(target)});</script>
+</body></html>`);
+});
+
 // Store settings, active coupons and approved reviews for customers, from the same copy
 app.get('/api/catalog/bootstrap', (_req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=60');

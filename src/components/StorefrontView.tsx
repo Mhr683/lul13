@@ -63,6 +63,7 @@ import { ProductInfoTabs } from './ProductInfoTabs';
 import { BackInStockForm, BoughtTogether, RecentlyViewedStrip, useRecentlyViewed } from './ProductExtras';
 import { FollowStoreButton } from './FollowStoreButton';
 import { NO_BRAND_LABEL } from '../services/brandRules';
+import { ShareProductButton } from './ShareProductButton';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -2331,6 +2332,13 @@ export const StorefrontView: React.FC = () => {
                         showToast={showToast}
                       />
                     )}
+                    <ShareProductButton
+                      productId={selectedProduct.id}
+                      productName={selectedProduct.name}
+                      price={selectedProduct.price}
+                      className="px-2.5 py-1 border border-black/25 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer hover:border-black bg-white"
+                      showToast={showToast}
+                    />
                   </div>
                   {/* Unique product code (and barcode when the seller added one) */}
                   <div className="text-[11px] text-[#575653] font-mono">

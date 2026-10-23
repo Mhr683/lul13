@@ -26,6 +26,7 @@ import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
 import { ProductInfoEditor } from './ProductInfoEditor';
 import type { ProductInfo } from '../services/productInfo';
 import { famousBrandIn } from '../services/brandRules';
+import { ShareProductButton } from './ShareProductButton';
 import { ShopCoachReport, type Coach } from './ShopCoachReport';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
@@ -2324,6 +2325,15 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
                 >
                   {opening === p.id ? 'Opening...' : 'Edit'}
                 </button>
+                {p.status === 'ACTIVE' && !p.adminHidden && (
+                  <ShareProductButton
+                    productId={p.id}
+                    productName={p.name}
+                    price={p.price}
+                    className="px-2 py-1 border border-[#0E7A43] text-[#0E7A43] font-semibold flex items-center gap-1 cursor-pointer"
+                    showToast={showToast}
+                  />
+                )}
                 {p.status !== 'ARCHIVED' && (
                   <button
                     type="button"
