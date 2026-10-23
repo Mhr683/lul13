@@ -1775,6 +1775,7 @@ const emptyProduct = {
   compareAtPrice: '',
   stock: '10',
   category: '',
+  brand: '',
   primaryImage: '',
   images: [] as string[],
   videoUrl: '',
@@ -1879,6 +1880,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
         compareAtPrice: full.compareAtPrice ? String(full.compareAtPrice) : '',
         stock: String(full.stock),
         category: full.category,
+        brand: full.brand || '',
         primaryImage: full.primaryImage || '',
         images: Array.isArray(full.images) && full.images.length ? full.images : full.primaryImage ? [full.primaryImage] : [],
         videoUrl: full.videoUrl || '',
@@ -2032,6 +2034,16 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
                 <option key={c} value={c} />
               ))}
             </datalist>
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Brand</label>
+            <input
+              className={inputCls}
+              value={editing.brand}
+              onChange={set('brand')}
+              maxLength={75}
+              placeholder="The maker's brand, e.g. Samsung, Dawlance. Leave empty to show your shop name"
+            />
           </div>
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9]">
             <ProductMediaEditor

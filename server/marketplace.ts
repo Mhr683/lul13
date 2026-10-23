@@ -554,7 +554,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       lowStockThreshold: existing?.lowStockThreshold ?? 5,
       category,
       subcategory: str(b.subcategory, 75) || existing?.subcategory || 'Marketplace',
-      brand: str(b.brand, 75) || existing?.brand || seller.shopName,
+      // The form always sends brand (empty = the shop name); a CSV row without one keeps the old brand
+      brand: str(b.brand, 75) || (b.fromCsv ? existing?.brand : '') || seller.shopName,
       status: adminHidden ? 'DRAFT' : status,
       featured: existing?.featured ?? false,
       bestSeller: existing?.bestSeller ?? false,
