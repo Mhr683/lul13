@@ -60,6 +60,7 @@ import { ProductReactions } from './ProductReactions';
 import { ProductRatingBadge, SellerRatingBadge, SellerScoreCards, useShopInfo, rankScore } from './SellerRating';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfoTabs } from './ProductInfoTabs';
+import { BackInStockForm, BoughtTogether, RecentlyViewedStrip, useRecentlyViewed } from './ProductExtras';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -217,6 +218,9 @@ export const StorefrontView: React.FC = () => {
     window.scrollTo({ top: 0 });
   };
 
+  const pendingProductIdRef = useRef('');
+  const [pendingProductTick, setPendingProductTick] = useState(0);
+
   // URL Routing for Policy and Tracking Pages
   useEffect(() => {
     const handleUrlRoute = () => {
@@ -227,7 +231,12 @@ export const StorefrontView: React.FC = () => {
       // Seller ids are case-sensitive, so they are read from the original hash
       const shopMatch = /^#shop\/(.+)$/i.exec(window.location.hash);
       const campaignMatch = /^#campaign\/(.+)$/i.exec(window.location.hash);
-      if (shopMatch) {
+      // A product link (#product/<id>, e.g. from a back-in-stock email): opened once the catalog is loaded
+      const productMatch = /^#product\/(.+)$/i.exec(window.location.hash);
+      if (productMatch) {
+        pendingProductIdRef.current = decodeURIComponent(productMatch[1]);
+        setPendingProductTick((n) => n + 1);
+      } else if (shopMatch) {
         setShopSellerId(decodeURIComponent(shopMatch[1]));
         setSubView('SHOP');
       } else if (campaignMatch) {
@@ -316,7 +325,8 @@ export const StorefrontView: React.FC = () => {
   // Product Detail state
   const [selectedVariant, setSelectedVariant] = useState<string>('Obsidian / Standard');
   const [detailQty, setDetailQty] = useState<number>(1);
-  const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(['prod-01', 'prod-02', 'prod-03']);
+  // Products this browser opened (saved on the device; shown on the home and product pages)
+  const recentlyViewed = useRecentlyViewed();
 
   // Review Form state
   const [reviewRating, setReviewRating] = useState<number>(5);
@@ -880,13 +890,20 @@ export const StorefrontView: React.FC = () => {
         ? '100ml Extrait Flacon'
         : 'Obsidian / Brushed Brass'
     );
-    setRecentlyViewedIds((prev) => [
-      product.id,
-      ...prev.filter((id) => id !== product.id).slice(0, 3),
-    ]);
+    recentlyViewed.remember(product.id);
     setSubView('PRODUCT_DETAIL');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  // Opens the product of a #product/<id> link as soon as it is in the catalog
+  useEffect(() => {
+    const id = pendingProductIdRef.current;
+    if (!id) return;
+    const p = products.find((x) => x.id === id);
+    if (!p) return;
+    pendingProductIdRef.current = '';
+    handleSelectProduct(p);
+  }, [pendingProductTick, products]);
 
   // Brings a missing checkout field into view and focuses it, so the customer sees what is missing
   const focusCheckoutField = (id: string) => {
@@ -1556,6 +1573,18 @@ export const StorefrontView: React.FC = () => {
               onAdd={(p) => addToCart(p, 1)}
               Image={({ src, alt }) => <ProductImage src={src} alt={alt} className="w-full h-full object-cover" />}
             />
+
+            {/* What this visitor looked at before (saved on their device only) */}
+            {recentlyViewed.ids.length > 0 && (
+              <div className="max-w-[1400px] mx-auto px-4 sm:px-6 pt-8">
+                <RecentlyViewedStrip
+                  ids={recentlyViewed.ids}
+                  products={products}
+                  onSelect={handleSelectProduct}
+                  onClear={recentlyViewed.clear}
+                />
+              </div>
+            )}
 
             {/* Section 1: Storefront Hero */}
             <section className="relative border-b border-black/[0.07]">
@@ -2333,6 +2362,10 @@ export const StorefrontView: React.FC = () => {
                       </span>
                     </div>
 
+                    {selectedProduct.stock <= 0 && (
+                      <BackInStockForm productId={selectedProduct.id} defaultEmail={firebaseUser?.email || ''} />
+                    )}
+
                     <div className="flex items-center gap-3">
                       <div className="flex items-center border border-black/20 bg-[#FBFBF9]">
                         <button
@@ -2442,38 +2475,20 @@ export const StorefrontView: React.FC = () => {
               legacyReviews={reviews.filter((r) => r.productId === selectedProduct.id && r.status === 'APPROVED') as any}
             />
 
-            {/* Recently Viewed & Related Products */}
-            <section className="pt-12 border-t border-black/[0.07]">
-              <h2 className="text-2xl font-display font-medium text-[#141413] mb-6">
-                Complementary Archive Pieces
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {products
-                  .filter((p) => p.id !== selectedProduct.id && p.status === 'ACTIVE')
-                  .slice(0, 3)
-                  .map((rel) => (
-                    <div
-                      key={rel.id}
-                      data-pid={rel.id}
-                      onClick={() => handleSelectProduct(rel)}
-                      className="p-4 bg-white border border-black/[0.07] flex items-center gap-4 cursor-pointer hover:border-[#141413] transition-colors"
-                    >
-                      <div className="w-20 h-20 bg-[#F7F6F2] shrink-0 overflow-hidden">
-                        <ProductImage src={rel.primaryImage} alt={rel.name} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[11px] text-[#787774]">{rel.category}</div>
-                        <div className="text-sm font-semibold text-[#141413] truncate">
-                          {rel.name}
-                        </div>
-                        <div className="text-xs font-mono tabular-nums text-[#141413] mt-1">
-                          <span className="font-semibold">{formatPKR(rel.price)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+            {/* Frequently bought together (real checkouts; same category until there are enough) */}
+            <BoughtTogether
+              product={selectedProduct}
+              products={products}
+              onSelect={handleSelectProduct}
+              onAdd={(p) => addToCart(p, 1)}
+            />
+
+            {/* Recently viewed on this device */}
+            {recentlyViewed.ids.some((id) => id !== selectedProduct.id) && (
+              <div className="pt-10 border-t border-black/[0.07]">
+                <RecentlyViewedStrip ids={recentlyViewed.ids} products={products} onSelect={handleSelectProduct} excludeId={selectedProduct.id} />
               </div>
-            </section>
+            )}
           </div>
         )}
 

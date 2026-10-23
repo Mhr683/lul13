@@ -11,7 +11,9 @@ export interface EmailLogEntry {
     | 'ORDER_SHIPPED'
     | 'ORDER_CANCELLED'
     | 'RECEIPT_RESEND'
-    | 'SUPPORT_REPLY';
+    | 'SUPPORT_REPLY'
+    | 'BACK_IN_STOCK'
+    | 'QUESTION_ANSWERED';
   recipient: string;
   sender: string;
   subject: string;
@@ -375,6 +377,79 @@ export async function sendSupportReplyEmail(
     type: 'SUPPORT_REPLY',
     metadata: { ticketNumber: params.ticketNumber },
   });
+}
+
+// ============================================================================
+// BACK IN STOCK (customer asked to be told when a product returns)
+// ============================================================================
+export async function sendBackInStockEmail(
+  adminDb: FirebaseFirestore.Firestore | null | undefined,
+  params: {
+    to: string;
+    productName: string;
+    productUrl: string;
+    price?: number;
+    storeName?: string;
+    supportEmail?: string;
+  }
+): Promise<SendEmailResult> {
+  const storeName = params.storeName || 'Store';
+  const subject = `Back in stock: ${params.productName} | ${storeName}`;
+  const priceLine = params.price ? `PKR ${Number(params.price).toLocaleString('en-PK')}` : '';
+  const html = wrapEmailHtml({
+    storeName,
+    bannerTitle: 'It is back in stock',
+    bannerSubtitle: params.productName,
+    bannerColor: 'emerald',
+    supportEmail: params.supportEmail,
+    footerNotes: 'You asked us to tell you once. We will not email you about this product again.',
+    contentHtml: `
+      <p style="margin: 0 0 12px 0; font-size: 14px;">Assalam o Alaikum,</p>
+      <p style="margin: 0 0 16px 0; font-size: 14px;"><strong>${escapeHtml(params.productName)}</strong> is available again${
+        priceLine ? ` for <strong>${escapeHtml(priceLine)}</strong>` : ''
+      }. Stock is limited, so order soon.</p>
+      <p style="margin: 0 0 8px 0;">
+        <a href="${escapeHtml(params.productUrl)}" style="display: inline-block; padding: 12px 22px; background-color: #111827; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 14px; border-radius: 4px;">View product</a>
+      </p>`,
+  });
+  const text = `Assalam o Alaikum,\n\n${params.productName} is back in stock${priceLine ? ` (${priceLine})` : ''}.\n${params.productUrl}\n\n${storeName}`;
+  return sendViaResend(adminDb, { to: params.to, subject, html, text, type: 'BACK_IN_STOCK', metadata: { productName: params.productName } });
+}
+
+// ============================================================================
+// QUESTION ANSWERED (the seller / store answered a customer's product question)
+// ============================================================================
+export async function sendQuestionAnsweredEmail(
+  adminDb: FirebaseFirestore.Firestore | null | undefined,
+  params: {
+    to: string;
+    customerName?: string;
+    productName: string;
+    productUrl: string;
+    question: string;
+    answer: string;
+    storeName?: string;
+    supportEmail?: string;
+  }
+): Promise<SendEmailResult> {
+  const storeName = params.storeName || 'Store';
+  const subject = `Your question was answered: ${params.productName} | ${storeName}`;
+  const html = wrapEmailHtml({
+    storeName,
+    bannerTitle: 'Your question was answered',
+    bannerSubtitle: params.productName,
+    bannerColor: 'blue',
+    supportEmail: params.supportEmail,
+    contentHtml: `
+      <p style="margin: 0 0 12px 0; font-size: 14px;">Assalam o Alaikum ${escapeHtml(params.customerName || '')},</p>
+      <p style="margin: 0 0 6px 0; font-size: 12px; color: #6B7280;">You asked:</p>
+      <div style="margin: 0 0 14px 0; padding: 12px 14px; background-color: #F9FAFB; font-size: 14px;">${escapeHtml(params.question).replace(/\n/g, '<br>')}</div>
+      <p style="margin: 0 0 6px 0; font-size: 12px; color: #6B7280;">Answer:</p>
+      <div style="margin: 0 0 18px 0; padding: 12px 14px; background-color: #EFF6FF; border-left: 3px solid #3B82F6; font-size: 14px;">${escapeHtml(params.answer).replace(/\n/g, '<br>')}</div>
+      <p style="margin: 0;"><a href="${escapeHtml(params.productUrl)}" style="color: #2563EB; font-weight: 600;">View the product</a></p>`,
+  });
+  const text = `Assalam o Alaikum ${params.customerName || ''},\n\nYou asked: ${params.question}\n\nAnswer: ${params.answer}\n\n${params.productUrl}\n${storeName}`;
+  return sendViaResend(adminDb, { to: params.to, subject, html, text, type: 'QUESTION_ANSWERED', metadata: { productName: params.productName } });
 }
 
 // ============================================================================

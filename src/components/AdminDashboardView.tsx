@@ -47,6 +47,7 @@ import {
   Store,
   RotateCcw,
   Rocket,
+  MessageCircleQuestion,
   Activity,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
@@ -62,6 +63,7 @@ import { BackupRestorePanel } from './BackupRestorePanel';
 import { AdminSellersPanel } from './AdminSellersPanel';
 import { AdminReturnsPanel } from './AdminReturnsPanel';
 import { AdminGrowthPanel } from './AdminGrowthPanel';
+import { QuestionsInbox } from './QuestionsInbox';
 import { AdminTrafficPanel } from './AdminTrafficPanel';
 import { AdminPaymentKeysPanel } from './AdminPaymentKeysPanel';
 import {
@@ -110,10 +112,11 @@ type AdminTab =
   | 'SELLER_INBOX'
   | 'RETURNS'
   | 'GROWTH'
-  | 'TRAFFIC';
+  | 'TRAFFIC'
+  | 'QUESTIONS';
 
 const ADMIN_TABS: AdminTab[] = [
-  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'GROWTH', 'TRAFFIC', 'COUPONS', 'REVIEWS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
+  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'GROWTH', 'TRAFFIC', 'COUPONS', 'REVIEWS', 'QUESTIONS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
 ];
 // Tabs remembered from before the listing work moved to Seller Center fall back to the dashboard
 const validTab = (tab: string | undefined): AdminTab => (ADMIN_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'DASHBOARD');
@@ -2568,6 +2571,7 @@ export const AdminDashboardView: React.FC<{
                 { id: 'TRAFFIC', label: 'Traffic & Conversion', icon: Activity },
                 { id: 'COUPONS', label: 'Promotions & Coupons', icon: Tag },
                 { id: 'REVIEWS', label: 'Client Reviews', icon: MessageSquare },
+                { id: 'QUESTIONS', label: 'Product Questions', icon: MessageCircleQuestion },
                 { id: 'AI_TASKS', label: 'AI Background Tasks', icon: Cpu },
                 { id: 'AUDIT_LOGS', label: 'Security Audit Log', icon: ShieldAlert },
                 { id: 'NOTIFICATIONS', label: 'Customer Inbox', icon: Inbox },
@@ -4044,6 +4048,7 @@ export const AdminDashboardView: React.FC<{
           {activeTab === 'SELLERS' && <AdminSellersPanel />}
           {activeTab === 'RETURNS' && <AdminReturnsPanel />}
           {activeTab === 'GROWTH' && <AdminGrowthPanel />}
+          {activeTab === 'QUESTIONS' && <QuestionsInbox mode="admin" />}
           {activeTab === 'TRAFFIC' && <AdminTrafficPanel />}
           {activeTab === 'SELLER_INBOX' && <AdminSellerInbox onUnreadChange={setSellerUnread} />}
 

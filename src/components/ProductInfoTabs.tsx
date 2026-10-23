@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Stars } from './SellerRating';
+import { ProductQuestions } from './ProductExtras';
 
-// Product page tabs: "Description" and "Reviews". Reviews are written by buyers after their order
-// was delivered (from the order tracking page), so every one is a verified purchase.
+// Product page tabs: "Description", "Reviews" and "Questions". Reviews from the order tracking page
+// (after delivery) are verified purchases; reviews written on the product page are shown once an
+// admin approves them, without the "verified" badge.
 
 type ProductReview = { id: string; rating: number; comment: string; customerName: string; createdAt: string; sellerReply?: string };
 type LegacyReview = { id: string; rating: number; title?: string; comment: string; authorName?: string; createdAt: string };
@@ -16,11 +18,13 @@ export const ProductInfoTabs: React.FC<{
   details: { label: string; value: React.ReactNode }[];
   legacyReviews?: LegacyReview[];
 }> = ({ productId, description, shortDescription, details, legacyReviews = [] }) => {
-  const [tab, setTab] = useState<'DESCRIPTION' | 'REVIEWS'>('DESCRIPTION');
+  const [tab, setTab] = useState<'DESCRIPTION' | 'REVIEWS' | 'QUESTIONS'>('DESCRIPTION');
   const [reviews, setReviews] = useState<ProductReview[] | null>(() => reviewCache.get(productId) || null);
+  const [questionCount, setQuestionCount] = useState<number | null>(null);
 
   useEffect(() => {
     setTab('DESCRIPTION');
+    setQuestionCount(null);
     const cached = reviewCache.get(productId);
     setReviews(cached || null);
     if (cached) return;
@@ -39,7 +43,7 @@ export const ProductInfoTabs: React.FC<{
   }, [productId]);
 
   const all = [
-    ...(reviews || []),
+    ...(reviews || []).map((r) => ({ ...r, verified: true })),
     ...legacyReviews.map((r) => ({
       id: r.id,
       rating: r.rating,
@@ -47,6 +51,7 @@ export const ProductInfoTabs: React.FC<{
       customerName: r.authorName || 'Customer',
       createdAt: r.createdAt,
       sellerReply: '',
+      verified: false,
     })),
   ];
   const avg = all.length ? Math.round((all.reduce((s, r) => s + Number(r.rating || 0), 0) / all.length) * 10) / 10 : 0;
@@ -64,9 +69,14 @@ export const ProductInfoTabs: React.FC<{
         <button type="button" onClick={() => setTab('REVIEWS')} className={tabCls(tab === 'REVIEWS')}>
           Reviews{reviews !== null ? ` (${all.length})` : ''}
         </button>
+        <button type="button" onClick={() => setTab('QUESTIONS')} className={tabCls(tab === 'QUESTIONS')}>
+          Questions{questionCount ? ` (${questionCount})` : ''}
+        </button>
       </div>
 
-      {tab === 'DESCRIPTION' ? (
+      {tab === 'QUESTIONS' ? (
+        <ProductQuestions productId={productId} onCount={setQuestionCount} />
+      ) : tab === 'DESCRIPTION' ? (
         <div className="space-y-4 text-sm text-[#454441] leading-relaxed">
           {shortDescription && shortDescription !== description && <p className="font-medium text-[#141413]">{shortDescription}</p>}
           <p className="whitespace-pre-line">{description || shortDescription || 'No description yet.'}</p>
@@ -92,7 +102,7 @@ export const ProductInfoTabs: React.FC<{
             <div>
               <Stars value={avg} size={18} />
               <p className="text-xs text-[#575653]">
-                {all.length} verified {all.length === 1 ? 'review' : 'reviews'}
+                {all.length} {all.length === 1 ? 'review' : 'reviews'}
               </p>
             </div>
           </div>
@@ -105,9 +115,11 @@ export const ProductInfoTabs: React.FC<{
                   <span className="text-[#787774]">
                     {new Date(r.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
-                  <span className="px-1.5 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-900 text-[10px] font-bold">
-                    Verified purchase
-                  </span>
+                  {r.verified && (
+                    <span className="px-1.5 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-900 text-[10px] font-bold">
+                      Verified purchase
+                    </span>
+                  )}
                 </div>
                 {r.comment && <p className="text-[#454441] whitespace-pre-line">{r.comment}</p>}
                 {r.sellerReply && (

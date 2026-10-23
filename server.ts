@@ -34,6 +34,7 @@ import { registerMarketplaceRoutes } from './server/marketplace';
 import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
+import { registerProductExtrasRoutes } from './server/productExtras';
 import { registerPolicyRoutes } from './server/policy';
 import { registerSellerAiRoutes } from './server/sellerAi';
 import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
@@ -3086,6 +3087,8 @@ app.post('/api/orders/create', async (req, res) => {
     if (result && result.order) {
       const attribution = req.body?.attribution && typeof req.body.attribution === 'object' ? req.body.attribution : undefined;
       for (const c of result.created) analytics.recordOrder(c.order as any, attribution);
+      // "Bought together" suggestions learn from every checkout with 2+ different products
+      productExtras.recordPurchase(items.map((it: any) => String(it.productId)));
       ads.onPurchase(result.created.map((c) => c.order as any), attribution, req);
       // The checkout is done: drop the saved "abandoned cart" of this phone (no reminder needed)
       adminDb.collection('abandoned_carts').doc(phoneKey(cleanPhone)).delete().catch(() => {});
@@ -3648,6 +3651,19 @@ registerFeedbackRoutes(app, {
   postNotice: sellerInbox.postNotice,
   limitPerIp,
   callerUid: callerUidOf,
+});
+
+// Product page extras: back-in-stock alerts, questions & answers, bought together
+const productExtras = registerProductExtrasRoutes(app, {
+  adminDb,
+  requireAdmin,
+  requireSeller: marketplace.requireSeller,
+  limitPerIp,
+  callerUid: callerUidOf,
+  productById: (id) => (catalogStore.ready ? catalogStore.product(id) : null),
+  getSettings: () => catalogStore.settings(),
+  setRestockHook: (fn) => catalogStore.setRestockHook(fn),
+  HOUSE_SELLER_ID,
 });
 
 // Traffic, sales and conversion analytics (one document per day; see server/analytics.ts)

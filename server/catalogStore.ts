@@ -60,6 +60,8 @@ export function createCatalogStore(
   let publicJson: string | null = null;
   let publicGzip: Buffer | null = null;
   const unsubs: Record<string, () => void> = {};
+  // Told when a product the copy knew as out of stock has stock again (back-in-stock alerts)
+  let restockHook: ((product: Doc) => void) | null = null;
 
   const localFile = path.join(opts.dir, 'catalog-snapshot.json.gz');
 
@@ -203,6 +205,16 @@ export function createCatalogStore(
             if (ch.type === 'removed') target.delete(ch.doc.id);
             else {
               const data: Doc = { ...(ch.doc.data() as Doc), id: ch.doc.id };
+              if (name === 'products' && restockHook) {
+                const before = target.get(ch.doc.id);
+                if (before && Number(before.stock) <= 0 && Number(data.stock) > 0 && data.status === 'ACTIVE') {
+                  try {
+                    restockHook(data);
+                  } catch (err: any) {
+                    console.warn('[Catalog] restock hook failed:', err?.message);
+                  }
+                }
+              }
               target.set(ch.doc.id, name === 'products' ? data : (ch.doc.data() as Doc));
               latest = maxIso(latest, data.updatedAt);
             }
@@ -358,6 +370,10 @@ export function createCatalogStore(
     settings: () => settings,
     coupons: () => coupons,
     reviews: () => reviews,
+    /** Runs when a known out-of-stock product gets stock again (seen by the live listener) */
+    setRestockHook: (fn: (product: Doc) => void) => {
+      restockHook = fn;
+    },
     /** Called after the server deletes a product (deletions are not seen by the changes-only sync) */
     removeProduct: (id: string) => {
       products.delete(id);

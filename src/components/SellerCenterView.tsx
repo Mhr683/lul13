@@ -19,8 +19,10 @@ import {
   Star,
   RotateCcw,
   Bot,
+  MessageCircleQuestion,
 } from 'lucide-react';
 import { SellerAiAssistant } from './SellerAiAssistant';
+import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
 import { ShopCoachReport, type Coach } from './ShopCoachReport';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
@@ -41,7 +43,7 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 // It opens instantly: the shop and product list from the last visit are shown at once (Firebase can
 // take many seconds to restore a sign-in) and refreshed in the background.
 
-type Tab = 'DASHBOARD' | 'AI' | 'PRODUCTS' | 'ORDERS' | 'RETURNS' | 'EARNINGS' | 'REVIEWS' | 'MESSAGES' | 'PROFILE' | 'RULES';
+type Tab = 'DASHBOARD' | 'AI' | 'PRODUCTS' | 'ORDERS' | 'RETURNS' | 'EARNINGS' | 'REVIEWS' | 'QUESTIONS' | 'MESSAGES' | 'PROFILE' | 'RULES';
 
 type ThreadMessage = { id: string; from: 'SELLER' | 'ADMIN'; author: string; text: string; at: string };
 type SellerThread = {
@@ -258,6 +260,15 @@ export const SellerCenterView: React.FC = () => {
   }, [authReady, approved, loadInbox]);
   const unreadTotal = (inbox?.unread.threads || 0) + (inbox?.unread.notices || 0);
 
+  // Unanswered customer questions (badge on "Questions"); checked once when Seller Center opens
+  const [questionsWaiting, setQuestionsWaiting] = useState(0);
+  useEffect(() => {
+    if (!authReady || !approved) return;
+    sellerWaitingQuestions()
+      .then(setQuestionsWaiting)
+      .catch(() => {});
+  }, [authReady, approved]);
+
   const handleSignOut = async () => {
     clearSellerCache();
     delete memo.orders;
@@ -398,6 +409,7 @@ export const SellerCenterView: React.FC = () => {
     { id: 'RETURNS', label: 'Returns', icon: RotateCcw },
     { id: 'EARNINGS', label: 'Earnings', icon: Wallet },
     { id: 'REVIEWS', label: 'Reviews', icon: Star, badge: activityUnread },
+    { id: 'QUESTIONS', label: 'Questions', icon: MessageCircleQuestion, badge: questionsWaiting },
     { id: 'MESSAGES', label: 'Messages', icon: MessageSquare, badge: unreadTotal },
     { id: 'PROFILE', label: 'Profile', icon: UserCog },
   ];
@@ -508,6 +520,7 @@ export const SellerCenterView: React.FC = () => {
         </div>
       )}
       {tab === 'REVIEWS' && <ReviewsTab onSeen={clearActivity} />}
+      {tab === 'QUESTIONS' && <QuestionsInbox mode="seller" onWaitingChange={setQuestionsWaiting} />}
       {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} />}
       {tab === 'PROFILE' &&
         (sellerPrivate ? (
