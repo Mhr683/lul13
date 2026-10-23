@@ -52,6 +52,16 @@ service cloud.firestore {
       );
     }
 
+    // Owner / admin only (not the manager roles): store settings hold the bank / Raast / NayaPay
+    // accounts customers pay into, so staff with order or product access must not change them
+    function isFullAdmin() {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'
+      );
+    }
+
     // Validation Blueprints
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email', 'name', 'role', 'createdAt']) &&
@@ -374,17 +384,26 @@ service cloud.firestore {
     match /reviews/{reviewId} {
       allow get: if isValidId(reviewId) && (resource.data.status == 'APPROVED' || (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin());
       allow list: if resource.data.status == 'APPROVED' || (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+      // A customer's review waits for an admin to approve it, and only the store can mark it as a
+      // verified purchase (verified reviews come from delivered orders, see server/feedback.ts)
       allow create: if isSignedIn() && isValidId(reviewId) && isValidReview(incoming()) &&
         incoming().userId == request.auth.uid &&
-        exists(/databases/$(database)/documents/products/$(incoming().productId));
+        exists(/databases/$(database)/documents/products/$(incoming().productId)) && (
+          isAdmin() || (
+            incoming().status == 'PENDING' &&
+            incoming().get('verifiedPurchase', false) == false &&
+            incoming().get('helpfulCount', 0) == 0
+          )
+        );
       allow update: if isSignedIn() && isValidId(reviewId) && isValidReview(incoming()) &&
         incoming().id == existing().id &&
         incoming().productId == existing().productId &&
         incoming().userId == existing().userId &&
         incoming().createdAt == existing().createdAt && (
           isAdmin() ||
+          // The author may edit only while it waits for approval (not change an approved text)
           (existing().userId == request.auth.uid &&
-           existing().status != 'REJECTED' &&
+           existing().status == 'PENDING' &&
            incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'title', 'comment']))
         );
       allow delete: if isSignedIn() && isValidId(reviewId) && isAdmin();
@@ -435,10 +454,10 @@ service cloud.firestore {
     match /settings/{settingId} {
       allow get: if isValidId(settingId);
       allow list: if resource.data.storeName is string;
-      allow create: if isSignedIn() && isValidId(settingId) && isValidSetting(incoming()) && isAdmin();
+      allow create: if isSignedIn() && isValidId(settingId) && isValidSetting(incoming()) && isFullAdmin();
       allow update: if isSignedIn() && isValidId(settingId) && isValidSetting(incoming()) &&
         incoming().id == existing().id &&
-        isAdmin();
+        isFullAdmin();
       allow delete: if false;
     }
 

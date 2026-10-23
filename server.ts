@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import zlib from 'zlib';
+import net from 'net';
 import dotenv from 'dotenv';
 import { initializeApp as initAdminApp, getApps as getAdminApps, cert } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
@@ -457,6 +458,7 @@ app.use('/api', (_req, res, next) => {
   next();
 });
 
+app.disable('x-powered-by');
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -1139,7 +1141,7 @@ app.post('/api/media/download-and-store', async (req, res) => {
 // 0. API Endpoint: Upload image directly to Firebase Storage
 app.post('/api/media/upload', async (req, res) => {
   try {
-    const { dataUrl, filename, mimeType } = req.body;
+    const { dataUrl, filename } = req.body;
     if (!dataUrl) {
       return res.status(400).json({ error: 'dataUrl is required' });
     }
@@ -1147,11 +1149,19 @@ app.post('/api/media/upload', async (req, res) => {
     if (!match) {
       return res.status(400).json({ error: 'Invalid dataUrl image format' });
     }
-    const ext = match[1] === 'jpeg' ? 'jpg' : match[1].replace(/[^a-z0-9]/gi, '');
+    // Pictures only (no SVG / HTML, which can carry scripts); the stored type and name come from
+    // the server, never from the browser
+    const IMAGE_TYPES: Record<string, string> = { jpeg: 'jpg', jpg: 'jpg', png: 'png', webp: 'webp', gif: 'gif', avif: 'avif' };
+    const kind = match[1].toLowerCase();
+    const ext = IMAGE_TYPES[kind];
+    if (!ext) {
+      return res.status(400).json({ error: 'Only JPG, PNG, WebP, GIF or AVIF pictures can be uploaded.' });
+    }
     const buffer = Buffer.from(match[2], 'base64');
     const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 16);
-    const resolvedFileName = filename ? `${hash}_${path.basename(filename)}` : `${hash}.${ext || 'jpg'}`;
-    const publicUrl = await uploadBufferToFirebaseStorage(buffer, resolvedFileName, mimeType || `image/${ext}`);
+    const baseName = filename ? path.basename(String(filename)).replace(/\.[^.]*$/, '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60) : '';
+    const resolvedFileName = baseName ? `${hash}_${baseName}.${ext}` : `${hash}.${ext}`;
+    const publicUrl = await uploadBufferToFirebaseStorage(buffer, resolvedFileName, `image/${ext === 'jpg' ? 'jpeg' : ext}`);
     return res.json({ success: true, publicUrl, url: publicUrl, localUrl: publicUrl });
   } catch (err: any) {
     console.error('Media upload error:', err);
@@ -1908,10 +1918,11 @@ app.get('/api/payment-capabilities', (req, res) => {
 });
 
 // Google Maps Reverse Geocode API Proxy (Bypasses browser CORS & protects key)
-app.post('/api/maps/reverse-geocode', async (req, res) => {
+// (each call can use the store's paid Google Maps quota, so it is limited per visitor)
+app.post('/api/maps/reverse-geocode', limitPerIp('reverse-geocode', 20), async (req, res) => {
   try {
     const { lat, lng } = req.body;
-    if (typeof lat !== 'number' || typeof lng !== 'number') {
+    if (typeof lat !== 'number' || typeof lng !== 'number' || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
       return res.status(400).json({ error: 'Valid numerical lat and lng are required.' });
     }
 
@@ -1923,10 +1934,8 @@ app.post('/api/maps/reverse-geocode', async (req, res) => {
       process.env.GOOGLE_MAPS_API_KEY ||
       '';
     if (!apiKey) {
-      try {
-        const snap = await adminDb.collection('settings').doc('store_config').get();
-        apiKey = String(snap.data()?.googleMapsApiKey || '').trim();
-      } catch {}
+      // The catalog copy already holds the store settings (no database read per lookup)
+      apiKey = String(catalogStore.settings()?.googleMapsApiKey || '').trim();
     }
 
     let data: any = {};
@@ -2052,11 +2061,13 @@ app.post('/api/maps/reverse-geocode', async (req, res) => {
 });
 
 // Automatic Network IP Geolocation Fallback (When browser GPS permission is denied or restricted)
-app.get('/api/maps/ip-location', async (req, res) => {
+app.get('/api/maps/ip-location', limitPerIp('ip-location', 20), async (req, res) => {
   try {
-    const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
-    const ip = String(rawIp).split(',')[0].trim();
-    const isLocal = !ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.');
+    // req.ip already honours the hosting proxy ('trust proxy'); the raw X-Forwarded-For header can be
+    // written by anyone, and it is placed in the lookup URL, so only a real IP address is accepted
+    const ip = String(req.ip || req.socket.remoteAddress || '').replace(/^::ffff:/, '').trim();
+    const isLocal =
+      !ip || net.isIP(ip) === 0 || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.');
 
     let geoData: any = null;
     if (!isLocal) {
@@ -2599,6 +2610,9 @@ app.post('/api/orders/create', async (req, res) => {
     }
 
     if (!city && district) city = district;
+    // Keep the saved address within the 500 characters the order record allows (phone included)
+    addressLine = addressLine.slice(0, 300);
+    city = city.slice(0, 80);
 
     if (!addressLine || addressLine.length < 5) {
       return res.status(400).json({
@@ -2619,6 +2633,13 @@ app.post('/api/orders/create', async (req, res) => {
       return res.status(400).json({
         error: 'Order must contain at least one item.',
         code: 'EMPTY_CART',
+      });
+    }
+    // Each cart line costs database reads; a real cart is far smaller
+    if (items.length > 50) {
+      return res.status(400).json({
+        error: 'An order can have at most 50 different items. Please split it into two orders.',
+        code: 'TOO_MANY_ITEMS',
       });
     }
 
@@ -2972,14 +2993,15 @@ app.post('/api/orders/create', async (req, res) => {
             sellerId: g.sellerId,
             sellerName: g.sellerName,
             items: publicItems,
-            customerName: (customerName || req.body.name || '').toString().trim(),
-            customerEmail: (customerEmail || req.body.email || '').toString().trim().toLowerCase(),
-            customerPhone: cleanPhone,
+            // Lengths match firestore.rules (isValidOrder), so admins can still edit the order later
+            customerName: (customerName || req.body.name || '').toString().trim().slice(0, 150),
+            customerEmail: (customerEmail || req.body.email || '').toString().trim().toLowerCase().slice(0, 255),
+            customerPhone: String(cleanPhone).slice(0, 50),
             destCountryIso: isDomestic ? 'PK' : (destCountryIso || 'PK'),
             status: initialStatus,
             paymentStatus: initialPaymentStatus,
             paymentMethod: paymentMethod as any,
-            ...((tid || req.body.paymentReference) ? { paymentReference: String(tid || req.body.paymentReference).trim() } : {}),
+            ...((tid || req.body.paymentReference) ? { paymentReference: String(tid || req.body.paymentReference).trim().slice(0, 120) } : {}),
             subtotal: g.subtotal,
             discount: g.discount,
             tax: g.tax,
@@ -2992,10 +3014,10 @@ app.post('/api/orders/create', async (req, res) => {
             ...(welcomeUsed ? { welcomeOfferUsed: true } : {}),
             // The friend who shared the link earns credit once this (first) order is delivered
             ...(referredBy && g === groups[0] ? { referredBy, referralFirstOrder: true } : {}),
-            shippingAddressSummary: fullAddressSummary,
+            shippingAddressSummary: fullAddressSummary.slice(0, 500),
             shippingCalculationSnapshot: ShippingCalculationService.createSnapshot(g.calc),
-            district: district || city,
-            tehsil: tehsil || '',
+            district: String(district || city).slice(0, 100),
+            tehsil: String(tehsil || '').slice(0, 100),
             notes: (notes || `[Items: ${g.items.map((i) => `${i.sku}x${i.quantity}`).join(', ')}] | [Method: ${paymentMethod}${tid ? ` · TID: ${tid}` : ''}]`).slice(0, 950),
             createdAt: now,
             updatedAt: now,
@@ -3168,13 +3190,16 @@ app.get('/api/orders/track', async (req, res) => {
     const isOwner = Boolean(callerUid && orderData.userId && callerUid === orderData.userId);
     const hasValidGuestToken = Boolean(token && orderData.orderAccessToken && token === orderData.orderAccessToken);
 
-    // Verify customer phone number (normalize to digits and match suffix)
+    // Verify the customer's phone number: digits only, and the whole number must match (the last 10
+    // digits, so 03001234567, 3001234567 and +923001234567 are the same). Only 7 digits used to be
+    // checked, which made guessing someone else's order much easier.
     const cleanInputPhone = phone ? String(phone).replace(/[^0-9]/g, '') : '';
     const cleanOrderPhone = orderData.customerPhone ? String(orderData.customerPhone).replace(/[^0-9]/g, '') : '';
+    const phoneTail = (digits: string) => (digits.length > 10 ? digits.slice(-10) : digits.replace(/^0+/, ''));
     const hasValidPhone = Boolean(
-      cleanInputPhone.length >= 7 &&
-      cleanOrderPhone.length >= 7 &&
-      (cleanOrderPhone.endsWith(cleanInputPhone.slice(-7)) || cleanInputPhone.endsWith(cleanOrderPhone.slice(-7)))
+      cleanInputPhone.length >= 10 &&
+      cleanOrderPhone.length >= 10 &&
+      phoneTail(cleanInputPhone) === phoneTail(cleanOrderPhone)
     );
 
     if (!callerIsAdmin && !isOwner && !hasValidGuestToken && !hasValidPhone) {
@@ -3380,7 +3405,7 @@ app.post('/api/orders/cancel', async (req, res) => {
       const cancelledAt = new Date().toISOString();
       await applyOrderStatusWithStock(orderDocRef!, {
         status: 'CANCELLED',
-        cancellationReason: reason || 'Cancelled by customer/operator',
+        cancellationReason: String(reason || 'Cancelled by customer/operator').slice(0, 500),
         cancelledAt,
         updatedAt: cancelledAt,
       });

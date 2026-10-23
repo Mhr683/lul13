@@ -83,6 +83,16 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   };
   const forgetSeller = (uid: string) => sellerCache.delete(uid);
 
+  // Money and account decisions (payouts, approving / suspending a seller, commission) are for the
+  // owner and admins only, not the manager roles that handle orders or products
+  const requireFullAdmin: Handler = (req, res, next) =>
+    d.requireAdmin(req, res, () => {
+      if (!['SUPER_ADMIN', 'ADMIN'].includes(String((req as any).user?.role || ''))) {
+        return res.status(403).json({ error: 'Only the store owner or an admin can do this.' });
+      }
+      next();
+    });
+
   // Signed-in user whose seller shop is approved; the shop is attached as req.seller
   const requireSeller: Handler = (req, res, next) =>
     d.requireAuth(req, res, async () => {
@@ -1230,7 +1240,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
 
   // Restores an account suspended for low rating, once: the reinstatement fee is taken off the
   // seller's frozen balance or recorded as paid, the rating starts again from zero and payouts unfreeze
-  app.post('/api/admin/sellers/:id/reinstate', d.requireAdmin, async (req, res) => {
+  app.post('/api/admin/sellers/:id/reinstate', requireFullAdmin, async (req, res) => {
     const id = str(req.params.id, 128);
     const feeMethod = req.body?.feeMethod === 'PAID' ? 'PAID' : 'DEDUCT';
     const reference = str(req.body?.reference, 120);
@@ -1299,7 +1309,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   });
 
   // Approve / reject / suspend a seller, or change their commission
-  app.post('/api/admin/sellers/:id', d.requireAdmin, async (req, res) => {
+  app.post('/api/admin/sellers/:id', requireFullAdmin, async (req, res) => {
     const id = String(req.params.id);
     const b = req.body || {};
     try {
@@ -1364,7 +1374,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   });
 
   // Record a bank transfer to a seller: settles all their delivered, not yet paid orders
-  app.post('/api/admin/payouts', d.requireAdmin, async (req, res) => {
+  app.post('/api/admin/payouts', requireFullAdmin, async (req, res) => {
     const sellerId = str(req.body?.sellerId, 128);
     const reference = str(req.body?.reference, 120);
     const note = str(req.body?.note, 300);

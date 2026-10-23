@@ -1367,14 +1367,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       rating: Math.min(5, Math.max(1, Math.round(payload.rating))),
       title: payload.title.slice(0, 150),
       comment: payload.comment.slice(0, 1900),
-      verifiedPurchase: true,
-      status: 'APPROVED',
-      helpfulCount: 1,
+      // Shown after an admin approves it; only reviews from delivered orders are "verified"
+      // (firestore.rules enforces both)
+      verifiedPurchase: false,
+      status: 'PENDING',
+      helpfulCount: 0,
       createdAt: new Date().toISOString(),
     };
     try {
       await setDoc(doc(db, 'reviews', revId), newReview);
-      showToast('Thank you. Your review has been published.');
+      showToast('Thank you. Your review will appear once the store has checked it.');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `reviews/${revId}`);
     }
