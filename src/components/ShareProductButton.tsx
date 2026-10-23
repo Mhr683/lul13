@@ -20,8 +20,12 @@ export const ShareProductButton: React.FC<{
   price?: number;
   label?: string;
   className?: string;
+  /** 'icon': a round share icon, e.g. on the corner of the product picture */
+  variant?: 'button' | 'icon';
+  /** Which side the menu opens towards */
+  align?: 'left' | 'right';
   showToast?: (msg: string) => void;
-}> = ({ productId, productName, price, label = 'Share', className = '', showToast }) => {
+}> = ({ productId, productName, price, label = 'Share', className = '', variant = 'button', align = 'right', showToast }) => {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const url = productShareUrl(productId);
@@ -57,17 +61,40 @@ export const ShareProductButton: React.FC<{
 
   return (
     <div className="relative inline-block" ref={boxRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className={className || 'px-3 py-1.5 border border-black/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer hover:border-black bg-white'}
-      >
-        <Share2 className="w-3.5 h-3.5" /> {label}
-      </button>
+      {variant === 'icon' ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((o) => !o);
+          }}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Share this product"
+          title="Share this product"
+          className={
+            className ||
+            'w-10 h-10 rounded-full bg-white/95 border border-black/10 shadow-md flex items-center justify-center text-[#141413] hover:bg-white hover:scale-105 transition-transform cursor-pointer'
+          }
+        >
+          <Share2 className="w-[18px] h-[18px]" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          className={className || 'px-3 py-1.5 border border-black/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer hover:border-black bg-white'}
+        >
+          <Share2 className="w-3.5 h-3.5" /> {label}
+        </button>
+      )}
       {open && (
-        <div role="menu" className="absolute z-40 right-0 mt-1 w-48 bg-white border border-black/15 shadow-lg py-1">
+        <div
+          role="menu"
+          className={`absolute z-40 ${align === 'left' ? 'left-0' : 'right-0'} mt-1 w-48 bg-white border border-black/15 shadow-lg py-1`}
+        >
           <a
             role="menuitem"
             href={`https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`}

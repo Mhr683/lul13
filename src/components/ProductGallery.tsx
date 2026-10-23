@@ -45,7 +45,9 @@ export const ProductGallery: React.FC<{
   videoUrl?: string;
   alt: string;
   fallback: React.ReactNode;
-}> = ({ images, primaryImage, videoUrl, alt, fallback }) => {
+  /** Shown on the top-left corner of the big picture (e.g. the share button) */
+  overlay?: React.ReactNode;
+}> = ({ images, primaryImage, videoUrl, alt, fallback, overlay }) => {
   const slides = useMemo<Slide[]>(() => {
     const pics = Array.from(new Set([...(images || []), ...(primaryImage ? [primaryImage] : [])].filter(Boolean))).slice(0, 8);
     const list: Slide[] = pics.map((src) => ({ kind: 'image', src }));
@@ -71,7 +73,12 @@ export const ProductGallery: React.FC<{
 
   const current = slides[Math.min(index, slides.length - 1)];
   if (!current || (current.kind === 'image' && slides.length === 1 && broken[current.src])) {
-    return <div className="aspect-[4/3] w-full bg-[#F7F6F2] border border-black/[0.07] overflow-hidden">{fallback}</div>;
+    return (
+      <div className="relative aspect-[4/3] w-full bg-[#F7F6F2] border border-black/[0.07] overflow-hidden">
+        {fallback}
+        {overlay && <div className="absolute top-3 left-3 z-10">{overlay}</div>}
+      </div>
+    );
   }
 
   const video = (s: Extract<Slide, { kind: 'video' }>, _big = false) => <VideoEmbed url={s.src} title={`${alt} video`} />;
@@ -98,6 +105,7 @@ export const ProductGallery: React.FC<{
         ) : (
           video(current)
         )}
+        {overlay && <div className="absolute top-3 left-3 z-10">{overlay}</div>}
         {slides.length > 1 && (
           <>
             <button

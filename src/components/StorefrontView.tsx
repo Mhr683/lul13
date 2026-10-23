@@ -2280,6 +2280,16 @@ export const StorefrontView: React.FC = () => {
                     primaryImage={selectedProduct.primaryImage}
                     videoUrl={selectedProduct.videoUrl}
                     alt={selectedProduct.name}
+                    overlay={
+                      <ShareProductButton
+                        variant="icon"
+                        align="left"
+                        productId={selectedProduct.id}
+                        productName={selectedProduct.name}
+                        price={selectedProduct.price}
+                        showToast={showToast}
+                      />
+                    }
                     fallback={
                       <ProductImage
                         src={selectedProduct.primaryImage}
@@ -2332,13 +2342,6 @@ export const StorefrontView: React.FC = () => {
                         showToast={showToast}
                       />
                     )}
-                    <ShareProductButton
-                      productId={selectedProduct.id}
-                      productName={selectedProduct.name}
-                      price={selectedProduct.price}
-                      className="px-2.5 py-1 border border-black/25 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer hover:border-black bg-white"
-                      showToast={showToast}
-                    />
                   </div>
                   {/* Unique product code (and barcode when the seller added one) */}
                   <div className="text-[11px] text-[#575653] font-mono">
