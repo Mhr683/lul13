@@ -14,6 +14,23 @@ export const storeOrigin = () => {
 
 export const productShareUrl = (productId: string) => `${storeOrigin()}/p/${encodeURIComponent(productId)}`;
 
+/**
+ * Share icon for the top-left corner of a product card's picture (the wishlist heart sits top-right).
+ * Put it inside a `relative` box next to the picture (not inside an overflow-hidden one), so the menu
+ * can open below the picture. Clicks on it do not open the product.
+ */
+export const CardShareButton: React.FC<{ productId: string; productName: string; price?: number; showToast?: (msg: string) => void }> = (props) => (
+  <div className="absolute top-3 left-3 z-20" onClick={(e) => e.stopPropagation()}>
+    <ShareProductButton
+      {...props}
+      variant="icon"
+      align="left"
+      iconClassName="w-4 h-4"
+      className="p-2 bg-white/90 text-[#141413] hover:bg-[#141413] hover:text-white transition-colors cursor-pointer shadow-sm"
+    />
+  </div>
+);
+
 export const ShareProductButton: React.FC<{
   productId: string;
   productName: string;
@@ -24,8 +41,19 @@ export const ShareProductButton: React.FC<{
   variant?: 'button' | 'icon';
   /** Which side the menu opens towards */
   align?: 'left' | 'right';
+  iconClassName?: string;
   showToast?: (msg: string) => void;
-}> = ({ productId, productName, price, label = 'Share', className = '', variant = 'button', align = 'right', showToast }) => {
+}> = ({
+  productId,
+  productName,
+  price,
+  label = 'Share',
+  className = '',
+  variant = 'button',
+  align = 'right',
+  iconClassName = 'w-[18px] h-[18px]',
+  showToast,
+}) => {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const url = productShareUrl(productId);
@@ -77,7 +105,7 @@ export const ShareProductButton: React.FC<{
             'w-10 h-10 rounded-full bg-white/95 border border-black/10 shadow-md flex items-center justify-center text-[#141413] hover:bg-white hover:scale-105 transition-transform cursor-pointer'
           }
         >
-          <Share2 className="w-[18px] h-[18px]" />
+          <Share2 className={iconClassName} />
         </button>
       ) : (
         <button

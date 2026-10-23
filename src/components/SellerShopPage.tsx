@@ -4,6 +4,7 @@ import { ProductImage } from './ProductImage';
 import { SellerAvatar } from './SellerAvatar';
 import { FollowStoreButton } from './FollowStoreButton';
 import { ReviewMediaStrip } from './ReviewMedia';
+import { CardShareButton } from './ShareProductButton';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
 import { fetchShop, ProductRatingBadge, SellerRatingBadge, SellerScoreCards, Stars, type ShopInfo } from './SellerRating';
@@ -193,7 +194,8 @@ export const SellerShopPage: React.FC<{
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-5">
                 {visible.slice(0, shown).map((p) => (
                   <article key={p.id} data-pid={p.id} className="group flex flex-col justify-between border border-black/[0.07] bg-white [content-visibility:auto] [contain-intrinsic-size:auto_340px]">
-                    <div>
+                    <div className="relative">
+                      <CardShareButton productId={p.id} productName={p.name} price={p.price} showToast={showToast} />
                       <div onClick={() => onSelectProduct(p)} className="aspect-square bg-[#F7F6F2] overflow-hidden cursor-pointer">
                         <ProductImage
                           src={p.primaryImage}

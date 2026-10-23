@@ -63,7 +63,7 @@ import { ProductInfoTabs } from './ProductInfoTabs';
 import { BackInStockForm, BoughtTogether, RecentlyViewedStrip, useRecentlyViewed } from './ProductExtras';
 import { FollowStoreButton } from './FollowStoreButton';
 import { NO_BRAND_LABEL } from '../services/brandRules';
-import { ShareProductButton } from './ShareProductButton';
+import { CardShareButton, ShareProductButton } from './ShareProductButton';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -1719,7 +1719,8 @@ export const StorefrontView: React.FC = () => {
                     data-pid={product.id}
                     className="group flex flex-col justify-between border border-black/15 bg-white transition-transform duration-150 hover:-translate-y-0.5 shadow-sm"
                   >
-                    <div>
+                    <div className="relative">
+                      <CardShareButton productId={product.id} productName={product.name} price={product.price} showToast={showToast} />
                       <div
                         onClick={() => handleSelectProduct(product)}
                         className="aspect-[4/3] w-full bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
@@ -2148,7 +2149,8 @@ export const StorefrontView: React.FC = () => {
                         data-pid={product.id}
                         className="group flex flex-col justify-between border border-black/[0.07] bg-white"
                       >
-                        <div>
+                        <div className="relative">
+                          <CardShareButton productId={product.id} productName={product.name} price={product.price} showToast={showToast} />
                           <div
                             onClick={() => handleSelectProduct(product)}
                             className="aspect-[4/3] bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
