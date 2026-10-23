@@ -26,7 +26,17 @@ export interface FeedbackDeps {
   suspendSeller: (sellerId: string, reason: string, cause?: 'RATING' | 'OTHER') => Promise<boolean>;
   postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => Promise<void>;
   limitPerIp: (name: string, max: number, windowMs?: number) => Handler;
+  /** Saves an uploaded file (Firebase Storage, or the server's disk) and returns its URL */
+  storeMedia: (buffer: Buffer, ext: string, contentType: string) => Promise<string>;
 }
+
+// Customer photos / videos on a review: at most 4 files, only from the review upload route below
+const MAX_REVIEW_MEDIA = 4;
+const isStoredMedia = (u: string) =>
+  /^\/media\/[a-f0-9]{24}\.(jpg|png|webp|mp4|webm|mov)$/.test(u) ||
+  /^https:\/\/(storage\.googleapis\.com|firebasestorage\.googleapis\.com)\/[^\s"'<>]+$/.test(u);
+const reviewMedia = (v: unknown): string[] =>
+  Array.isArray(v) ? Array.from(new Set(v.map((u) => String(u || '').trim()).filter(isStoredMedia))).slice(0, MAX_REVIEW_MEDIA) : [];
 
 const MAX_ACTIVITY = 60;
 // sellerId stored on reviews of orders sold by the store itself (products are rated, no seller is)
@@ -102,6 +112,7 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
         productNames: f.productNames || [],
         createdAt: f.createdAt,
         sellerReply: f.sellerReply || '',
+        media: reviewMedia(f.media),
       }));
     shopFeedbackCache.set(sellerId, { at: Date.now(), list });
     if (shopFeedbackCache.size > 2000) shopFeedbackCache.clear();
@@ -134,6 +145,49 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
   });
 
   const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 32);
+
+  // A photo or short video for a review. Only the buyer of a delivered order can upload (the order
+  // number and its private token come in headers, like return photos); the type is checked from the
+  // file's first bytes, not from what the browser says.
+  app.post('/api/feedback/upload', d.limitPerIp('feedback-upload', 12), async (req, res) => {
+    const orderNumber = str(req.headers['x-order-number'], 40).toUpperCase();
+    const token = str(req.headers['x-order-token'], 200);
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length < 12) return res.status(400).json({ error: 'No file received.' });
+    const jpg = body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff;
+    const png = body[0] === 0x89 && body.toString('ascii', 1, 4) === 'PNG';
+    const webp = body.toString('ascii', 0, 4) === 'RIFF' && body.toString('ascii', 8, 12) === 'WEBP';
+    const ftyp = body.toString('ascii', 4, 8) === 'ftyp';
+    const brand = ftyp ? body.toString('ascii', 8, 12) : '';
+    const mov = ftyp && brand.startsWith('qt');
+    const mp4 = ftyp && !mov && !/^(avif|avis|heic|heix|mif1|msf1)/.test(brand);
+    const webm = body[0] === 0x1a && body[1] === 0x45 && body[2] === 0xdf && body[3] === 0xa3;
+    const isVideo = mp4 || mov || webm;
+    if (!jpg && !png && !webp && !isVideo) return res.status(415).json({ error: 'Use a JPG, PNG or WEBP photo, or an MP4 video.' });
+    if (!isVideo && body.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'Photos can be at most 8 MB.' });
+    if (isVideo && body.length > 20 * 1024 * 1024) return res.status(413).json({ error: 'Videos can be at most 20 MB (about 30 seconds).' });
+    try {
+      const found = await findOrder(orderNumber);
+      if (!found || !(await canReview(req, found.order, token))) return res.status(403).json({ error: 'Only the buyer of this order can add photos.' });
+      if (found.order.status !== 'DELIVERED') return res.status(409).json({ error: 'You can add photos once the order has been delivered.' });
+      const [ext, type] = jpg
+        ? ['jpg', 'image/jpeg']
+        : png
+        ? ['png', 'image/png']
+        : webp
+        ? ['webp', 'image/webp']
+        : mov
+        ? ['mov', 'video/quicktime']
+        : webm
+        ? ['webm', 'video/webm']
+        : ['mp4', 'video/mp4'];
+      const url = await d.storeMedia(body, ext, type);
+      res.json({ success: true, url, video: isVideo });
+    } catch (err) {
+      console.error('[feedback/upload] failed:', err);
+      res.status(503).json({ error: 'Could not save the file. Please try again.' });
+    }
+  });
 
   // Rate the seller of a delivered order (once per order)
   app.post('/api/feedback', d.limitPerIp('feedback', 10), async (req, res) => {
@@ -172,6 +226,8 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
         createdAt: now,
         tokenHash: token ? hash(token) : '',
         userId: order.userId || '',
+        // Photos / videos the buyer uploaded through /api/feedback/upload
+        media: reviewMedia(b.media),
       };
       const productRefs = feedback.productIds.map((id) => adminDb.collection('products').doc(id));
       let newCount = 0;
@@ -273,6 +329,7 @@ export function registerFeedbackRoutes(app: express.Express, d: FeedbackDeps) {
             customerName: f.customerName,
             createdAt: f.createdAt,
             sellerReply: f.sellerReply || '',
+        media: reviewMedia(f.media),
           }));
         hit = { at: Date.now(), list };
         productReviewCache.set(productId, hit);

@@ -2,13 +2,40 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Play, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Product page gallery: the big picture (zooms where the mouse points, tap opens full screen),
-// a row of thumbnails for every picture, and the product video when the seller added one.
+// a row of thumbnails for every picture, and the product video (YouTube, Vimeo or MP4) when the
+// seller added one.
 
 const youTubeId = (url: string) => {
   const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,20})/);
   return m ? m[1] : '';
 };
-const isVideoFile = (url: string) => /\.(mp4|webm|mov)(\?|$)/i.test(url) || /\/o\/products%2F[^?]+\.(mp4|webm|mov)/i.test(url);
+const vimeoId = (url: string) => {
+  const m = url.match(/vimeo\.com\/(?:video\/)?(\d{6,12})/);
+  return m ? m[1] : '';
+};
+const isVideoFile = (url: string) =>
+  /\.(mp4|webm|mov)(\?|$)/i.test(url) || /\/o\/products%2F[^?]+\.(mp4|webm|mov)/i.test(url) || /^\/media\/[a-f0-9]+\.(mp4|webm|mov)$/i.test(url);
+
+/** True for links the product page can play: YouTube, Vimeo or a video file */
+export const isPlayableVideo = (url?: string) => Boolean(url && (youTubeId(url) || vimeoId(url) || isVideoFile(url)));
+
+/** Plays a YouTube / Vimeo link or an uploaded video file */
+export const VideoEmbed: React.FC<{ url: string; title: string; className?: string }> = ({ url, title, className = 'w-full h-full' }) => {
+  const yt = youTubeId(url);
+  const vm = vimeoId(url);
+  if (yt || vm) {
+    return (
+      <iframe
+        src={yt ? `https://www.youtube-nocookie.com/embed/${yt}` : `https://player.vimeo.com/video/${vm}`}
+        title={title}
+        allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+        allowFullScreen
+        className={className}
+      />
+    );
+  }
+  return <video src={url} controls playsInline preload="metadata" className={`${className} object-contain bg-black`} />;
+};
 
 type Slide = { kind: 'image'; src: string } | { kind: 'video'; src: string; youTube: string };
 
@@ -22,7 +49,7 @@ export const ProductGallery: React.FC<{
   const slides = useMemo<Slide[]>(() => {
     const pics = Array.from(new Set([...(images || []), ...(primaryImage ? [primaryImage] : [])].filter(Boolean))).slice(0, 8);
     const list: Slide[] = pics.map((src) => ({ kind: 'image', src }));
-    if (videoUrl && (youTubeId(videoUrl) || isVideoFile(videoUrl))) list.push({ kind: 'video', src: videoUrl, youTube: youTubeId(videoUrl) });
+    if (isPlayableVideo(videoUrl)) list.push({ kind: 'video', src: videoUrl!, youTube: youTubeId(videoUrl!) });
     return list;
   }, [images, primaryImage, videoUrl]);
   const [index, setIndex] = useState(0);
@@ -47,18 +74,7 @@ export const ProductGallery: React.FC<{
     return <div className="aspect-[4/3] w-full bg-[#F7F6F2] border border-black/[0.07] overflow-hidden">{fallback}</div>;
   }
 
-  const video = (s: Extract<Slide, { kind: 'video' }>, big = false) =>
-    s.youTube ? (
-      <iframe
-        src={`https://www.youtube-nocookie.com/embed/${s.youTube}`}
-        title={`${alt} video`}
-        allow="accelerometer; encrypted-media; gyroscope; picture-in-picture"
-        allowFullScreen
-        className="w-full h-full"
-      />
-    ) : (
-      <video src={s.src} controls playsInline preload="metadata" className={`w-full h-full ${big ? 'object-contain' : 'object-contain bg-black'}`} />
-    );
+  const video = (s: Extract<Slide, { kind: 'video' }>, _big = false) => <VideoEmbed url={s.src} title={`${alt} video`} />;
 
   const step = (dir: 1 | -1) => setIndex((i) => (i + dir + slides.length) % slides.length);
 
@@ -125,6 +141,8 @@ export const ProductGallery: React.FC<{
                 <>
                   {s.youTube ? (
                     <img src={`https://i.ytimg.com/vi/${s.youTube}/mqdefault.jpg`} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  ) : vimeoId(s.src) ? (
+                    <span className="block w-full h-full bg-[#1AB7EA]" />
                   ) : (
                     <video src={`${s.src}#t=0.5`} muted preload="metadata" className="w-full h-full object-cover" />
                   )}

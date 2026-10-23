@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Search, Share2, Store } from 'lucide-react';
 import { ProductImage } from './ProductImage';
 import { SellerAvatar } from './SellerAvatar';
+import { FollowStoreButton } from './FollowStoreButton';
+import { ReviewMediaStrip } from './ReviewMedia';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
 import { fetchShop, ProductRatingBadge, SellerRatingBadge, SellerScoreCards, Stars, type ShopInfo } from './SellerRating';
@@ -10,7 +12,7 @@ import { fetchShop, ProductRatingBadge, SellerRatingBadge, SellerScoreCards, Sta
 // live product it sells, with search, category filter and sorting. Products come from the catalog
 // the store already has in memory; only the shop details are fetched (cached on the server).
 
-type Feedback = { id: string; rating: number; comment: string; customerName: string; productNames: string[]; createdAt: string; sellerReply?: string };
+type Feedback = { id: string; rating: number; comment: string; customerName: string; productNames: string[]; createdAt: string; sellerReply?: string; media?: string[] };
 type Sort = 'NEWEST' | 'PRICE_ASC' | 'PRICE_DESC' | 'NAME';
 const PAGE = 24;
 
@@ -124,13 +126,16 @@ export const SellerShopPage: React.FC<{
           <SellerRatingBadge shop={shop} className="mt-1" />
           <SellerScoreCards shop={shop} className="mt-3 max-w-md" />
         </div>
-        <button
-          type="button"
-          onClick={share}
-          className="px-4 py-2 border border-black/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer hover:border-black"
-        >
-          <Share2 className="w-4 h-4" /> Share shop
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {shop && <FollowStoreButton sellerId={sellerId} shopName={name} followers={shop.followers} showToast={showToast} />}
+          <button
+            type="button"
+            onClick={share}
+            className="px-4 py-2 border border-black/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer hover:border-black"
+          >
+            <Share2 className="w-4 h-4" /> Share shop
+          </button>
+        </div>
       </div>
 
       {missing && shopProducts.length === 0 ? (
@@ -270,6 +275,7 @@ export const SellerShopPage: React.FC<{
                         </span>
                       </div>
                       {f.comment && <p className="text-[#141413] whitespace-pre-line">{f.comment}</p>}
+                      <ReviewMediaStrip media={f.media} />
                       {f.productNames?.length > 0 && <p className="text-[#575653] truncate">Bought: {f.productNames.join(', ')}</p>}
                       {f.sellerReply && (
                         <p className="pl-3 border-l-2 border-[#0E7A43] text-[#454441]">

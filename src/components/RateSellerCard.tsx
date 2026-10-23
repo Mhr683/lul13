@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Star } from 'lucide-react';
+import { Camera, Star } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { forgetShopInfo } from './SellerRating';
+import { isVideoUrl } from './ReviewMedia';
 
 // Shown on a delivered order: the buyer rates the seller (1-5 stars) and leaves a comment, once.
 // The review appears on the seller's shop page, in Seller Center and in the admin's seller report.
@@ -19,6 +20,41 @@ export const RateSellerCard: React.FC<{
   const [comment, setComment] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  // Photos / short videos of the product (up to 4), uploaded one by one before the review is sent
+  const [media, setMedia] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  const addMedia = async (files: FileList | null) => {
+    const list = Array.from(files || []).slice(0, 4 - media.length);
+    if (!list.length) return;
+    setUploading(true);
+    setError('');
+    try {
+      const authToken = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => '') : '';
+      for (const f of list) {
+        const isVideo = f.type.startsWith('video/');
+        if (!isVideo && f.size > 8 * 1024 * 1024) throw new Error(`${f.name}: photos can be at most 8 MB.`);
+        if (isVideo && f.size > 20 * 1024 * 1024) throw new Error(`${f.name}: videos can be at most 20 MB (about 30 seconds).`);
+        const res = await fetch('/api/feedback/upload', {
+          method: 'POST',
+          headers: {
+            'X-Order-Number': orderNumber,
+            'X-Order-Token': token,
+            'Content-Type': f.type || 'application/octet-stream',
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          },
+          body: f,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Could not upload the file.');
+        setMedia((m) => [...m, data.url].slice(0, 4));
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   useEffect(() => {
     let live = true;
@@ -60,7 +96,7 @@ export const RateSellerCard: React.FC<{
       const res = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-        body: JSON.stringify({ orderNumber, token, rating, comment }),
+        body: JSON.stringify({ orderNumber, token, rating, comment, media }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Could not save your review.');
@@ -112,10 +148,49 @@ export const RateSellerCard: React.FC<{
         placeholder="Tell others about the product, packing and delivery (optional)"
         className="w-full px-3 py-2 border border-black/20 focus:border-black focus:outline-none"
       />
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {media.map((u) => (
+            <div key={u} className="relative w-16 h-16 border border-black/15 bg-[#F7F6F2] overflow-hidden">
+              {isVideoUrl(u) ? (
+                <video src={`${u}#t=0.5`} muted preload="metadata" className="w-full h-full object-cover" />
+              ) : (
+                <img src={u} alt="" className="w-full h-full object-cover" />
+              )}
+              <button
+                type="button"
+                onClick={() => setMedia((m) => m.filter((x) => x !== u))}
+                aria-label="Remove"
+                className="absolute top-0 right-0 w-5 h-5 bg-black/70 text-white text-[11px] leading-5 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {media.length < 4 && (
+            <label className="w-16 h-16 border border-dashed border-black/30 flex flex-col items-center justify-center text-[10px] text-[#575653] cursor-pointer hover:border-black">
+              <Camera className="w-4 h-4" />
+              {uploading ? '...' : 'Add'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+                multiple
+                className="hidden"
+                disabled={uploading}
+                onChange={(e) => {
+                  addMedia(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          )}
+        </div>
+        <p className="text-[11px] text-[#575653]">Add up to 4 photos or a short video of the product (optional). They are shown with your review.</p>
+      </div>
       {error && <p className="text-rose-700 font-semibold">{error}</p>}
       <button
         type="button"
-        disabled={sending || !rating}
+        disabled={sending || uploading || !rating}
         onClick={send}
         className="px-5 py-2 bg-[#0E7A43] text-white font-bold disabled:opacity-50 cursor-pointer"
       >

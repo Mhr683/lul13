@@ -61,6 +61,7 @@ import { ProductRatingBadge, SellerRatingBadge, SellerScoreCards, useShopInfo, r
 import { ProductGallery } from './ProductGallery';
 import { ProductInfoTabs } from './ProductInfoTabs';
 import { BackInStockForm, BoughtTogether, RecentlyViewedStrip, useRecentlyViewed } from './ProductExtras';
+import { FollowStoreButton } from './FollowStoreButton';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -2321,6 +2322,23 @@ export const StorefrontView: React.FC = () => {
                         Visit store →
                       </button>
                     )}
+                    {selectedProduct.sellerId && (
+                      <FollowStoreButton
+                        sellerId={selectedProduct.sellerId}
+                        shopName={selectedProduct.sellerName || 'this shop'}
+                        size="sm"
+                        showToast={showToast}
+                      />
+                    )}
+                  </div>
+                  {/* Unique product code (and barcode when the seller added one) */}
+                  <div className="text-[11px] text-[#575653] font-mono">
+                    Product code: <span className="text-[#141413] font-semibold select-all">{selectedProduct.sku}</span>
+                    {selectedProduct.info?.barcode && (
+                      <>
+                        {' '}· Barcode: <span className="text-[#141413] select-all">{selectedProduct.info.barcode}</span>
+                      </>
+                    )}
                   </div>
                   {selectedProduct.sellerId && <PdpSellerRating sellerId={selectedProduct.sellerId} />}
                   <div className="flex flex-wrap items-center gap-3 text-xs text-[#575653]">
@@ -2468,10 +2486,18 @@ export const StorefrontView: React.FC = () => {
               description={selectedProduct.description}
               shortDescription={selectedProduct.shortDescription}
               details={[
-                { label: 'SKU', value: selectedProduct.sku },
-                { label: 'Dimensions', value: selectedProduct.dimensions || 'Standard' },
-                { label: 'Weight', value: `${selectedProduct.weightKg || 0.85} kg` },
-              ]}
+                { label: 'Product code (SKU)', value: selectedProduct.sku },
+                { label: 'Barcode / EAN', value: selectedProduct.info?.barcode },
+                { label: 'Brand', value: selectedProduct.brand },
+                { label: 'Model number', value: selectedProduct.info?.modelNumber },
+                { label: 'Material', value: selectedProduct.info?.material },
+                { label: 'Dimensions', value: selectedProduct.dimensions },
+                { label: 'Weight', value: selectedProduct.weightKg ? `${selectedProduct.weightKg} kg` : '' },
+                { label: 'Country of origin', value: selectedProduct.info?.countryOfOrigin },
+                { label: 'Warranty', value: selectedProduct.info?.warranty },
+              ].filter((d) => d.value)}
+              info={selectedProduct.info}
+              productName={selectedProduct.name}
               legacyReviews={reviews.filter((r) => r.productId === selectedProduct.id && r.status === 'APPROVED') as any}
             />
 

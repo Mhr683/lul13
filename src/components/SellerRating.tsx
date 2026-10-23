@@ -10,6 +10,8 @@ export type ShopInfo = {
   logoUrl: string;
   city: string;
   joinedAt: string;
+  /** Customers following the shop (they get an email about new products) */
+  followers?: number;
   ratingAvg: number;
   ratingCount: number;
   positivePercent: number;

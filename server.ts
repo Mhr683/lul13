@@ -35,6 +35,8 @@ import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
 import { registerProductExtrasRoutes } from './server/productExtras';
+import { cleanProductInfo } from './src/services/productInfo';
+import { registerFollowRoutes } from './server/follows';
 import { registerPolicyRoutes } from './server/policy';
 import { registerSellerAiRoutes } from './server/sellerAi';
 import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
@@ -430,6 +432,8 @@ app.set('trust proxy', 1);
 // Seller picture / video uploads arrive as the raw file (checked again in server/marketplace.ts)
 app.use('/api/seller/media/upload', express.raw({ type: () => true, limit: '52mb' }));
 app.use('/api/returns/upload', express.raw({ type: () => true, limit: '9mb' }));
+// Review photos (8 MB) and short videos (20 MB), checked again in server/feedback.ts
+app.use('/api/feedback/upload', express.raw({ type: () => true, limit: '21mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // When the free Firestore database has used up its daily reads, say so plainly instead of the
@@ -1376,6 +1380,12 @@ app.post('/api/catalog/products/save', requireAdmin, async (req, res) => {
     const product = req.body;
     if (!product || !product.id) {
       return res.status(400).json({ error: 'Valid product with id is required' });
+    }
+    // Specifications / how to use / care / manual are cleaned the same way as a seller's
+    if (product.info !== undefined) {
+      const cleaned = cleanProductInfo(product.info);
+      if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
+      product.info = cleaned.info;
     }
 
     const { publicData, privateData } = splitProductPrivate(product);
@@ -3651,6 +3661,7 @@ registerFeedbackRoutes(app, {
   postNotice: sellerInbox.postNotice,
   limitPerIp,
   callerUid: callerUidOf,
+  storeMedia,
 });
 
 // Product page extras: back-in-stock alerts, questions & answers, bought together
@@ -3665,6 +3676,16 @@ const productExtras = registerProductExtrasRoutes(app, {
   setRestockHook: (fn) => catalogStore.setRestockHook(fn),
   HOUSE_SELLER_ID,
 });
+
+// "Follow store": followers get one email when a shop adds new products (see server/follows.ts)
+const follows = registerFollowRoutes(app, {
+  adminDb,
+  limitPerIp,
+  callerUid: callerUidOf,
+  getSettings: () => catalogStore.settings(),
+  forgetShop: marketplace.forgetShop,
+});
+marketplace.setProductsLiveHook((sellerId, shopName, products) => follows.productsLive(sellerId, shopName, products));
 
 // Traffic, sales and conversion analytics (one document per day; see server/analytics.ts)
 analytics.register(app);

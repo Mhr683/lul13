@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { ratingSummary } from './feedback';
 import { POLICY, escrowReleased, dispatchClockStart, needsBrandProof, isTestOrder, isSellerFaultCancel, MIN_ORDERS_FOR_RATES } from './policyRules';
 import { buildCoach } from './coach';
+import { cleanProductInfo, type ProductInfo } from '../src/services/productInfo';
 
 // Marketplace: seller applications, the Seller Center API (own shop, products, orders, earnings)
 // and the admin side (approve/suspend sellers, commission, payouts).
@@ -484,6 +485,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     if (primaryImage && !mediaOk(primaryImage)) return { error: 'The image link must start with https://' };
     if (images && images.some((u) => !mediaOk(u))) return { error: 'Every picture link must start with https://' };
     if (videoUrl && !mediaOk(videoUrl)) return { error: 'The video link must start with https://' };
+    // Specifications / how to use / care / manual: only when the form sends them (a CSV row keeps them)
+    let info: ProductInfo | undefined;
+    if (b.info !== undefined) {
+      const cleaned = cleanProductInfo(b.info);
+      if ('error' in cleaned) return { error: cleaned.error };
+      info = cleaned.info;
+    }
     return {
       fields: {
         name,
@@ -495,9 +503,23 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         primaryImage,
         images,
         videoUrl,
+        info,
         sellerSku: str(b.sku, 60).replace(/[^a-zA-Z0-9_.-]/g, '-'),
       },
     };
+  };
+
+  // A product counts as new for followers when it goes live for the first time (new, or a draft published)
+  let productsLiveHook: ((sellerId: string, shopName: string, products: any[]) => void) | null = null;
+  const wentLive = (product: any, existing: any) => product.status === 'ACTIVE' && (!existing || existing.status === 'DRAFT');
+  const announceLive = (uid: string, seller: any, products: any[]) => {
+    if (products.length && productsLiveHook) {
+      try {
+        productsLiveHook(uid, seller.shopName || '', products);
+      } catch (err: any) {
+        console.warn('[followers] announce failed:', err?.message);
+      }
+    }
   };
 
   const skuPrefix = (uid: string) => `S${uid.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, 'X')}`;
@@ -554,7 +576,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       rating: existing?.rating ?? 0,
       reviewCount: existing?.reviewCount ?? 0,
       weightKg: Math.max(0.05, Number(b.weightKg) || existing?.weightKg || 0.5),
-      dimensions: existing?.dimensions || '20cm x 15cm x 10cm',
+      dimensions: str(b.dimensions, 100) || existing?.dimensions || '20cm x 15cm x 10cm',
+      ...(f.info !== undefined ? { info: f.info } : existing?.info ? { info: existing.info } : {}),
       sellerId: uid,
       sellerName: seller.shopName,
       createdAt: existing?.createdAt || now,
@@ -606,6 +629,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       let created = 0;
       let updated = 0;
       let heldForProof = 0;
+      const live: any[] = [];
       let batch = adminDb.batch();
       let inBatch = 0;
       for (let i = 0; i < rows.length; i++) {
@@ -624,6 +648,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           heldForProof++;
         }
         batch.set(adminDb.collection('products').doc(id), product);
+        if (wentLive(product, match?.data || null)) live.push(product);
         const supplier = readSupplier(rows[i] || {});
         if (supplier) {
           batch.set(adminDb.collection('product_private').doc(id), supplierDoc(id, supplier), { merge: true });
@@ -640,6 +665,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       if (inBatch) await batch.commit();
       forgetCoach(uid);
+      announceLive(uid, seller, live);
       res.json({ success: true, created, updated, errors, heldForProof });
     } catch (err) {
       console.error('[seller/products bulk] failed:', err);
@@ -687,6 +713,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       await batch.commit();
       forgetCoach(uid);
+      if (wentLive(product, existing)) announceLive(uid, seller, [product]);
       res.json({ success: true, product: listFields(product), heldForProof });
     } catch (err) {
       console.error('[seller/products save] failed:', err);
@@ -1518,6 +1545,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
                   logoUrl: s.logoUrl || '',
                   city: s.city || '',
                   joinedAt: s.createdAt || '',
+                  followers: Math.max(0, Number(s.followers) || 0),
                   ...ratingSummary(s),
                   metrics: metrics
                     ? { orders: metrics.orders, onTimeDelivery: metrics.onTimeDelivery, cancellation: metrics.cancellation, qualityScore: metrics.qualityScore }
@@ -1744,6 +1772,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     },
     setCoachViewedHook: (fn: (uid: string, seller: any) => void) => {
       coachViewedHook = fn;
+    },
+    /** Told about products that just went live in a shop (emails the shop's followers) */
+    setProductsLiveHook: (fn: (sellerId: string, shopName: string, products: any[]) => void) => {
+      productsLiveHook = fn;
     },
     forgetShop: (sellerId: string) => shopCache.delete(sellerId),
   };

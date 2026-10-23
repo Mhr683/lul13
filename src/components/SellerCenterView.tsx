@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { SellerAiAssistant } from './SellerAiAssistant';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
+import { ProductInfoEditor } from './ProductInfoEditor';
+import type { ProductInfo } from '../services/productInfo';
 import { ShopCoachReport, type Coach } from './ShopCoachReport';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
@@ -439,6 +441,12 @@ export const SellerCenterView: React.FC = () => {
           <h1 className="text-2xl font-display truncate">{seller.shopName}</h1>
           <p className="text-xs text-[#575653]">
             Commission: {commissionPercent ?? 0}% per sale · {seller.city} ·{' '}
+            {Number((seller as any).followers) > 0 && (
+              <>
+                <strong className="text-[#141413]">{Number((seller as any).followers).toLocaleString('en-PK')}</strong>{' '}
+                {Number((seller as any).followers) === 1 ? 'follower' : 'followers'} (emailed when you add products) ·{' '}
+              </>
+            )}
             <a href={`/#shop/${encodeURIComponent(seller.id || uid)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#0E7A43] underline">
               My shop page
             </a>{' '}
@@ -1776,6 +1784,8 @@ const emptyProduct = {
   shortDescription: '',
   description: '',
   weightKg: '0.5',
+  dimensions: '',
+  info: {} as ProductInfo,
   status: 'ACTIVE' as 'ACTIVE' | 'DRAFT',
   supplierName: '',
   supplierCostPrice: '',
@@ -1875,6 +1885,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
         shortDescription: full.shortDescription || '',
         description: full.description || '',
         weightKg: String(full.weightKg || 0.5),
+        dimensions: full.dimensions || '',
+        info: full.info || {},
         status: full.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
       });
     } catch (err: any) {
@@ -2106,6 +2118,14 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
               <option value="DRAFT">Draft (hidden)</option>
             </select>
           </div>
+          <ProductInfoEditor
+            info={editing.info}
+            dimensions={editing.dimensions}
+            onChange={(info) => setEditing((p) => (p ? { ...p, info } : p))}
+            onDimensions={(dimensions) => setEditing((p) => (p ? { ...p, dimensions } : p))}
+            upload={uploadMedia}
+            onError={showToast}
+          />
           <div className="sm:col-span-2 pt-2 border-t border-black/10">
             <div className="text-xs font-bold text-[#141413]">Supplier (dropshipping, optional)</div>
             <p className="text-[11px] text-[#575653]">Only you and the store team can see this. It is shown on your orders so you can forward them.</p>

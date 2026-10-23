@@ -127,6 +127,8 @@ export interface Product {
   dislikes?: number;
   weightKg?: number;
   dimensions?: string;
+  /** Specifications, how to use, care and user manual (src/services/productInfo.ts) */
+  info?: import('../services/productInfo').ProductInfo;
   createdAt: string;
   updatedAt?: string;
 }

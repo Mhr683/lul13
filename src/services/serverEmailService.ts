@@ -13,7 +13,8 @@ export interface EmailLogEntry {
     | 'RECEIPT_RESEND'
     | 'SUPPORT_REPLY'
     | 'BACK_IN_STOCK'
-    | 'QUESTION_ANSWERED';
+    | 'QUESTION_ANSWERED'
+    | 'FOLLOWED_SHOP_NEW_PRODUCTS';
   recipient: string;
   sender: string;
   subject: string;
@@ -414,6 +415,59 @@ export async function sendBackInStockEmail(
   });
   const text = `Assalam o Alaikum,\n\n${params.productName} is back in stock${priceLine ? ` (${priceLine})` : ''}.\n${params.productUrl}\n\n${storeName}`;
   return sendViaResend(adminDb, { to: params.to, subject, html, text, type: 'BACK_IN_STOCK', metadata: { productName: params.productName } });
+}
+
+// ============================================================================
+// NEW PRODUCTS IN A FOLLOWED SHOP
+// ============================================================================
+export async function sendFollowedShopEmail(
+  adminDb: FirebaseFirestore.Firestore | null | undefined,
+  params: {
+    to: string;
+    shopName: string;
+    shopUrl: string;
+    unsubscribeUrl: string;
+    products: { name: string; price: number; url: string; image?: string }[];
+    storeName?: string;
+    supportEmail?: string;
+  }
+): Promise<SendEmailResult> {
+  const storeName = params.storeName || 'Store';
+  const n = params.products.length;
+  const subject = `${params.shopName}: ${n === 1 ? params.products[0].name : `${n} new products`} | ${storeName}`;
+  const rows = params.products
+    .slice(0, 6)
+    .map(
+      (p) => `
+      <tr>
+        <td width="72" style="padding: 8px 0;">${
+          p.image && /^https:\/\//i.test(p.image)
+            ? `<img src="${escapeHtml(p.image)}" width="64" height="64" alt="" style="display:block; width:64px; height:64px; object-fit:cover; border:1px solid #E5E7EB;">`
+            : ''
+        }</td>
+        <td style="padding: 8px 0 8px 10px; font-size: 13px;">
+          <a href="${escapeHtml(p.url)}" style="color: #111827; font-weight: 600; text-decoration: none;">${escapeHtml(p.name)}</a>
+          <span style="display:block; color:#374151; font-family: monospace;">PKR ${Number(p.price || 0).toLocaleString('en-PK')}</span>
+        </td>
+      </tr>`
+    )
+    .join('');
+  const html = wrapEmailHtml({
+    storeName,
+    bannerTitle: `New in ${params.shopName}`,
+    bannerSubtitle: n === 1 ? 'A new product from a shop you follow' : `${n} new products from a shop you follow`,
+    bannerColor: 'blue',
+    supportEmail: params.supportEmail,
+    contentHtml: `
+      <table width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+      <p style="margin: 18px 0 0 0;"><a href="${escapeHtml(params.shopUrl)}" style="display: inline-block; padding: 11px 20px; background-color: #111827; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 13px; border-radius: 4px;">Visit ${escapeHtml(params.shopName)}</a></p>
+      <p style="margin: 18px 0 0 0; font-size: 11px; color: #6B7280;">You follow ${escapeHtml(params.shopName)}. <a href="${escapeHtml(params.unsubscribeUrl)}" style="color: #6B7280;">Unfollow</a></p>`,
+  });
+  const text = `New in ${params.shopName}:\n${params.products
+    .slice(0, 6)
+    .map((p) => `- ${p.name} (PKR ${Number(p.price || 0).toLocaleString('en-PK')}) ${p.url}`)
+    .join('\n')}\n\n${params.shopUrl}\nUnfollow: ${params.unsubscribeUrl}`;
+  return sendViaResend(adminDb, { to: params.to, subject, html, text, type: 'FOLLOWED_SHOP_NEW_PRODUCTS', metadata: { shopName: params.shopName, count: n } });
 }
 
 // ============================================================================
