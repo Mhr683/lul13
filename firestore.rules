@@ -87,8 +87,12 @@ service cloud.firestore {
           'seoKeywords', 'primaryImage', 'rating', 'reviewCount', 'weightKg',
           'dimensions', 'createdAt', 'updatedAt', 'sellerId', 'sellerName', 'suspendedHidden',
           'adminHidden', 'adminHiddenReason', 'likes', 'dislikes', 'images', 'videoUrl', 'delisted', 'policyLock',
-          'flashPrice', 'flashStartsAt', 'flashEndsAt', 'info'
+          'flashPrice', 'flashStartsAt', 'flashEndsAt', 'info', 'vendorId', 'shipsFromCountry', 'shipping'
         ]) &&
+        // Seller's vendor ID, warehouse country and shipping settings (see src/services/productShipping.ts)
+        (!('vendorId' in data) || (data.vendorId is string && data.vendorId.size() <= 20)) &&
+        (!('shipsFromCountry' in data) || (data.shipsFromCountry is string && data.shipsFromCountry.matches('^[A-Z]{2}$'))) &&
+        (!('shipping' in data) || (data.shipping is map && data.shipping.size() <= 5)) &&
         // Specifications / how to use / care / manual (cleaned by the server; see src/services/productInfo.ts)
         (!('info' in data) || (data.info is map && data.info.size() <= 12)) &&
         (!('flashPrice' in data) || (data.flashPrice is number && data.flashPrice >= 0)) &&

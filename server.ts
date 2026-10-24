@@ -29,6 +29,7 @@ import { canExecuteAITool } from './src/ai/permissions';
 import { validateAIToolArgs } from './src/validation/validators';
 import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus, OrderShipment } from './src/types/store';
 import { ShippingCalculationService, generateCourierTrackingUrl } from './src/services/shippingService';
+import { shipsToCountry } from './src/services/productShipping';
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
 import { createCatalogStore } from './server/catalogStore';
@@ -2785,6 +2786,14 @@ app.post('/api/orders/create', async (req, res) => {
           // Older products may still carry supplier fields on the public doc until migrated
           const privateData = { ...pData, ...(privateDoc.exists ? privateDoc.data() : {}) };
           productDocs.push({ ref: prodRef, data: pData, privateData, reqQty });
+        }
+        // Sellers choose where each product ships; one that does not ship to this country cannot be ordered
+        const shipDest = isDomestic ? 'PK' : String(destCountryIso || 'PK').toUpperCase();
+        const notShipped = productDocs.filter((p) => !shipsToCountry(p.data, shipDest));
+        if (notShipped.length) {
+          throw new Error(
+            `${notShipped.map((p) => `"${p.data.name}"`).join(', ')} ${notShipped.length === 1 ? 'does' : 'do'} not ship to your country. Please remove ${notShipped.length === 1 ? 'it' : 'them'} from your cart.`
+          );
         }
 
         // Step B: Read store settings

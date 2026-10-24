@@ -11,12 +11,15 @@ import { ALL_WORLD_COUNTRIES } from './addressAndPaymentVerification';
 const RATES_KEY = 'store_fx_rates_v1';
 const CURRENCY_KEY = 'store_currency_v1';
 const GUESS_KEY = 'store_currency_guess_v1';
+const COUNTRY_KEY = 'store_country_v1';
 const RATES_TTL = 6 * 60 * 60 * 1000;
 
 type Rates = { rates: Record<string, number>; updated_at: string; source: string; at: number };
 
 let rates: Rates | null = null;
 let currency = 'PKR';
+/** Shopper's country (ISO code), '' until known; the storefront shows what ships there first */
+let country = '';
 let started = false;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
@@ -63,15 +66,25 @@ function start() {
       })
       .catch(() => {});
   }
-  // First visit without a choice: guess from the shopper's country (one lookup per browser)
-  if (!chosen) {
+  // The shopper's country: a link (?country=AE), their delivery country at checkout, or the IP guess
+  const countryFromLink = new URLSearchParams(window.location.search).get('country');
+  if (countryFromLink && /^[A-Za-z]{2}$/.test(countryFromLink)) write(COUNTRY_KEY, countryFromLink.toUpperCase());
+  country = read<string>(COUNTRY_KEY) || '';
+  // First visit: guess the currency and the country from the network (one lookup per browser)
+  if (!chosen || !country) {
     fetch('/api/maps/ip-location')
       .then((r) => r.json())
       .then((d) => {
-        if (read<string>(CURRENCY_KEY) || d?.source !== 'NETWORK_IP' || !d?.countryIso) return;
-        const guess = currencyOfCountry(d.countryIso);
-        write(GUESS_KEY, guess);
-        currency = guess;
+        if (d?.source !== 'NETWORK_IP' || !/^[A-Z]{2}$/i.test(d?.countryIso || '')) return;
+        if (!read<string>(COUNTRY_KEY)) {
+          country = String(d.countryIso).toUpperCase();
+          write(COUNTRY_KEY, country);
+        }
+        if (!read<string>(CURRENCY_KEY) && !read<string>(GUESS_KEY)) {
+          const guess = currencyOfCountry(d.countryIso);
+          write(GUESS_KEY, guess);
+          currency = guess;
+        }
         emit();
       })
       .catch(() => {});
@@ -85,6 +98,29 @@ export function setDisplayCurrency(code: string) {
   currency = String(code || 'PKR').toUpperCase();
   write(CURRENCY_KEY, currency);
   emit();
+}
+
+/** The shopper picked a delivery country (kept on this device) */
+export function setVisitorCountry(iso: string) {
+  const next = String(iso || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(next) || next === country) return;
+  country = next;
+  write(COUNTRY_KEY, country);
+  emit();
+}
+
+/** The shopper's country ('' until known); re-renders when it changes */
+export function useVisitorCountry() {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    start();
+    const l = () => setTick((n) => n + 1);
+    listeners.add(l);
+    return () => {
+      listeners.delete(l);
+    };
+  }, []);
+  return country;
 }
 
 /** PKR amount in another currency (null when no rate is known) */

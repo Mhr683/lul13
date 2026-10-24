@@ -6,6 +6,7 @@ import {
   ShippingZoneConfig,
   StoreSettings,
 } from '../types/store';
+import { originOf, sellerFeeFor, shipsToCountry } from './productShipping';
 
 export interface ShippingCalculationRequest {
   destinationCountryIso: string;
@@ -41,6 +42,8 @@ export interface ShippingCalculationResponse {
   requiresManualQuote: boolean;
   quoteAllowed: boolean;
   explanation: string;
+  /** Names of cart products whose seller does not ship to this country */
+  unshippableItems?: string[];
 }
 
 /**
@@ -139,6 +142,85 @@ export class ShippingCalculationService {
    * Calculate comprehensive shipment metrics
    */
   static calculate(req: ShippingCalculationRequest): ShippingCalculationResponse {
+    const store = this.calculateStoreRate(req);
+    const destIso = store.destinationCountryIso;
+    const products = (req.items || [])
+      .map((item) => (req.catalogProducts || []).find((p) => p.id === item.productId))
+      .filter(Boolean) as Product[];
+    const unshippable = products.filter((p) => !shipsToCountry(p, destIso)).map((p) => p.name);
+    const sellerFees = products.map((p) => sellerFeeFor(p, destIso));
+    const result: ShippingCalculationResponse = unshippable.length ? { ...store, unshippableItems: unshippable } : store;
+    if (!sellerFees.some((f) => f !== undefined)) return result;
+
+    // The seller's own shipping fee: one parcel per seller, so the highest product fee is charged once.
+    // Products without a fee of their own still need the store's rate for the same parcel.
+    const ownFee = Math.max(...(sellerFees.filter((f) => f !== undefined) as number[]));
+    const needsStoreRate = sellerFees.some((f) => f === undefined);
+    if (needsStoreRate && store.requiresManualQuote) return result;
+    const free = Boolean(req.hasFreeShippingCoupon);
+    const finalShippingFee = free ? 0 : Math.max(ownFee, needsStoreRate ? store.finalShippingFee : 0);
+    const days = Math.max(0, ...products.map((p) => p.shipping?.handlingDays || 0));
+    return {
+      ...result,
+      zoneName: destIso === originOf(products[0]) ? `Local delivery in ${destIso} (seller rate)` : `${store.zoneName} (seller rate)`,
+      baseFee: finalShippingFee,
+      additionalWeightFee: 0,
+      freeShippingApplied: free,
+      finalShippingFee,
+      requiresManualQuote: false,
+      quoteAllowed: false,
+      estimatedDelivery: days ? `Ships within ${days} day${days === 1 ? '' : 's'}, then ${store.estimatedDelivery}` : store.estimatedDelivery,
+      explanation: free
+        ? 'Free shipping coupon applied.'
+        : `Seller's shipping rate for this parcel: PKR ${finalShippingFee.toLocaleString()}.`,
+    };
+  }
+
+  /**
+   * Shipping for a whole cart: one parcel (and one fee) per seller, the way orders/create splits
+   * the order, so the checkout total matches what the server charges.
+   */
+  static calculateBySeller(req: ShippingCalculationRequest): ShippingCalculationResponse {
+    const catalog = req.catalogProducts || [];
+    const sellerOf = (productId: string) => catalog.find((p) => p.id === productId)?.sellerId || 'house';
+    const groups = new Map<string, CartItem[]>();
+    for (const item of req.items || []) {
+      const sid = sellerOf(item.productId);
+      groups.set(sid, [...(groups.get(sid) || []), item]);
+    }
+    if (groups.size <= 1) return this.calculate(req);
+    const subtotal = (req.items || []).reduce((s, it) => s + (catalog.find((p) => p.id === it.productId)?.price ?? it.price) * it.quantity, 0);
+    const parts = [...groups.values()].map((groupItems) => {
+      const groupSubtotal = groupItems.reduce((s, it) => s + (catalog.find((p) => p.id === it.productId)?.price ?? it.price) * it.quantity, 0);
+      const share = subtotal > 0 ? groupSubtotal / subtotal : 0;
+      return this.calculate({
+        ...req,
+        items: groupItems,
+        merchandiseSubtotalPkr: groupSubtotal,
+        discountPkr: Number(((req.discountPkr || 0) * share).toFixed(2)),
+      });
+    });
+    const sum = (k: 'actualWeightKg' | 'volumetricWeightKg' | 'billableWeightKg' | 'baseFee' | 'additionalWeightFee' | 'finalShippingFee') =>
+      Number(parts.reduce((s, p) => s + p[k], 0).toFixed(2));
+    const unshippable = parts.flatMap((p) => p.unshippableItems || []);
+    return {
+      ...parts[0],
+      actualWeightKg: sum('actualWeightKg'),
+      volumetricWeightKg: sum('volumetricWeightKg'),
+      billableWeightKg: sum('billableWeightKg'),
+      baseFee: sum('baseFee'),
+      additionalWeightFee: sum('additionalWeightFee'),
+      finalShippingFee: sum('finalShippingFee'),
+      freeShippingApplied: parts.every((p) => p.freeShippingApplied),
+      requiresManualQuote: parts.some((p) => p.requiresManualQuote),
+      quoteAllowed: parts.some((p) => p.quoteAllowed),
+      ...(unshippable.length ? { unshippableItems: unshippable } : {}),
+      explanation: `${parts.length} parcels (one per seller): ${parts.map((p) => `PKR ${p.finalShippingFee.toLocaleString()}`).join(' + ')}.`,
+    };
+  }
+
+  /** The store's own rates (Pakistan slabs, international zones or a manual quote) */
+  static calculateStoreRate(req: ShippingCalculationRequest): ShippingCalculationResponse {
     const {
       destinationCountryIso,
       items = [],

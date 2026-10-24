@@ -66,6 +66,9 @@ import { NO_BRAND_LABEL } from '../services/brandRules';
 import { CardShareButton, ShareProductButton } from './ShareProductButton';
 import { callingCodeOf, postalRuleFor } from '../services/intlAddress';
 import { CurrencyNote, CurrencySelector, LocalPrice } from './CurrencyDisplay';
+import { setVisitorCountry, useVisitorCountry } from '../services/currency';
+import { routingScore } from '../services/productShipping';
+import { ShipsBadge } from './ShipsBadge';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -349,6 +352,16 @@ export const StorefrontView: React.FC = () => {
   const [customerName, setCustomerName] = useState(userProfile?.name || '');
   const [customerEmail, setCustomerEmail] = useState(userProfile?.email || '');
   const [countryIso, setCountryIso] = useState('PK');
+  // Shopper's country for smart routing (link / IP guess); a delivery country chosen at checkout replaces it
+  const visitorCountry = useVisitorCountry();
+  const countryTouched = useRef(false);
+  useEffect(() => {
+    if (!countryTouched.current) {
+      countryTouched.current = true;
+      return;
+    }
+    setVisitorCountry(countryIso);
+  }, [countryIso]);
   const [country, setCountry] = useState('Pakistan');
   const [stateIso, setStateIso] = useState('PB');
   const [stateProvince, setStateProvince] = useState('Punjab');
@@ -832,6 +845,12 @@ export const StorefrontView: React.FC = () => {
         return true;
       })
       .sort((a, b) => {
+        // Smart routing: whatever sort is chosen, products that cannot be delivered to the
+        // shopper's country go last; the default order also puts their local warehouses first
+        const ra = routingScore(a, visitorCountry);
+        const rb = routingScore(b, visitorCountry);
+        if ((ra === 0) !== (rb === 0)) return ra === 0 ? 1 : -1;
+        if (sortBy !== 'PRICE_ASC' && sortBy !== 'PRICE_DESC' && sortBy !== 'RATING' && sortBy !== 'NEWEST' && ra !== rb) return rb - ra;
         if (sortBy === 'PRICE_ASC') return a.price - b.price;
         if (sortBy === 'PRICE_DESC') return b.price - a.price;
         // Fair "Top rated": real averages weighted by how many reviews they have (see rankScore)
@@ -841,7 +860,7 @@ export const StorefrontView: React.FC = () => {
         if (sortBy === 'NEWEST') return b.createdAt.localeCompare(a.createdAt);
         return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
       });
-  }, [products, activeCategory, activeSubcategory, activeCollection, activeBrand, priceCeiling, inStockOnly, searchQuery, sortBy]);
+  }, [products, activeCategory, activeSubcategory, activeCollection, activeBrand, priceCeiling, inStockOnly, searchQuery, sortBy, visitorCountry]);
 
   // The catalog grid shows products in steps so phones never render thousands of cards at once
   const CATALOG_STEP = 24;
@@ -916,7 +935,8 @@ export const StorefrontView: React.FC = () => {
 
   // Live Country & Courier Shipping Calculation
   const liveShippingCalc = useMemo<ShippingCalculationResponse>(() => {
-    return ShippingCalculationService.calculate({
+    // One parcel per seller, priced the way the server prices the order
+    return ShippingCalculationService.calculateBySeller({
       destinationCountryIso: countryIso,
       items: cart,
       catalogProducts: products,
@@ -1027,6 +1047,13 @@ export const StorefrontView: React.FC = () => {
 
     if (!paymentVerification.valid) {
       setCheckoutErrorBanner(paymentVerification.message);
+      return;
+    }
+
+    if (liveShippingCalc.unshippableItems?.length) {
+      setCheckoutErrorBanner(
+        `${liveShippingCalc.unshippableItems.join(', ')}: the seller does not ship to this country. Remove it from your cart or choose another delivery country.`
+      );
       return;
     }
 
@@ -1861,6 +1888,7 @@ export const StorefrontView: React.FC = () => {
                         </h3>
 
                         <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} className="mt-1" />
+                        <ShipsBadge product={product} className="mt-1 ml-1" />
 
                         <p className="text-xs text-black font-medium mt-1.5 line-clamp-2 leading-relaxed">
                           {product.shortDescription}
@@ -2266,6 +2294,7 @@ export const StorefrontView: React.FC = () => {
                               {product.name}
                             </h3>
                             <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} className="mt-1" />
+                            <ShipsBadge product={product} className="mt-1 ml-1" />
                             <p className="text-xs text-black font-medium mt-1 line-clamp-2">
                               {product.shortDescription}
                             </p>
@@ -2414,6 +2443,7 @@ export const StorefrontView: React.FC = () => {
                   <h1 className="text-3xl font-display font-medium text-[#141413]">
                     {selectedProduct.name}
                   </h1>
+                  <ShipsBadge product={selectedProduct} detailed className="!text-[11px]" />
                   <div className="text-xs text-[#575653] flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>
                       Sold &amp; shipped by{' '}
@@ -4241,6 +4271,13 @@ export const StorefrontView: React.FC = () => {
                         )}
                       </span>
                     </div>
+
+                    {!!liveShippingCalc.unshippableItems?.length && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 text-[11px] text-rose-800 leading-relaxed">
+                        <strong>Does not ship to {countryIso}:</strong> {liveShippingCalc.unshippableItems.join(', ')}. Remove{' '}
+                        {liveShippingCalc.unshippableItems.length === 1 ? 'it' : 'them'} from your cart to place the order.
+                      </div>
+                    )}
 
                     {/* Customs Tariff & Tax Breakdown */}
                     <div className="flex justify-between text-[#575653]">

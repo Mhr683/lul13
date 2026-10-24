@@ -5,6 +5,7 @@ import { POLICY, escrowReleased, dispatchClockStart, needsBrandProof, isTestOrde
 import { buildCoach } from './coach';
 import { cleanProductInfo, type ProductInfo } from '../src/services/productInfo';
 import { famousBrandIn } from '../src/services/brandRules';
+import { cleanProductShipping, type ProductShipping } from '../src/services/productShipping';
 import { checkVendorApplication } from '../src/services/vendorRules';
 import { checkPhone } from '../src/services/intlAddress';
 
@@ -518,9 +519,17 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         }
       }
     }
+    // Where it ships and the seller's own fees: only when the form sends them (a CSV row keeps them)
+    let shipping: ProductShipping | null | undefined;
+    if (b.shipping !== undefined) {
+      const checked = cleanProductShipping(b.shipping);
+      if (checked.error) return { error: checked.error };
+      shipping = checked.value || null;
+    }
     return {
       fields: {
         name,
+        shipping,
         price,
         compareAtPrice: money(b.compareAtPrice),
         stock: Math.max(0, Math.floor(Number(b.stock) || 0)),
@@ -564,7 +573,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const description = str(b.description, 4800) || existing?.description || shortDescription;
     // A product the store has hidden stays hidden until the store restores it
     const adminHidden = existing?.adminHidden === true;
-    return {
+    const product: any = {
       // Fields this form does not edit (gallery images, variants, tags, specs, ...) are kept as they are
       ...(existing || {}),
       id,
@@ -611,9 +620,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       ...(f.info !== undefined ? { info: f.info } : existing?.info ? { info: existing.info } : {}),
       sellerId: uid,
       sellerName: seller.shopName,
+      ...(seller.vendorId ? { vendorId: seller.vendorId } : {}),
+      shipsFromCountry: String(seller.shipsFromCountry || seller.warehouseCountry || seller.countryCode || 'PK').toUpperCase(),
+      ...(f.shipping ? { shipping: f.shipping } : {}),
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
+    // The seller cleared the shipping settings: the store's rates apply again
+    if (f.shipping === null) delete product.shipping;
+    return product;
   };
 
   // Dropshipping data of a product (supplier, cost, link); kept in product_private, which only the
@@ -1394,13 +1409,42 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     try {
       const snap = await sellersCol().where('status', '==', 'APPROVED').limit(500).get();
       let n = 0;
+      const sellers: Array<{ id: string; vendorId?: string; shipsFromCountry: string }> = [];
       for (const doc of snap.docs) {
-        const s = doc.data() as any;
-        if (s.vendorId && s.shipsFromCountry) continue;
-        await assignVendorIdentity(doc.id, s);
-        n++;
+        let s = doc.data() as any;
+        if (!s.vendorId || !s.shipsFromCountry) {
+          s = { ...s, ...(await assignVendorIdentity(doc.id, s)) };
+          n++;
+        }
+        sellers.push({ id: doc.id, vendorId: s.vendorId, shipsFromCountry: String(s.shipsFromCountry || 'PK').toUpperCase() });
       }
       if (n) console.log(`[vendors] gave ${n} approved seller(s) a vendor ID`);
+      // Products listed before then get the seller's vendor ID and ship-from country, once (the
+      // catalog copy says which ones lack them, so this costs no reads; one write per such product)
+      for (let attempt = 0; attempt < 20; attempt++) {
+        if (sellers.every((s) => d.allProductsOfSeller(s.id) !== null)) break;
+        await new Promise((r) => setTimeout(r, 15_000));
+      }
+      let fixed = 0;
+      let batch = adminDb.batch();
+      let inBatch = 0;
+      for (const s of sellers) {
+        for (const p of d.allProductsOfSeller(s.id) || []) {
+          if (p.shipsFromCountry === s.shipsFromCountry && (p.vendorId || '') === (s.vendorId || '')) continue;
+          batch.update(adminDb.collection('products').doc(p.id), {
+            shipsFromCountry: s.shipsFromCountry,
+            ...(s.vendorId ? { vendorId: s.vendorId } : {}),
+          });
+          fixed++;
+          if (++inBatch === 400) {
+            await batch.commit();
+            batch = adminDb.batch();
+            inBatch = 0;
+          }
+        }
+      }
+      if (inBatch) await batch.commit();
+      if (fixed) console.log(`[vendors] added vendor ID / ships-from country to ${fixed} product(s)`);
     } catch (err: any) {
       console.warn('[vendors] vendor ID backfill failed:', err?.message);
     }

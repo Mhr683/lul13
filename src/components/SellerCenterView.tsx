@@ -24,6 +24,7 @@ import {
 import { SellerAiAssistant } from './SellerAiAssistant';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
 import { ProductInfoEditor } from './ProductInfoEditor';
+import { ProductShippingEditor, emptyShipping, shippingFormOf, type ShippingForm } from './ProductShippingEditor';
 import type { ProductInfo } from '../services/productInfo';
 import { famousBrandIn } from '../services/brandRules';
 import { ShareProductButton } from './ShareProductButton';
@@ -506,7 +507,13 @@ export const SellerCenterView: React.FC = () => {
       )}
       {tab === 'DASHBOARD' && <DashboardTab onGo={setTab} seller={seller} />}
       {tab === 'ORDERS' && <OrdersTab />}
-      {tab === 'PRODUCTS' && <ProductsTab uid={uid} categoryNames={categories.map((c) => c.name)} />}
+      {tab === 'PRODUCTS' && (
+        <ProductsTab
+          uid={uid}
+          categoryNames={categories.map((c) => c.name)}
+          shipsFrom={String(seller?.shipsFromCountry || seller?.warehouseCountry || seller?.countryCode || 'PK').toUpperCase()}
+        />
+      )}
       {tab === 'EARNINGS' && <EarningsTab />}
       {tab === 'RETURNS' && <ReturnsTab />}
       {tab === 'AI' && (
@@ -2005,6 +2012,7 @@ const emptyProduct = {
   weightKg: '0.5',
   dimensions: '',
   info: {} as ProductInfo,
+  shipping: emptyShipping as ShippingForm,
   status: 'ACTIVE' as 'ACTIVE' | 'DRAFT',
   supplierName: '',
   supplierCostPrice: '',
@@ -2015,7 +2023,7 @@ const emptyProduct = {
 
 type ProductFilter = 'ALL' | 'ACTIVE' | 'DRAFT' | 'OUT' | 'ARCHIVED';
 
-const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, categoryNames }) => {
+const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: string }> = ({ uid, categoryNames, shipsFrom }) => {
   const { showToast } = useStore();
   const [products, setProducts] = useState<ListProduct[] | null>(() => readCache<ListProduct[]>(PRODUCTS_CACHE_KEY, uid));
   const [refreshing, setRefreshing] = useState(false);
@@ -2111,6 +2119,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
           ...(full.info || {}),
           brandType: full.info?.brandType || (full.brand && full.brand !== full.sellerName ? 'BRANDED' : 'NONE'),
         },
+        shipping: shippingFormOf(full.shipping),
         status: full.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
       });
     } catch (err: any) {
@@ -2397,6 +2406,11 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[] }> = ({ uid, 
             onDimensions={(dimensions) => setEditing((p) => (p ? { ...p, dimensions } : p))}
             upload={uploadMedia}
             onError={showToast}
+          />
+          <ProductShippingEditor
+            value={editing.shipping}
+            onChange={(shipping) => setEditing((p) => (p ? { ...p, shipping } : p))}
+            fromCountry={shipsFrom}
           />
           <div className="sm:col-span-2 pt-2 border-t border-black/10">
             <div className="text-xs font-bold text-[#141413]">Supplier (dropshipping, optional)</div>

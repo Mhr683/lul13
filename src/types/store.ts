@@ -124,6 +124,11 @@ export interface Product {
   /** Marketplace seller that sells and ships this product (absent = the store itself) */
   sellerId?: string;
   sellerName?: string;
+  /** Seller's vendor ID (AV-<country>-00001) and the warehouse country the parcel leaves from */
+  vendorId?: string;
+  shipsFromCountry?: string;
+  /** Where the seller ships this product and their own fees (src/services/productShipping.ts) */
+  shipping?: import('../services/productShipping').ProductShipping;
   featured?: boolean;
   bestSeller?: boolean;
   newArrival?: boolean;
