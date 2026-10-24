@@ -2468,6 +2468,10 @@ app.post('/api/admin/verify-payment', requireAdmin, async (req, res) => {
     }
 
     const dbOrder = orderDoc.data();
+    // Card payments are confirmed by the payment gateway only, never by hand
+    if (dbOrder?.paymentMethod === 'CARD') {
+      return res.status(409).json({ error: 'Card payments are verified automatically by the payment gateway.' });
+    }
     const effectiveCustomerEmail = dbOrder?.customerEmail || customerEmail;
 
     // Security Check: Prevent customer self-approval of manual payments
@@ -2622,6 +2626,18 @@ const cardPayments = setupCardPayments(app, {
     for (const id of orderIds) {
       try {
         const ref = adminDb.collection('orders').doc(id);
+        const before = (await ref.get()).data() as Order | undefined;
+        if (!before) continue;
+        if (before.status === 'CANCELLED') {
+          // Cancelled while the customer was paying: keep it cancelled and flag the money for a refund
+          await ref.update({
+            paymentStatus: 'REFUND_PENDING',
+            paymentReference: info.sessionId.slice(0, 120),
+            paymentVerificationNote: `Card payment of ${amount} arrived after the order was cancelled: refund it from the Tazapay dashboard.`,
+            updatedAt: now,
+          });
+          continue;
+        }
         // Paid by card: no confirmation call needed, the order goes straight to the seller
         await applyOrderStatusWithStock(ref, {
           status: 'CONFIRMED',
@@ -2633,9 +2649,10 @@ const cardPayments = setupCardPayments(app, {
           paymentVerificationNote: `Card payment received: ${amount} for the whole checkout.`,
           updatedAt: now,
         });
-        const [snap, priv] = await Promise.all([ref.get(), adminDb.collection('order_private').doc(id).get()]);
-        const order = snap.data() as Order;
-        if (!order) continue;
+        if (before.sellerId) marketplace.forgetOrders(before.sellerId);
+        const priv = await adminDb.collection('order_private').doc(id).get();
+        // The order as just written (no second read)
+        const order = { ...before, status: 'CONFIRMED', paymentStatus: 'PAID', paymentSubMethod: 'CARD_TAZAPAY', paymentReference: info.sessionId.slice(0, 120), paymentVerifiedAt: now } as Order;
         const settings = cardEmailSettings();
         await sendPaymentVerifiedEmail(adminDb, order, settings, `Paid by card (${amount}).`).catch((err) =>
           console.error('[card] customer email failed:', err?.message)
@@ -3263,6 +3280,7 @@ app.post('/api/orders/create', async (req, res) => {
           },
           // No access token in links handed to the gateway: the customer's device remembers it
           trackUrl: `/track?order=${result.orderNumber}`,
+          accessToken: result.orderAccessToken,
         });
         paymentUrl = opened.url;
       } catch (payErr: any) {
@@ -3970,6 +3988,10 @@ app.post('/api/orders/update-status', requireAdmin, async (req, res) => {
     if (!orderData || !orderDocRef) {
       return res.status(404).json({ error: 'Order not found.' });
     }
+    // Unpaid card order: only cancelling is allowed (it confirms itself when the payment arrives)
+    if (orderData.paymentMethod === 'CARD' && orderData.paymentStatus !== 'PAID' && status !== 'CANCELLED' && orderData.status !== 'CANCELLED') {
+      return res.status(409).json({ error: 'This order is waiting for the customer’s card payment. It is confirmed automatically once paid; you can only cancel it now.' });
+    }
 
     const now = new Date().toISOString();
     const cleanTracking = trackingNumber !== undefined ? String(trackingNumber).trim() : orderData.trackingNumber;
@@ -4107,6 +4129,9 @@ app.post('/api/orders/confirm', requireAdmin, async (req, res) => {
     const orderData: Order | null = orderSnap && orderSnap.exists ? (orderSnap.data() as Order) : null;
     if (!orderData) {
       return res.status(404).json({ error: 'Order not found.' });
+    }
+    if (orderData.paymentMethod === 'CARD' && orderData.paymentStatus !== 'PAID') {
+      return res.status(409).json({ error: 'This order is waiting for the customer’s card payment. It is confirmed automatically once paid.' });
     }
 
     const now = new Date().toISOString();

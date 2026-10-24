@@ -49,6 +49,8 @@ export type CardPaymentDoc = {
   status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED';
   attemptFailed?: boolean;
   customerEmail: string;
+  /** sha256 of the orders' tracking token (the tracking page proves it knows the token) */
+  tokenHash: string;
   sandbox: boolean;
   expiresAt: string;
   createdAt: string;
@@ -120,6 +122,7 @@ export function setupCardPayments(app: Express, d: Deps) {
     customer: { name: string; email: string; country: string; callingCode?: string; phone?: string };
     address: { line1: string; line2?: string; city: string; state?: string; country: string; postalCode?: string };
     trackUrl: string;
+    accessToken: string;
   }): Promise<{ url: string }> {
     const e = env();
     if (!e) throw new Error('Card payments are not set up.');
@@ -179,6 +182,7 @@ export function setupCardPayments(app: Express, d: Deps) {
       usdToPkr: rate,
       status: 'PENDING',
       customerEmail: p.customer.email,
+      tokenHash: crypto.createHash('sha256').update(p.accessToken).digest('hex'),
       sandbox: e.sandbox,
       expiresAt,
       createdAt: now.toISOString(),
@@ -296,9 +300,10 @@ export function setupCardPayments(app: Express, d: Deps) {
     try {
       const snap = await col().doc(checkoutId).get();
       if (!snap.exists) return res.status(404).json({ error: 'Payment not found.' });
-      const first = await d.adminDb.collection('orders').doc((snap.data() as CardPaymentDoc).orderIds[0]).get();
-      const t = String(first.data()?.orderAccessToken || '');
-      if (!token || t.length !== token.length || !crypto.timingSafeEqual(Buffer.from(t), Buffer.from(token))) {
+      // The order's tracking token, checked against the hash kept with the payment (no order read)
+      const want = Buffer.from(String((snap.data() as CardPaymentDoc).tokenHash || ''), 'hex');
+      const got = crypto.createHash('sha256').update(token).digest();
+      if (!token || want.length !== got.length || !crypto.timingSafeEqual(want, got)) {
         return res.status(403).json({ error: 'Not allowed.' });
       }
       const pay = (await syncCheckout(checkoutId).catch(() => null)) || (snap.data() as CardPaymentDoc);

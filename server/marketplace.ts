@@ -174,7 +174,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   const sellerOrdersCached = async (sellerId: string) => {
     const hit = ordersCache.get(sellerId);
     if (hit && Date.now() - hit.at < 30_000) return hit.orders;
-    const orders = await loadSellerOrders(sellerId, 1000);
+    // Unpaid card orders are not the seller's yet: left out of lists, earnings and reports
+    const orders = (await loadSellerOrders(sellerId, 1000)).filter((o: any) => !awaitingCardPayment(o));
     ordersCache.set(sellerId, { at: Date.now(), orders });
     return orders;
   };
@@ -232,6 +233,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   };
 
   // Strip supplier/internal fields before sending an order to the seller
+  /** Card order whose payment has not arrived (server/cardPayments.ts confirms or cancels it) */
+  const awaitingCardPayment = (o: any) => o?.paymentMethod === 'CARD' && o?.paymentStatus !== 'PAID' && o?.status !== 'CANCELLED';
   const sellerSafeOrder = (o: any) => {
     const { orderAccessToken, ...rest } = o;
     return {
@@ -914,6 +917,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const own = await loadOwnOrder(uid, String(req.body?.orderId || ''));
       if (!own) return res.status(404).json({ error: 'Order not found.' });
       const { ref, order } = own;
+      if (awaitingCardPayment(order)) {
+        return res.status(409).json({ error: 'This order is waiting for the customer’s card payment. It cannot be changed until it is paid.' });
+      }
       if (CLOSED_STATUSES.includes(order.status)) {
         return res.status(409).json({ error: 'This order is closed. Please contact the store to change it.' });
       }
@@ -1405,8 +1411,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   };
 
   // Sellers approved before vendor IDs existed get theirs once, at server start (a few reads)
+  // A marker document records that it has run, so later starts cost 1 read instead of one per seller
+  // (sellers approved since then get their vendor ID at approval, products when they are saved)
+  const BACKFILL_VERSION = 1;
   (async () => {
     try {
+      const markerRef = adminDb.collection('counters').doc('vendor_backfill');
+      if (Number((await markerRef.get()).data()?.version) >= BACKFILL_VERSION) return;
       const snap = await sellersCol().where('status', '==', 'APPROVED').limit(500).get();
       let n = 0;
       const sellers: Array<{ id: string; vendorId?: string; shipsFromCountry: string }> = [];
@@ -1449,6 +1460,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       if (inBatch) await batch.commit();
       if (fixed) console.log(`[vendors] added vendor ID / ships-from country to ${fixed} product(s)`);
+      // Only once every seller's products were seen in the catalog copy
+      if (sellers.every((s) => d.allProductsOfSeller(s.id) !== null)) {
+        await markerRef.set({ version: BACKFILL_VERSION, at: new Date().toISOString() });
+      }
     } catch (err: any) {
       console.warn('[vendors] vendor ID backfill failed:', err?.message);
     }

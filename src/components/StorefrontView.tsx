@@ -627,6 +627,17 @@ export const StorefrontView: React.FC = () => {
     setIntlCity('');
   };
 
+  // A shopper from abroad without a saved address starts checkout with their own country
+  // (smart routing's country), so shipping, the card option and the address form fit at once
+  const visitorCountryApplied = useRef(false);
+  useEffect(() => {
+    if (subView !== 'CHECKOUT' || visitorCountryApplied.current || addressPrefilledRef.current || streetAddress.trim()) return;
+    if (!visitorCountry || visitorCountry === countryIso || countryIso !== 'PK') return;
+    if (!ALL_WORLD_COUNTRIES.some((c) => c.isoCode === visitorCountry)) return;
+    visitorCountryApplied.current = true;
+    handleSelectCountryByIso(visitorCountry);
+  }, [subView, visitorCountry, countryIso, streetAddress]);
+
   const handleAddressAutoDetected = (payload: DetectedAddressPayload) => {
     // 1. Synchronize Country
     let currentCountryIso = countryIso;
