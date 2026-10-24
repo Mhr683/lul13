@@ -239,7 +239,9 @@ export type PaymentMethod =
   | 'HBL_BANK'
   | 'BANK_ACCOUNT'
   | 'MANUAL'
-  | 'MANUAL_QUOTE';
+  | 'MANUAL_QUOTE'
+  /** International card, paid on the gateway's hosted page (server/cardPayments.ts) */
+  | 'CARD';
 
 export type CustomsMode = 'NOT_APPLICABLE' | 'DAP' | 'DDP';
 

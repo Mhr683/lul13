@@ -30,6 +30,7 @@ import { validateAIToolArgs } from './src/validation/validators';
 import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus, OrderShipment } from './src/types/store';
 import { ShippingCalculationService, generateCourierTrackingUrl } from './src/services/shippingService';
 import { shipsToCountry } from './src/services/productShipping';
+import { setupCardPayments } from './server/cardPayments';
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
 import { createCatalogStore } from './server/catalogStore';
@@ -438,6 +439,8 @@ app.use('/api/seller/media/upload', express.raw({ type: () => true, limit: '52mb
 app.use('/api/returns/upload', express.raw({ type: () => true, limit: '9mb' }));
 // Review photos (8 MB) and short videos (20 MB), checked again in server/feedback.ts
 app.use('/api/feedback/upload', express.raw({ type: () => true, limit: '21mb' }));
+// Payment webhooks are checked against the exact bytes received (server/cardPayments.ts)
+app.use('/api/payments/tazapay/webhook', express.raw({ type: () => true, limit: '1mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // When the free Firestore database has used up its daily reads, say so plainly instead of the
@@ -2604,6 +2607,81 @@ app.post('/api/admin/verify-payment', requireAdmin, async (req, res) => {
   }
 });
 
+// International card payments (Tazapay hosted checkout). What happens to the orders when the
+// gateway reports the payment; see server/cardPayments.ts for the flow and the .env keys.
+const cardEmailSettings = () => {
+  const cfg: any = catalogStore.settings() || DEFAULT_SETTINGS;
+  return { storeName: cfg?.storeName || 'Store', supportEmail: cfg?.supportEmail, contactEmail: cfg?.contactEmail, currency: 'PKR' };
+};
+const cardPayments = setupCardPayments(app, {
+  adminDb,
+  usdToPkr: () => exchangeRates.usdToPkr() || Number(catalogStore.settings()?.usdToPkrRate) || 0,
+  onPaid: async (orderIds, info) => {
+    const now = new Date().toISOString();
+    const amount = `${info.currency} ${(info.amountMinor / 100).toFixed(2)}`;
+    for (const id of orderIds) {
+      try {
+        const ref = adminDb.collection('orders').doc(id);
+        // Paid by card: no confirmation call needed, the order goes straight to the seller
+        await applyOrderStatusWithStock(ref, {
+          status: 'CONFIRMED',
+          paymentStatus: 'PAID',
+          paymentSubMethod: 'CARD_TAZAPAY',
+          paymentReference: info.sessionId.slice(0, 120),
+          paymentVerifiedBy: 'Tazapay (card)',
+          paymentVerifiedAt: now,
+          paymentVerificationNote: `Card payment received: ${amount} for the whole checkout.`,
+          updatedAt: now,
+        });
+        const [snap, priv] = await Promise.all([ref.get(), adminDb.collection('order_private').doc(id).get()]);
+        const order = snap.data() as Order;
+        if (!order) continue;
+        const settings = cardEmailSettings();
+        await sendPaymentVerifiedEmail(adminDb, order, settings, `Paid by card (${amount}).`).catch((err) =>
+          console.error('[card] customer email failed:', err?.message)
+        );
+        const ownerItems = Array.isArray(priv.data()?.items) ? priv.data()!.items : order.items;
+        await sendOrderPlacedOwnerEmail(adminDb, { ...order, items: ownerItems }, settings).catch((err) =>
+          console.error('[card] owner email failed:', err?.message)
+        );
+      } catch (err: any) {
+        console.error(`[card] marking order ${id} paid failed:`, err?.message);
+      }
+    }
+  },
+  onExpired: async (orderIds, reason) => {
+    const now = new Date().toISOString();
+    for (const id of orderIds) {
+      try {
+        const ref = adminDb.collection('orders').doc(id);
+        await applyOrderStatusWithStock(ref, { status: 'CANCELLED', paymentStatus: 'FAILED', cancellationReason: reason, cancelledAt: now, updatedAt: now });
+        const order = (await ref.get()).data() as Order;
+        if (order) await sendOrderCancelledEmail(adminDb, order, reason, cardEmailSettings()).catch(() => {});
+      } catch (err: any) {
+        console.error(`[card] cancelling unpaid order ${id} failed:`, err?.message);
+      }
+    }
+  },
+  onAttemptFailed: async (orderIds) => {
+    const now = new Date().toISOString();
+    for (const id of orderIds) {
+      const ref = adminDb.collection('orders').doc(id);
+      await adminDb
+        .runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          const o = snap.data() as any;
+          if (!o || o.paymentStatus === 'PAID') return;
+          tx.update(ref, {
+            paymentStatus: 'FAILED',
+            updatedAt: now,
+            trackingEvents: appendTrackingEvent(o.trackingEvents, { at: now, note: 'The card payment did not go through. You can try again from this page.' }),
+          });
+        })
+        .catch((err) => console.error(`[card] marking failed attempt on ${id} failed:`, err?.message));
+    }
+  },
+});
+
 // 6.1. POST /api/orders/create (Atomic Server-Side Order Placement)
 app.post('/api/orders/create', async (req, res) => {
   try {
@@ -2716,8 +2794,8 @@ app.post('/api/orders/create', async (req, res) => {
       });
     }
 
-    // 5. Validate payment method
-    const allowedPaymentMethods = ['COD', 'NAYAPAY', 'RAAST_IBAN', 'MANUAL_QUOTE'];
+    // 5. Validate payment method (card only for international orders, once the gateway keys are set)
+    const allowedPaymentMethods = ['COD', 'NAYAPAY', 'RAAST_IBAN', 'MANUAL_QUOTE', ...(cardPayments.ready() ? ['CARD'] : [])];
     if (!allowedPaymentMethods.includes(paymentMethod)) {
       return res.status(400).json({
         error: `Invalid payment method "${paymentMethod}". Allowed options: ${allowedPaymentMethods.join(', ')}.`,
@@ -2730,6 +2808,12 @@ app.post('/api/orders/create', async (req, res) => {
       return res.status(400).json({
         error: 'Cash on Delivery (COD) is strictly restricted to Pakistan domestic destinations.',
         code: 'COD_NOT_ALLOWED',
+      });
+    }
+    if (paymentMethod === 'CARD' && isDomestic) {
+      return res.status(400).json({
+        error: 'Card payment is for international orders. Please choose Cash on Delivery or a bank transfer.',
+        code: 'CARD_NOT_ALLOWED',
       });
     }
 
@@ -2984,6 +3068,11 @@ app.post('/api/orders/create', async (req, res) => {
           };
         });
 
+        // A card pays a final total: without a shipping rate for this country the quote comes first
+        if (paymentMethod === 'CARD' && groups.some((g) => g.calc.requiresManualQuote)) {
+          throw new Error('There is no shipping rate for your country yet, so card payment is not possible. Please request a shipping quote.');
+        }
+
         // Step G: Decrement stock for each product
         const now = new Date().toISOString();
         for (const p of productDocs) {
@@ -3016,6 +3105,10 @@ app.post('/api/orders/create', async (req, res) => {
         } else if (['NAYAPAY', 'RAAST_IBAN'].includes(paymentMethod)) {
           initialStatus = 'PENDING_CONFIRMATION';
           initialPaymentStatus = 'PENDING_VERIFICATION';
+        } else if (paymentMethod === 'CARD') {
+          // Waits for the card payment; confirmed by the payment webhook (server/cardPayments.ts)
+          initialStatus = 'PENDING';
+          initialPaymentStatus = 'PENDING';
         } else {
           initialStatus = 'PENDING_CONFIRMATION';
           initialPaymentStatus = 'PENDING';
@@ -3092,7 +3185,7 @@ app.post('/api/orders/create', async (req, res) => {
                 at: now,
                 status: orderData.status,
                 note:
-                  (STATUS_EVENT_NOTES[orderData.status] || 'Order received.') +
+                  (paymentMethod === 'CARD' ? 'Order received. Waiting for your card payment.' : STATUS_EVENT_NOTES[orderData.status] || 'Order received.') +
                   (groups.length > 1 ? ` Shipped separately by ${g.sellerName}.` : ''),
               },
             ],
@@ -3127,6 +3220,8 @@ app.post('/api/orders/create', async (req, res) => {
         txnError?.message?.includes('not active') ||
         txnError?.message?.includes('Insufficient stock') ||
         txnError?.message?.includes('seller in your cart') ||
+        txnError?.message?.includes('not ship to your country') ||
+        txnError?.message?.includes('card payment is not possible') ||
         txnError?.message?.includes("only for a customer's first order");
 
       if (isValidationError) {
@@ -3138,19 +3233,71 @@ app.post('/api/orders/create', async (req, res) => {
       });
     }
 
+    // Card: open the gateway's payment page for the whole checkout (USD). If it cannot be opened,
+    // the orders are cancelled at once (stock back) so nothing waits for a payment that cannot come.
+    const isCard = paymentMethod === 'CARD';
+    let paymentUrl: string | null = null;
+    if (result && isCard) {
+      const totalPkr = Number(result.created.reduce((s, c) => s + (Number(c.order.total) || 0), 0).toFixed(2));
+      try {
+        const opened = await cardPayments.startCheckout({
+          checkoutId: String(result.order.checkoutId),
+          orderIds: result.created.map((c) => c.order.id),
+          orderNumbers: result.created.map((c) => c.order.orderNumber),
+          totalPkr,
+          items: result.created.flatMap((c) => (c.order.items || []).map((it) => ({ name: it.name, quantity: it.quantity, price: it.price }))),
+          customer: {
+            name: result.order.customerName,
+            email: result.order.customerEmail,
+            country: deliveryAddress.countryCode,
+            callingCode: deliveryAddress.phoneCountryCode,
+            phone: deliveryAddress.phoneNumber.replace(/^\+/, '').slice(String(deliveryAddress.phoneCountryCode || '').length),
+          },
+          address: {
+            line1: deliveryAddress.line1,
+            line2: deliveryAddress.line2,
+            city: deliveryAddress.city,
+            state: deliveryAddress.state,
+            country: deliveryAddress.countryCode,
+            postalCode: deliveryAddress.postalCode,
+          },
+          // No access token in links handed to the gateway: the customer's device remembers it
+          trackUrl: `/track?order=${result.orderNumber}`,
+        });
+        paymentUrl = opened.url;
+      } catch (payErr: any) {
+        console.error('[card] could not open the payment page:', payErr?.message);
+        for (const c of result.created) {
+          await applyOrderStatusWithStock(adminDb.collection('orders').doc(c.order.id), {
+            status: 'CANCELLED',
+            paymentStatus: 'FAILED',
+            cancellationReason: 'The card payment page could not be opened.',
+            cancelledAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }).catch((err) => console.error('[card] cancel after gateway error failed:', err?.message));
+        }
+        return res.status(502).json({
+          error: 'The card payment page could not be opened, so the order was not placed. Please try again in a minute or choose another payment method.',
+          code: 'CARD_GATEWAY_ERROR',
+        });
+      }
+    }
+
     // Send real transactional emails via Resend:
     // 1. To Customer
     // 2. To Store Owner
     // If sending fails, it is logged in email_logs collection and never breaks the order.
+    // Card orders get theirs once the payment arrives (cardPayments onPaid below).
     if (result && result.order) {
       const attribution = req.body?.attribution && typeof req.body.attribution === 'object' ? req.body.attribution : undefined;
       for (const c of result.created) analytics.recordOrder(c.order as any, attribution);
       // "Bought together" suggestions learn from every checkout with 2+ different products
       productExtras.recordPurchase(items.map((it: any) => String(it.productId)));
-      ads.onPurchase(result.created.map((c) => c.order as any), attribution, req);
+      // An unpaid card order is not a purchase yet (ad platforms would count money never received)
+      if (!isCard) ads.onPurchase(result.created.map((c) => c.order as any), attribution, req);
       // The checkout is done: drop the saved "abandoned cart" of this phone (no reminder needed)
       adminDb.collection('abandoned_carts').doc(phoneKey(cleanPhone)).delete().catch(() => {});
-      (async () => {
+      if (!isCard) (async () => {
         // Store settings from the catalog copy (no read); the database only if it is not loaded
         let storeCfg: any = catalogStore.settings() || DEFAULT_SETTINGS;
         if (!catalogStore.settings()) {
@@ -3192,6 +3339,8 @@ app.post('/api/orders/create', async (req, res) => {
       // All orders of this checkout (one per seller)
       orders: result.created.map((c) => c.order),
       trackingUrl: `/track?order=${result.orderNumber}&token=${result.orderAccessToken}`,
+      // Card: the customer is sent here to pay
+      ...(paymentUrl ? { paymentUrl, checkoutId: result.order.checkoutId } : {}),
     });
   } catch (err: any) {
     console.error('Order creation transaction failed:', err);
@@ -3302,6 +3451,8 @@ app.get('/api/orders/track', async (req, res) => {
         paymentStatus: orderData.paymentStatus,
         paymentMethod: orderData.paymentMethod,
         paymentReference: orderData.paymentReference,
+        // Card orders: the tracking page checks the payment with this (and the order's token)
+        ...(orderData.paymentMethod === 'CARD' ? { checkoutId: orderData.checkoutId } : {}),
         subtotal: orderData.subtotal,
         discount: orderData.discount,
         shippingFee: orderData.shippingFee,

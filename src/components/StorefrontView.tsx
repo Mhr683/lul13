@@ -69,6 +69,7 @@ import { CurrencyNote, CurrencySelector, LocalPrice } from './CurrencyDisplay';
 import { setVisitorCountry, useVisitorCountry } from '../services/currency';
 import { routingScore } from '../services/productShipping';
 import { ShipsBadge } from './ShipsBadge';
+import { CardPaymentStatus } from './CardPaymentStatus';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -499,7 +500,8 @@ export const StorefrontView: React.FC = () => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const orderParam = params.get('order');
-      const tokenParam = params.get('token');
+      // Back from the card payment page the link has no token: this device remembered it
+      const tokenParam = params.get('token') || (orderParam ? tokenForOrder(orderParam) : '');
       if (orderParam) {
         setTrackingOrderInput(orderParam);
         if (tokenParam) setTrackingTokenInput(tokenParam);
@@ -546,6 +548,16 @@ export const StorefrontView: React.FC = () => {
   const isRaastAvailable = Boolean((settings.raastEnabled ?? true) || isNationalPakistan);
   const isNayaPayAvailable = Boolean(settings.nayapayEnabled ?? true);
   const isManualQuoteAvailable = Boolean(!isNationalPakistan && settings.allowInternationalManualQuotes);
+  // International card payment, offered once the store has set up the gateway (one request per visit)
+  const [cardConfig, setCardConfig] = useState<{ enabled: boolean; currency: string; sandbox: boolean; usdToPkr: number } | null>(null);
+  useEffect(() => {
+    if (subView !== 'CHECKOUT' || cardConfig) return;
+    fetch('/api/payments/card-config')
+      .then((r) => r.json())
+      .then((d) => setCardConfig({ enabled: !!d.enabled, currency: d.currency || 'USD', sandbox: !!d.sandbox, usdToPkr: Number(d.usdToPkr) || 0 }))
+      .catch(() => setCardConfig({ enabled: false, currency: 'USD', sandbox: false, usdToPkr: 0 }));
+  }, [subView, cardConfig]);
+  const isCardAvailable = Boolean(!isNationalPakistan && cardConfig?.enabled);
 
   const availableStates = useMemo(
     () => getStatesForCountry(countryIso),
@@ -718,7 +730,8 @@ export const StorefrontView: React.FC = () => {
       (paymentMethod === 'COD' && isCodAvailable) ||
       ((paymentMethod === 'RAAST_IBAN' || paymentMethod === 'BANK_TRANSFER') && isRaastAvailable) ||
       (paymentMethod === 'NAYAPAY' && isNayaPayAvailable) ||
-      (paymentMethod === 'MANUAL_QUOTE' && isManualQuoteAvailable);
+      (paymentMethod === 'MANUAL_QUOTE' && isManualQuoteAvailable) ||
+      (paymentMethod === 'CARD' && isCardAvailable);
 
     if (!isCurrentValid) {
       if (isNationalPakistan) {
@@ -732,7 +745,10 @@ export const StorefrontView: React.FC = () => {
           setPaymentSubMethod('NAYAPAY');
         }
       } else {
-        if (isManualQuoteAvailable) {
+        // International shoppers pay by card when the store offers it
+        if (isCardAvailable) {
+          setPaymentMethod('CARD');
+        } else if (isManualQuoteAvailable) {
           setPaymentMethod('MANUAL_QUOTE');
         } else if (isRaastAvailable) {
           setPaymentMethod('RAAST_IBAN');
@@ -747,6 +763,7 @@ export const StorefrontView: React.FC = () => {
     isRaastAvailable,
     isNayaPayAvailable,
     isManualQuoteAvailable,
+    isCardAvailable,
   ]);
 
   const addressVerification = useMemo(
@@ -947,6 +964,11 @@ export const StorefrontView: React.FC = () => {
     });
   }, [countryIso, cart, products, settings, shippingMethodId, appliedCoupon, discountAmount]);
 
+  // A card can only pay a known total: without a shipping rate for this country the quote is needed first
+  const cardShippingKnown = !liveShippingCalc.requiresManualQuote;
+  useEffect(() => {
+    if (paymentMethod === 'CARD' && !cardShippingKnown && isManualQuoteAvailable) setPaymentMethod('MANUAL_QUOTE');
+  }, [paymentMethod, cardShippingKnown, isManualQuoteAvailable]);
   const isQuoteFlow = liveShippingCalc.requiresManualQuote || paymentMethod === 'MANUAL_QUOTE';
 
   // Shipping fee in PKR (same unit as product prices and the server-side order total)
@@ -1050,6 +1072,11 @@ export const StorefrontView: React.FC = () => {
       return;
     }
 
+    if (paymentMethod === 'CARD' && !cardShippingKnown) {
+      setCheckoutErrorBanner('There is no shipping rate for this country yet, so the total is not final. Please request a shipping quote first.');
+      return;
+    }
+
     if (liveShippingCalc.unshippableItems?.length) {
       setCheckoutErrorBanner(
         `${liveShippingCalc.unshippableItems.join(', ')}: the seller does not ship to this country. Remove it from your cart or choose another delivery country.`
@@ -1066,19 +1093,22 @@ export const StorefrontView: React.FC = () => {
       // (line 2, tehsil / area, city, state, postal code, country, phone)
       const fullAddress = streetAddress.trim();
       const isCod = paymentMethod === 'COD';
-      const effectiveTid = isCod
+      const isCard = paymentMethod === 'CARD';
+      const effectiveTid = isCod || isCard
         ? 'COD_DOORSTEP'
         : wireReferenceNumber.trim();
       // Customer's own note only; payment details are stored in their own order fields
       const customerNote = [
         orderNotes.trim(),
-        !isCod && walletAccountTitle ? `Sender title: ${walletAccountTitle}` : '',
-        !isCod && walletMobileNumber ? `Sender account: ${walletMobileNumber}` : '',
+        !isCod && !isCard && walletAccountTitle ? `Sender title: ${walletAccountTitle}` : '',
+        !isCod && !isCard && walletMobileNumber ? `Sender account: ${walletMobileNumber}` : '',
       ]
         .filter(Boolean)
         .join(' | ');
       const proofSummary = isCod
         ? 'Cash on Delivery at Destination Address'
+        : isCard
+        ? 'Card payment on the payment page'
         : `Manual ${paymentMethod === 'NAYAPAY' ? 'NayaPay' : 'Bank/RAAST'} Transfer · TID: ${effectiveTid}`;
 
       const order = await placeOrder({
@@ -1098,7 +1128,7 @@ export const StorefrontView: React.FC = () => {
         shippingFee: liveShippingCalc.finalShippingFee,
         paymentMethod,
         paymentSubMethod,
-        paymentReference: isCod ? undefined : effectiveTid,
+        paymentReference: isCod || isCard ? undefined : effectiveTid,
         paymentProofDetails: proofSummary,
         notes: customerNote || undefined,
         isQuoteRequest: isQuoteFlow,
@@ -1135,6 +1165,11 @@ export const StorefrontView: React.FC = () => {
         for (const o of order.splitOrders?.length ? order.splitOrders : [order]) {
           rememberOrder(o.orderNumber, order.orderAccessToken);
         }
+      }
+      // Card: on to the payment partner's page; they send the customer back to the order page
+      if (order.paymentUrl && /^https:\/\//i.test(order.paymentUrl)) {
+        window.location.assign(order.paymentUrl);
+        return;
       }
       setCheckoutStep(3);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3843,6 +3878,28 @@ export const StorefrontView: React.FC = () => {
                         </button>
                       )}
 
+                      {/* International card (Visa / Mastercard), paid on the gateway's secure page */}
+                      {isCardAvailable && cardShippingKnown && (
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod('CARD')}
+                          className={`p-3.5 text-center border rounded flex flex-col items-center justify-center gap-2 transition-all cursor-pointer relative ${
+                            paymentMethod === 'CARD'
+                              ? 'border-[#F85606] bg-[#FFF8F5] shadow-xs ring-1 ring-[#F85606]'
+                              : 'border-black/15 bg-white hover:border-black/30'
+                          }`}
+                        >
+                          <div className="w-9 h-9 rounded-full bg-[#1D4ED8] flex items-center justify-center text-white shadow-xs">
+                            <CreditCard className="w-5 h-5" />
+                          </div>
+                          <div className="leading-tight">
+                            <span className="block text-xs font-bold text-[#141413]">Debit / Credit Card</span>
+                            <span className="block text-[10px] text-[#787774] mt-0.5">Visa · Mastercard · paid in {cardConfig?.currency || 'USD'}</span>
+                          </div>
+                          {paymentMethod === 'CARD' && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#F85606]" />}
+                        </button>
+                      )}
+
                       {/* 4. International Customs Quote (only outside Pakistan) */}
                       {isManualQuoteAvailable && (
                         <button
@@ -3871,6 +3928,24 @@ export const StorefrontView: React.FC = () => {
                     {/* ========================================================================= */}
                     {/* PAYMENT METHOD FORM PANELS */}
                     {/* ========================================================================= */}
+
+                    {paymentMethod === 'CARD' && (
+                      <div className="p-4 bg-blue-50/60 border border-blue-200 rounded text-xs text-[#141413] space-y-1.5">
+                        <div className="font-bold flex items-center gap-2">
+                          <Lock className="w-4 h-4 text-blue-700" /> Secure card payment
+                        </div>
+                        <p className="text-[#575653] leading-relaxed">
+                          After you place the order you go to our payment partner's secure page to pay
+                          {cardConfig?.usdToPkr ? (
+                            <>
+                              {' '}about <strong>USD {(grandTotal / cardConfig.usdToPkr).toFixed(2)}</strong> ({formatPKR(grandTotal)})
+                            </>
+                          ) : null}
+                          . Your card details never touch this website. The order is confirmed as soon as the payment goes through; unpaid orders are cancelled after 1 hour.
+                        </p>
+                        {cardConfig?.sandbox && <p className="text-amber-800 font-semibold">Test mode: use the payment partner's test cards. No real money is charged.</p>}
+                      </div>
+                    )}
 
                     {/* 1. CASH ON DELIVERY (COD) PANEL */}
                     {paymentMethod === 'COD' && isNationalPakistan && (
@@ -4183,6 +4258,8 @@ export const StorefrontView: React.FC = () => {
                             <span>
                               {paymentMethod === 'COD'
                                 ? `Confirm Order (Cash on Delivery) · ${formatPKR(grandTotal)}`
+                                : paymentMethod === 'CARD'
+                                ? `Place Order & Pay by Card · ${formatPKR(grandTotal)}`
                                 : `Submit Order with TID (${paymentMethod === 'NAYAPAY' ? 'NayaPay' : 'Bank/RAAST'}) · ${formatPKR(grandTotal)}`}
                             </span>
                           </>
@@ -4192,6 +4269,8 @@ export const StorefrontView: React.FC = () => {
                     <p className="text-[11px] text-[#787774] text-center mt-2 leading-relaxed">
                       🔒 {paymentMethod === 'COD'
                         ? 'Pay cash directly to courier on delivery.'
+                        : paymentMethod === 'CARD'
+                        ? 'You will be taken to the secure card payment page.'
                         : 'Order will stay in PENDING_VERIFICATION status until verified and approved by the store administrator.'}
                     </p>
                   </div>
@@ -5253,6 +5332,16 @@ export const StorefrontView: React.FC = () => {
                         </span>
                       </div>
                     </div>
+
+                    {trackedOrder.paymentMethod === 'CARD' && trackedOrder.checkoutId && (trackingTokenInput || confirmedOrderAccessToken) && (
+                      <CardPaymentStatus
+                        checkoutId={trackedOrder.checkoutId}
+                        token={trackingTokenInput || confirmedOrderAccessToken || ''}
+                        onPaid={() => {
+                          if (trackedOrder.paymentStatus !== 'PAID') handleTrackOrder(trackedOrder.orderNumber, trackingTokenInput || confirmedOrderAccessToken || '');
+                        }}
+                      />
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
                       <div>

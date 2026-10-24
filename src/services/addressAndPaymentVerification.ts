@@ -963,6 +963,15 @@ export function verifyPaymentInstrument(input: {
     };
   }
 
+  // Card: entered on the payment provider's secure page, never on this site
+  if (input.paymentMethod === 'CARD') {
+    return {
+      valid: true,
+      message: 'You will pay by card on the secure payment page after placing the order.',
+      fraudScore: 5,
+    };
+  }
+
   // 2. NayaPay Wallet Manual Transfer with TID
   if (input.paymentMethod === 'NAYAPAY') {
     const tid = (input.wireReferenceNumber || '').trim();

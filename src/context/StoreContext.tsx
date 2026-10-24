@@ -225,7 +225,7 @@ interface StoreContextValue {
       verified?: boolean;
     };
     // splitOrders: every order of this checkout (one per seller); the first is also returned itself
-  }) => Promise<Order & { splitOrders: Order[]; orderAccessToken?: string }>;
+  }) => Promise<Order & { splitOrders: Order[]; orderAccessToken?: string; /** Card: the gateway's payment page */ paymentUrl?: string }>;
   verifyManualPayment: (orderId: string, action: 'APPROVE' | 'REJECT', note?: string) => Promise<void>;
   updateShippingQuote: (orderId: string, payload: {
     quoteAmount: number;
@@ -1084,7 +1084,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     clearCart();
-    return { ...createdOrder, splitOrders, orderAccessToken: resData.orderAccessToken };
+    return { ...createdOrder, splitOrders, orderAccessToken: resData.orderAccessToken, paymentUrl: resData.paymentUrl || undefined };
   };
 
   // Verify Manual Payment Workflow (Admin Only, Server and Local State Synchronized)

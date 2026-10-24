@@ -1420,7 +1420,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       if (n) console.log(`[vendors] gave ${n} approved seller(s) a vendor ID`);
       // Products listed before then get the seller's vendor ID and ship-from country, once (the
-      // catalog copy says which ones lack them, so this costs no reads; one write per such product)
+      // catalog copy says which ones lack them, so this costs no reads; one write per such product).
+      // It waits 2 minutes so the copy loaded from disk has caught up with the database first.
+      await new Promise((r) => setTimeout(r, 120_000));
       for (let attempt = 0; attempt < 20; attempt++) {
         if (sellers.every((s) => d.allProductsOfSeller(s.id) !== null)) break;
         await new Promise((r) => setTimeout(r, 15_000));
@@ -1431,9 +1433,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       for (const s of sellers) {
         for (const p of d.allProductsOfSeller(s.id) || []) {
           if (p.shipsFromCountry === s.shipsFromCountry && (p.vendorId || '') === (s.vendorId || '')) continue;
+          // updatedAt moves so the catalog copy (it listens for newer updatedAt) learns the change
           batch.update(adminDb.collection('products').doc(p.id), {
             shipsFromCountry: s.shipsFromCountry,
             ...(s.vendorId ? { vendorId: s.vendorId } : {}),
+            updatedAt: new Date().toISOString(),
           });
           fixed++;
           if (++inBatch === 400) {

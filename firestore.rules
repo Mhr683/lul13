@@ -183,7 +183,7 @@ service cloud.firestore {
           'PENDING', 'PENDING_VERIFICATION', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED', 'PARTIALLY_REFUNDED'
         ] &&
         data.paymentMethod is string && data.paymentMethod in [
-          'COD', 'NAYAPAY', 'RAAST_IBAN', 'BANK_TRANSFER', 'MANUAL', 'MANUAL_QUOTE'
+          'COD', 'NAYAPAY', 'RAAST_IBAN', 'BANK_TRANSFER', 'MANUAL', 'MANUAL_QUOTE', 'CARD'
         ] &&
         (!('paymentSubMethod' in data) || (data.paymentSubMethod is string && data.paymentSubMethod.size() <= 60)) &&
         (!('paymentReference' in data) || (data.paymentReference is string && data.paymentReference.size() <= 120)) &&
