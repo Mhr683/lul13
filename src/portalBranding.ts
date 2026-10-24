@@ -40,6 +40,8 @@ export const portalFromLocation = (): Portal => {
   if (typeof window === 'undefined') return 'STOREFRONT';
   const path = window.location.pathname.replace(/\/+$/, '').toLowerCase();
   if (path === '/seller' || path.startsWith('/seller/')) return 'SELLER';
+  // Seller sign-up link (opens Seller Center, which shows the application to new sellers)
+  if (path === '/vendor' || path.startsWith('/vendor/')) return 'SELLER';
   if (path === '/admin' || path.startsWith('/admin/')) return 'ADMIN';
   if (window.location.hash === '#admin') return 'ADMIN';
   return 'STOREFRONT';

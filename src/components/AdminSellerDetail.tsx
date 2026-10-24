@@ -5,6 +5,7 @@ import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
 import { SellerAvatar } from './SellerAvatar';
 import { REINSTATEMENT_FEE } from '../data/policies';
+import { payoutSummary } from '../services/vendorRules';
 
 // Admin: one seller's full profile and performance report: bio and payout details, orders by
 // stage, sales and earnings (today / 7 days / 30 days / all time), returns and cancellations,
@@ -187,10 +188,22 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
               <strong>Address:</strong> {p.address || '-'}
             </div>
             <div>
-              <strong>CNIC:</strong> <span className="font-mono">{p.cnic || '-'}</span>
+              <strong>{(s.countryCode || 'PK') === 'PK' ? 'CNIC' : 'ID / passport'}:</strong>{' '}
+              <span className="font-mono">{p.idNumber || p.cnic || '-'}</span>
             </div>
             <div>
-              <strong>Bank:</strong> {p.bankName || '-'} · {p.accountTitle || '-'} · <span className="font-mono">{p.accountNumber || '-'}</span>
+              <strong>Tax ID / VAT:</strong> <span className="font-mono">{p.taxId || '—'}</span>
+            </div>
+            <div className="sm:col-span-2 break-all">
+              <strong>Payout:</strong> {payoutSummary(p.payout, p)}
+            </div>
+            <div>
+              <strong>Vendor ID:</strong> <span className="font-mono">{s.vendorId || 'given when approved'}</span>
+            </div>
+            <div>
+              <strong>Ships from:</strong> {s.warehouseCity ? `${s.warehouseCity}, ` : ''}
+              {s.shipsFromCountry || s.warehouseCountry || s.countryCode || 'PK'}
+              {s.sellerType === 'BUSINESS' ? ` · Business${s.businessName ? `: ${s.businessName}` : ''}` : ' · Individual'}
             </div>
           </div>
           {s.statusReason && <div className="text-rose-800">Note: {s.statusReason}</div>}

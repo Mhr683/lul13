@@ -5,6 +5,8 @@ import { POLICY, escrowReleased, dispatchClockStart, needsBrandProof, isTestOrde
 import { buildCoach } from './coach';
 import { cleanProductInfo, type ProductInfo } from '../src/services/productInfo';
 import { famousBrandIn } from '../src/services/brandRules';
+import { checkVendorApplication } from '../src/services/vendorRules';
+import { checkPhone } from '../src/services/intlAddress';
 
 // Marketplace: seller applications, the Seller Center API (own shop, products, orders, earnings)
 // and the admin side (approve/suspend sellers, commission, payouts).
@@ -272,26 +274,18 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     if (!user.emailVerified) {
       return res.status(403).json({ error: 'Please verify your email first (check your inbox for the link), then apply.', code: 'EMAIL_NOT_VERIFIED' });
     }
-    const b = req.body || {};
-    const shopName = str(b.shopName, 60);
-    const ownerName = str(b.ownerName, 80);
-    const phone = str(b.phone, 20).replace(/[^\d+]/g, '');
-    const city = str(b.city, 60);
-    const cnic = str(b.cnic, 20).replace(/[^\d-]/g, '');
-    const address = str(b.address, 300);
-    const bankName = str(b.bankName, 60);
-    const accountTitle = str(b.accountTitle, 80);
-    const accountNumber = str(b.accountNumber, 40).replace(/\s+/g, '');
-
-    const missing: string[] = [];
-    if (shopName.length < 3) missing.push('Shop name');
-    if (ownerName.length < 3) missing.push('Your name');
-    if (!/^(\+92|0)3\d{9}$/.test(phone)) missing.push('Mobile number (03XXXXXXXXX)');
-    if (city.length < 2) missing.push('City');
-    if (cnic.replace(/-/g, '').length !== 13) missing.push('CNIC (13 digits)');
-    if (address.length < 8) missing.push('Address');
-    if (bankName.length < 2 || accountTitle.length < 3 || accountNumber.length < 8) missing.push('Bank details');
-    if (missing.length) return res.status(400).json({ error: `Please check: ${missing.join(', ')}.` });
+    // Sellers from any country: identity, tax number, payout and warehouse checked by the country's
+    // rules (src/services/vendorRules.ts)
+    const checked = checkVendorApplication(req.body || {});
+    if (!checked.ok) return res.status(400).json({ error: `Please check: ${checked.problems.join(', ')}.`, problems: checked.problems });
+    const a = checked.app;
+    const { shopName, ownerName, phone, city, address } = a;
+    // Older screens read these from seller_private; kept filled for every payout method
+    const legacyBank = {
+      bankName: a.payout.bankName || (a.payout.method === 'PAYONEER' ? 'Payoneer' : ''),
+      accountTitle: a.payout.accountHolder,
+      accountNumber: a.payout.iban || a.payout.accountNumber || a.payout.payoneerEmail || '',
+    };
 
     try {
       const ref = sellersCol().doc(user.uid);
@@ -317,12 +311,28 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         shopKey,
         phone,
         city,
+        sellerType: a.sellerType,
+        ...(a.businessName ? { businessName: a.businessName } : {}),
+        countryCode: a.countryCode,
+        warehouseCountry: a.warehouseCountry,
+        warehouseCity: a.warehouseCity,
+        // given at approval: vendorId and shipsFromCountry
+        ...(current?.vendorId ? { vendorId: current.vendorId } : {}),
         status: 'PENDING',
         statusReason: '',
         createdAt: current?.createdAt || now,
         updatedAt: now,
       });
-      await adminDb.collection('seller_private').doc(user.uid).set({ cnic, address, bankName, accountTitle, accountNumber, updatedAt: now });
+      await adminDb.collection('seller_private').doc(user.uid).set({
+        // CNIC in Pakistan, national ID / passport elsewhere (kept as "cnic" too for older screens)
+        idNumber: a.idNumber,
+        cnic: a.countryCode === 'PK' ? a.idNumber : '',
+        ...(a.taxId ? { taxId: a.taxId } : {}),
+        address,
+        payout: a.payout,
+        ...legacyBank,
+        updatedAt: now,
+      });
       forgetSeller(user.uid);
       res.json({ success: true, status: 'PENDING' });
     } catch (err) {
@@ -338,9 +348,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const updates: Record<string, any> = { updatedAt: new Date().toISOString() };
     const priv: Record<string, any> = { updatedAt: updates.updatedAt };
     if (b.phone !== undefined) {
-      const phone = str(b.phone, 20).replace(/[^\d+]/g, '');
-      if (!/^(\+92|0)3\d{9}$/.test(phone)) return res.status(400).json({ error: 'Mobile number must be in the format 03XXXXXXXXX.' });
-      updates.phone = phone;
+      // Checked by the seller's own country (Pakistani numbers stay 03XXXXXXXXX)
+      const country = String((req as any).seller?.countryCode || 'PK');
+      const ph = checkPhone(country, str(b.phone, 30));
+      if (!ph.valid) return res.status(400).json({ error: ph.message || 'Enter a valid mobile number.' });
+      updates.phone = country === 'PK' ? `0${ph.e164.slice(3)}` : ph.e164;
     }
     if (b.city !== undefined) updates.city = str(b.city, 60);
     if (b.logoUrl !== undefined) {
@@ -1354,6 +1366,46 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
+  // Every approved seller gets a unique vendor ID ("AV-PK-00001": country of operation + running
+  // number) and the country orders ship from. The number comes from one counter document in a
+  // transaction, so two approvals never get the same ID.
+  const assignVendorIdentity = async (sellerId: string, s: any) => {
+    const updates: Record<string, any> = {};
+    if (!s.shipsFromCountry) updates.shipsFromCountry = String(s.warehouseCountry || s.countryCode || 'PK').toUpperCase();
+    if (!s.vendorId) {
+      const counterRef = adminDb.collection('counters').doc('vendor_ids');
+      const n = await adminDb.runTransaction(async (tx) => {
+        const snap = await tx.get(counterRef);
+        const next = (Number(snap.data()?.next) || 0) + 1;
+        tx.set(counterRef, { next, updatedAt: new Date().toISOString() }, { merge: true });
+        return next;
+      });
+      updates.vendorId = `AV-${String(s.countryCode || 'PK').toUpperCase()}-${String(n).padStart(5, '0')}`;
+    }
+    if (Object.keys(updates).length) {
+      await sellersCol().doc(sellerId).set(updates, { merge: true });
+      forgetSeller(sellerId);
+    }
+    return updates;
+  };
+
+  // Sellers approved before vendor IDs existed get theirs once, at server start (a few reads)
+  (async () => {
+    try {
+      const snap = await sellersCol().where('status', '==', 'APPROVED').limit(500).get();
+      let n = 0;
+      for (const doc of snap.docs) {
+        const s = doc.data() as any;
+        if (s.vendorId && s.shipsFromCountry) continue;
+        await assignVendorIdentity(doc.id, s);
+        n++;
+      }
+      if (n) console.log(`[vendors] gave ${n} approved seller(s) a vendor ID`);
+    } catch (err: any) {
+      console.warn('[vendors] vendor ID backfill failed:', err?.message);
+    }
+  })();
+
   // Approve / reject / suspend a seller, or change their commission
   app.post('/api/admin/sellers/:id', requireFullAdmin, async (req, res) => {
     const id = String(req.params.id);
@@ -1391,10 +1443,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       await ref.set(updates, { merge: true });
       forgetSeller(id);
+      // Approved: unique vendor ID and the ships-from country
+      const identity = updates.status === 'APPROVED' ? await assignVendorIdentity(id, { ...current, ...updates }) : {};
 
       const statusChanged = updates.status && updates.status !== current.status;
       const changedProducts = statusChanged ? await syncProductsWithSellerStatus(id, updates.status) : 0;
-      res.json({ success: true, changedProducts });
+      res.json({ success: true, changedProducts, ...identity });
     } catch (err) {
       console.error('[admin/sellers update] failed:', err);
       res.status(503).json({ error: 'Could not update the seller. Please try again.' });
@@ -1565,6 +1619,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
                   city: s.city || '',
                   joinedAt: s.createdAt || '',
                   followers: Math.max(0, Number(s.followers) || 0),
+                  shipsFromCountry: String(s.shipsFromCountry || s.warehouseCountry || s.countryCode || 'PK'),
                   ...ratingSummary(s),
                   metrics: metrics
                     ? { orders: metrics.orders, onTimeDelivery: metrics.onTimeDelivery, cancellation: metrics.cancellation, qualityScore: metrics.qualityScore }

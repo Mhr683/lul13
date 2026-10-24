@@ -35,14 +35,31 @@ export interface SellerShop {
   commissionPercent?: number;
   /** Shop / profile picture: a small JPEG data URL or an https link */
   logoUrl?: string;
+  /** Global sellers (src/services/vendorRules.ts) */
+  sellerType?: 'INDIVIDUAL' | 'BUSINESS';
+  businessName?: string;
+  /** Country of operation (ISO code) */
+  countryCode?: string;
+  warehouseCountry?: string;
+  warehouseCity?: string;
+  /** Given when approved: unique vendor ID ("AV-PK-00001") and the country orders ship from */
+  vendorId?: string;
+  shipsFromCountry?: string;
   createdAt: string;
   updatedAt?: string;
 }
 
 /** Seller details only the seller and the store admins can see (seller_private/{ownerUid}) */
 export interface SellerPrivate {
+  /** CNIC (Pakistan); empty for sellers from other countries */
   cnic: string;
+  /** CNIC in Pakistan, national ID / passport number elsewhere */
+  idNumber?: string;
+  /** NTN / VAT / EIN / TRN ... */
+  taxId?: string;
   address: string;
+  /** How the seller is paid (Pakistani bank, IBAN, US routing number or Payoneer) */
+  payout?: import('../services/vendorRules').PayoutDetails;
   bankName: string;
   accountTitle: string;
   accountNumber: string;

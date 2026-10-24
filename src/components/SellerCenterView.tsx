@@ -27,6 +27,9 @@ import { ProductInfoEditor } from './ProductInfoEditor';
 import type { ProductInfo } from '../services/productInfo';
 import { famousBrandIn } from '../services/brandRules';
 import { ShareProductButton } from './ShareProductButton';
+import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services/vendorRules';
+import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
+import { callingCodeOf } from '../services/intlAddress';
 import { ShopCoachReport, type Coach } from './ShopCoachReport';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
@@ -1240,27 +1243,43 @@ const ApplyForm: React.FC<{
 }> = ({ storeName, rejectedReason, emailVerified, defaultName, onResendVerification, onRecheck, onSubmitted }) => {
   const { showToast } = useStore();
   const [form, setForm] = useState({
+    sellerType: 'INDIVIDUAL' as SellerType,
+    countryCode: 'PK',
     shopName: '',
     ownerName: defaultName,
+    businessName: '',
     phone: '',
     city: '',
-    cnic: '',
+    idNumber: '',
+    taxId: '',
     address: '',
-    bankName: '',
-    accountTitle: '',
-    accountNumber: '',
+    warehouseCountry: 'PK',
+    warehouseCity: '',
   });
+  const [payout, setPayout] = useState<PayoutDetails>({ method: 'PK_BANK', accountHolder: '' });
   const [saving, setSaving] = useState(false);
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+  const setPay = (k: keyof PayoutDetails) => (e: React.ChangeEvent<HTMLInputElement>) => setPayout((p) => ({ ...p, [k]: e.target.value }));
+  const isPk = form.countryCode === 'PK';
+  const dial = callingCodeOf(form.countryCode);
+  // What the tax number is called in the seller's country
+  const taxLabel =
+    ({ PK: 'NTN', AE: 'TRN (VAT)', SA: 'VAT number', GB: 'VAT number', US: 'EIN', IN: 'GSTIN', CA: 'Business Number' } as Record<string, string>)[form.countryCode] ||
+    'Tax ID / VAT number';
+  // Choosing a country also suggests its payout method and makes it the warehouse country
+  const chooseCountry = (code: string) => {
+    setForm((f) => ({ ...f, countryCode: code, warehouseCountry: code }));
+    setPayout((p) => ({ ...p, method: code === 'PK' ? 'PK_BANK' : code === 'US' ? 'US_ACH' : 'IBAN' }));
+  };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
       <div>
         <h1 className="text-2xl font-display">Seller application</h1>
         <p className="text-xs text-[#575653]">
-          Fill in these details to sell on {storeName}. Your CNIC and bank details are only visible to the store team, for
-          payouts.
+          Sellers from any country can apply to sell on {storeName}. Your ID, tax number and payout details are only visible
+          to the store team, for verification and payouts.
         </p>
       </div>
       {rejectedReason && (
@@ -1288,7 +1307,7 @@ const ApplyForm: React.FC<{
           e.preventDefault();
           setSaving(true);
           try {
-            await api('/api/seller/apply', { method: 'POST', body: JSON.stringify(form) });
+            await api('/api/seller/apply', { method: 'POST', body: JSON.stringify({ ...form, payout }) });
             showToast('Application sent. Please wait for approval.');
             onSubmitted();
           } catch (err: any) {
@@ -1298,6 +1317,36 @@ const ApplyForm: React.FC<{
           }
         }}
       >
+        {/* Who and where */}
+        <div className="sm:col-span-2">
+          <span className={labelCls}>I am selling as *</span>
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                ['INDIVIDUAL', 'Individual', 'A person selling under their own name'],
+                ['BUSINESS', 'Business / company', 'A registered business (tax number needed)'],
+              ] as const
+            ).map(([v, t, h]) => (
+              <label key={v} className={`p-2.5 border cursor-pointer flex gap-2 ${form.sellerType === v ? 'border-[#0E7A43] bg-[#0E7A43]/[0.06]' : 'border-black/15'}`}>
+                <input type="radio" name="sellerType" checked={form.sellerType === v} onChange={() => setForm((f) => ({ ...f, sellerType: v }))} className="mt-0.5" />
+                <span>
+                  <span className="block text-xs font-bold">{t}</span>
+                  <span className="block text-[11px] text-[#575653]">{h}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <label className={labelCls}>Country of operation *</label>
+          <select className={inputCls} value={form.countryCode} onChange={(e) => chooseCountry(e.target.value)}>
+            {ALL_WORLD_COUNTRIES.map((c) => (
+              <option key={c.isoCode} value={c.isoCode}>
+                {c.flag} {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
         <div>
           <label className={labelCls}>Shop name *</label>
           <input className={inputCls} value={form.shopName} onChange={set('shopName')} placeholder="e.g. Ali Electronics" required />
@@ -1306,34 +1355,130 @@ const ApplyForm: React.FC<{
           <label className={labelCls}>Your full name *</label>
           <input className={inputCls} value={form.ownerName} onChange={set('ownerName')} required />
         </div>
+        {form.sellerType === 'BUSINESS' && (
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Registered business name *</label>
+            <input className={inputCls} value={form.businessName} onChange={set('businessName')} placeholder="As on your trade licence / registration" required />
+          </div>
+        )}
         <div>
           <label className={labelCls}>Mobile number *</label>
-          <input className={inputCls} value={form.phone} onChange={set('phone')} placeholder="03XXXXXXXXX" inputMode="tel" required />
+          <div className="flex">
+            <span className="shrink-0 px-2.5 py-2 border border-r-0 border-black/20 bg-[#F4F3EF] text-xs font-mono font-semibold">+{dial}</span>
+            <input className={inputCls} value={form.phone} onChange={set('phone')} placeholder={isPk ? '03XXXXXXXXX' : 'Local mobile number'} inputMode="tel" required />
+          </div>
         </div>
         <div>
           <label className={labelCls}>City *</label>
-          <input className={inputCls} value={form.city} onChange={set('city')} placeholder="e.g. Lahore" required />
+          <input className={inputCls} value={form.city} onChange={set('city')} placeholder={isPk ? 'e.g. Lahore' : 'e.g. Dubai'} required />
         </div>
         <div>
-          <label className={labelCls}>CNIC *</label>
-          <input className={inputCls} value={form.cnic} onChange={set('cnic')} placeholder="XXXXX-XXXXXXX-X" required />
+          <label className={labelCls}>{isPk ? 'CNIC *' : 'National ID / passport number *'}</label>
+          <input className={inputCls} value={form.idNumber} onChange={set('idNumber')} placeholder={isPk ? 'XXXXX-XXXXXXX-X' : 'As on your ID document'} required />
+        </div>
+        <div>
+          <label className={labelCls}>
+            {taxLabel} {form.sellerType === 'BUSINESS' ? '*' : '(optional)'}
+          </label>
+          <input className={inputCls} value={form.taxId} onChange={set('taxId')} required={form.sellerType === 'BUSINESS'} />
         </div>
         <div className="sm:col-span-2">
-          <label className={labelCls}>Shop / warehouse address *</label>
+          <label className={labelCls}>Business address *</label>
           <textarea className={inputCls} rows={2} value={form.address} onChange={set('address')} required />
         </div>
-        <div>
-          <label className={labelCls}>Bank / wallet *</label>
-          <input className={inputCls} value={form.bankName} onChange={set('bankName')} placeholder="e.g. MCB, Meezan, NayaPay" required />
+
+        {/* Warehouse: where orders are shipped from */}
+        <div className="sm:col-span-2 pt-2 border-t border-black/10">
+          <div className="text-xs font-bold">Warehouse (orders ship from here)</div>
         </div>
         <div>
-          <label className={labelCls}>Account title *</label>
-          <input className={inputCls} value={form.accountTitle} onChange={set('accountTitle')} required />
+          <label className={labelCls}>Warehouse country *</label>
+          <select className={inputCls} value={form.warehouseCountry} onChange={set('warehouseCountry')}>
+            {ALL_WORLD_COUNTRIES.map((c) => (
+              <option key={c.isoCode} value={c.isoCode}>
+                {c.flag} {c.name}
+              </option>
+            ))}
+          </select>
         </div>
-        <div className="sm:col-span-2">
-          <label className={labelCls}>Account number / IBAN *</label>
-          <input className={inputCls} value={form.accountNumber} onChange={set('accountNumber')} required />
+        <div>
+          <label className={labelCls}>Warehouse city *</label>
+          <input className={inputCls} value={form.warehouseCity} onChange={set('warehouseCity')} placeholder="City" required />
         </div>
+
+        {/* Payout */}
+        <div className="sm:col-span-2 pt-2 border-t border-black/10 space-y-2">
+          <div className="text-xs font-bold">How you get paid *</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {PAYOUT_METHODS.map((m) => (
+              <label key={m.id} className={`p-2.5 border cursor-pointer flex gap-2 ${payout.method === m.id ? 'border-[#0E7A43] bg-[#0E7A43]/[0.06]' : 'border-black/15'}`}>
+                <input type="radio" name="payoutMethod" checked={payout.method === m.id} onChange={() => setPayout((p) => ({ ...p, method: m.id }))} className="mt-0.5" />
+                <span>
+                  <span className="block text-xs font-bold">{m.label}</span>
+                  <span className="block text-[11px] text-[#575653]">{m.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {payout.method !== 'PAYONEER' && (
+          <div>
+            <label className={labelCls}>Account holder name *</label>
+            <input className={inputCls} value={payout.accountHolder} onChange={setPay('accountHolder')} required />
+          </div>
+        )}
+        {payout.method !== 'PAYONEER' && (
+          <div>
+            <label className={labelCls}>Bank {payout.method === 'PK_BANK' ? '/ wallet *' : '(optional)'}</label>
+            <input
+              className={inputCls}
+              value={payout.bankName || ''}
+              onChange={setPay('bankName')}
+              placeholder={payout.method === 'PK_BANK' ? 'e.g. MCB, Meezan, NayaPay' : 'e.g. Emirates NBD'}
+              required={payout.method === 'PK_BANK'}
+            />
+          </div>
+        )}
+        {payout.method === 'PK_BANK' && (
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Account number / IBAN *</label>
+            <input className={inputCls} value={payout.accountNumber || ''} onChange={setPay('accountNumber')} placeholder="PK36SCBL0000001123456702" required />
+          </div>
+        )}
+        {payout.method === 'IBAN' && (
+          <>
+            <div>
+              <label className={labelCls}>IBAN *</label>
+              <input className={inputCls} value={payout.iban || ''} onChange={setPay('iban')} placeholder="AE07 0331 2345 6789 0123 456" required />
+            </div>
+            <div>
+              <label className={labelCls}>SWIFT / BIC (optional)</label>
+              <input className={inputCls} value={payout.swift || ''} onChange={setPay('swift')} placeholder="EBILAEAD" />
+            </div>
+          </>
+        )}
+        {payout.method === 'US_ACH' && (
+          <>
+            <div>
+              <label className={labelCls}>Routing number *</label>
+              <input className={inputCls} value={payout.routingNumber || ''} onChange={setPay('routingNumber')} placeholder="9 digits" inputMode="numeric" required />
+            </div>
+            <div>
+              <label className={labelCls}>Account number *</label>
+              <input className={inputCls} value={payout.accountNumber || ''} onChange={setPay('accountNumber')} inputMode="numeric" required />
+            </div>
+          </>
+        )}
+        {payout.method === 'PAYONEER' && (
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Payoneer account email *</label>
+            <input className={inputCls} type="email" value={payout.payoneerEmail || ''} onChange={setPay('payoneerEmail')} required />
+          </div>
+        )}
+        <p className="sm:col-span-2 text-[11px] text-[#575653]">
+          Payouts are sent after delivery and the return window, in PKR or converted by your bank / Payoneer. The store checks
+          these details before approving your shop.
+        </p>
         <div className="sm:col-span-2">
           <button
             type="submit"

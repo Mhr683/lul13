@@ -6,8 +6,15 @@ import { formatPKR } from '../services/abstractions';
 import type { SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 import { SellerAvatar } from './SellerAvatar';
 import { AdminSellerDetail, HEALTH_STYLE } from './AdminSellerDetail';
+import { payoutSummary } from '../services/vendorRules';
+import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 
-// Admin: marketplace sellers (applications, approval, suspension, commission) and payouts.
+// Admin: marketplace sellers from any country (applications, approval, suspension, commission) and payouts.
+
+const countryName = (iso: string) => {
+  const c = ALL_WORLD_COUNTRIES.find((x) => x.isoCode === String(iso || '').toUpperCase());
+  return c ? `${c.flag} ${c.name}` : iso;
+};
 
 type AdminSeller = SellerShop & {
   privateData: SellerPrivate | null;
@@ -129,7 +136,7 @@ export const AdminSellersPanel: React.FC = () => {
   const payout = async (s: AdminSeller) => {
     const reference = window.prompt(
       `Send ${formatPKR(s.summary.available)} to ${s.shopName}.\n\n` +
-        `Bank: ${s.privateData?.bankName || '-'} · ${s.privateData?.accountTitle || '-'} · ${s.privateData?.accountNumber || '-'}\n\n` +
+        `Pay to: ${payoutSummary(s.privateData?.payout, s.privateData || undefined)}\n\n` +
         'After the transfer, enter the bank reference / TID:'
     );
     if (reference === null || !reference.trim()) return;
@@ -335,17 +342,41 @@ export const AdminSellersPanel: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <div className="font-bold">Owner</div>
-                  <div>{s.ownerName}</div>
+                  <div>
+                    {s.ownerName}{' '}
+                    <span className="px-1 border border-black/15 text-[10px]">{s.sellerType === 'BUSINESS' ? 'Business' : 'Individual'}</span>
+                  </div>
+                  {s.businessName && <div className="font-semibold">{s.businessName}</div>}
                   <div>{s.ownerEmail}</div>
                   <div className="font-mono">{s.phone}</div>
-                  <div>{s.city}</div>
+                  <div>
+                    {s.city}
+                    {s.countryCode ? `, ${countryName(s.countryCode)}` : ''}
+                  </div>
+                  {s.vendorId && (
+                    <div className="mt-1">
+                      Vendor ID: <strong className="font-mono">{s.vendorId}</strong>
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <div className="font-bold">CNIC / Bank</div>
-                  <div className="font-mono">{s.privateData?.cnic || '-'}</div>
-                  <div>{s.privateData?.bankName} · {s.privateData?.accountTitle}</div>
-                  <div className="font-mono">{s.privateData?.accountNumber}</div>
+                  <div className="font-bold">Verification / payout</div>
+                  <div>
+                    {(s.countryCode || 'PK') === 'PK' ? 'CNIC' : 'ID / passport'}:{' '}
+                    <span className="font-mono">{s.privateData?.idNumber || s.privateData?.cnic || '-'}</span>
+                  </div>
+                  <div>
+                    Tax ID / VAT: <span className="font-mono">{s.privateData?.taxId || '—'}</span>
+                  </div>
+                  <div className="break-all">{payoutSummary(s.privateData?.payout, s.privateData || undefined)}</div>
                   <div className="text-[#454441]">{s.privateData?.address}</div>
+                  <div>
+                    Ships from:{' '}
+                    <strong>
+                      {s.warehouseCity ? `${s.warehouseCity}, ` : ''}
+                      {countryName(s.shipsFromCountry || s.warehouseCountry || s.countryCode || 'PK')}
+                    </strong>
+                  </div>
                 </div>
                 <div>
                   <div className="font-bold">Account</div>

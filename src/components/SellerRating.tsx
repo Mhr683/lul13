@@ -12,6 +12,8 @@ export type ShopInfo = {
   joinedAt: string;
   /** Customers following the shop (they get an email about new products) */
   followers?: number;
+  /** Country the shop's orders ship from (ISO code) */
+  shipsFromCountry?: string;
   ratingAvg: number;
   ratingCount: number;
   positivePercent: number;

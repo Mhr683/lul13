@@ -5,6 +5,7 @@ import { SellerAvatar } from './SellerAvatar';
 import { FollowStoreButton } from './FollowStoreButton';
 import { ReviewMediaStrip } from './ReviewMedia';
 import { CardShareButton } from './ShareProductButton';
+import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
 import { fetchShop, ProductRatingBadge, SellerRatingBadge, SellerScoreCards, Stars, type ShopInfo } from './SellerRating';
@@ -123,6 +124,17 @@ export const SellerShopPage: React.FC<{
             {shopProducts.length} {shopProducts.length === 1 ? 'product' : 'products'}
             {shop?.city ? ` · ${shop.city}` : ''}
             {joined ? ` · selling since ${joined}` : ''}
+            {shop?.shipsFromCountry && (
+              <>
+                {' · '}ships from{' '}
+                <strong className="text-[#141413]">
+                  {(() => {
+                    const c = ALL_WORLD_COUNTRIES.find((x) => x.isoCode === shop.shipsFromCountry);
+                    return c ? `${c.flag} ${c.name}` : shop.shipsFromCountry;
+                  })()}
+                </strong>
+              </>
+            )}
           </p>
           <SellerRatingBadge shop={shop} className="mt-1" />
           <SellerScoreCards shop={shop} className="mt-3 max-w-md" />
