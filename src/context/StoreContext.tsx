@@ -1041,6 +1041,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           countryIso: destCountryIso,
         },
         paymentMethod: payload.paymentMethod,
+        // Online payment: which gateway (Tazapay / Verifone / Payoneer) the customer picked
+        cardGateway: (payload as any).cardGateway || undefined,
         tid: payload.paymentReference,
         notes: payload.notes,
         destCountryIso,

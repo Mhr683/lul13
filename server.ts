@@ -441,6 +441,8 @@ app.use('/api/returns/upload', express.raw({ type: () => true, limit: '9mb' }));
 app.use('/api/feedback/upload', express.raw({ type: () => true, limit: '21mb' }));
 // Payment webhooks are checked against the exact bytes received (server/cardPayments.ts)
 app.use('/api/payments/tazapay/webhook', express.raw({ type: () => true, limit: '1mb' }));
+app.use('/api/payments/verifone/ipn', express.raw({ type: () => true, limit: '1mb' }));
+app.use('/api/payments/payoneer/notify', express.raw({ type: () => true, limit: '1mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // When the free Firestore database has used up its daily reads, say so plainly instead of the
@@ -2468,9 +2470,10 @@ app.post('/api/admin/verify-payment', requireAdmin, async (req, res) => {
     }
 
     const dbOrder = orderDoc.data();
-    // Card payments are confirmed by the payment gateway only, never by hand
-    if (dbOrder?.paymentMethod === 'CARD') {
-      return res.status(409).json({ error: 'Card payments are verified automatically by the payment gateway.' });
+    // Online payments are confirmed by the gateway; by hand only when the gateway's answer needs a
+    // check (REVIEW: amount differs, or "paid" was reported but not confirmed)
+    if (dbOrder?.paymentMethod === 'CARD' && dbOrder?.paymentStatus !== 'PENDING_VERIFICATION') {
+      return res.status(409).json({ error: 'Online payments are verified automatically by the payment gateway.' });
     }
     const effectiveCustomerEmail = dbOrder?.customerEmail || customerEmail;
 
@@ -2613,6 +2616,7 @@ app.post('/api/admin/verify-payment', requireAdmin, async (req, res) => {
 
 // International card payments (Tazapay hosted checkout). What happens to the orders when the
 // gateway reports the payment; see server/cardPayments.ts for the flow and the .env keys.
+const gatewayName = (id: string) => ({ TAZAPAY: 'Tazapay', VERIFONE: 'Verifone (2Checkout)', PAYONEER: 'Payoneer' } as Record<string, string>)[id] || id;
 const cardEmailSettings = () => {
   const cfg: any = catalogStore.settings() || DEFAULT_SETTINGS;
   return { storeName: cfg?.storeName || 'Store', supportEmail: cfg?.supportEmail, contactEmail: cfg?.contactEmail, currency: 'PKR' };
@@ -2633,7 +2637,7 @@ const cardPayments = setupCardPayments(app, {
           await ref.update({
             paymentStatus: 'REFUND_PENDING',
             paymentReference: info.sessionId.slice(0, 120),
-            paymentVerificationNote: `Card payment of ${amount} arrived after the order was cancelled: refund it from the Tazapay dashboard.`,
+            paymentVerificationNote: `Payment of ${amount} arrived after the order was cancelled: refund it from the ${gatewayName(info.gateway)} dashboard.`,
             updatedAt: now,
           });
           continue;
@@ -2642,9 +2646,9 @@ const cardPayments = setupCardPayments(app, {
         await applyOrderStatusWithStock(ref, {
           status: 'CONFIRMED',
           paymentStatus: 'PAID',
-          paymentSubMethod: 'CARD_TAZAPAY',
+          paymentSubMethod: `CARD_${info.gateway}`,
           paymentReference: info.sessionId.slice(0, 120),
-          paymentVerifiedBy: 'Tazapay (card)',
+          paymentVerifiedBy: `${gatewayName(info.gateway)} (online payment)`,
           paymentVerifiedAt: now,
           paymentVerificationNote: `Card payment received: ${amount} for the whole checkout.`,
           updatedAt: now,
@@ -2652,9 +2656,9 @@ const cardPayments = setupCardPayments(app, {
         if (before.sellerId) marketplace.forgetOrders(before.sellerId);
         const priv = await adminDb.collection('order_private').doc(id).get();
         // The order as just written (no second read)
-        const order = { ...before, status: 'CONFIRMED', paymentStatus: 'PAID', paymentSubMethod: 'CARD_TAZAPAY', paymentReference: info.sessionId.slice(0, 120), paymentVerifiedAt: now } as Order;
+        const order = { ...before, status: 'CONFIRMED', paymentStatus: 'PAID', paymentSubMethod: `CARD_${info.gateway}`, paymentReference: info.sessionId.slice(0, 120), paymentVerifiedAt: now } as Order;
         const settings = cardEmailSettings();
-        await sendPaymentVerifiedEmail(adminDb, order, settings, `Paid by card (${amount}).`).catch((err) =>
+        await sendPaymentVerifiedEmail(adminDb, order, settings, `Paid online via ${gatewayName(info.gateway)} (${amount}).`).catch((err) =>
           console.error('[card] customer email failed:', err?.message)
         );
         const ownerItems = Array.isArray(priv.data()?.items) ? priv.data()!.items : order.items;
@@ -2678,6 +2682,19 @@ const cardPayments = setupCardPayments(app, {
         console.error(`[card] cancelling unpaid order ${id} failed:`, err?.message);
       }
     }
+  },
+  // Could not be confirmed (amount differs, or "paid" was reported but not confirmed): nothing is
+  // cancelled; the order waits for the store to check the gateway and verify the payment by hand
+  onReview: async (orderIds, note) => {
+    const now = new Date().toISOString();
+    for (const id of orderIds) {
+      await adminDb
+        .collection('orders')
+        .doc(id)
+        .update({ paymentStatus: 'PENDING_VERIFICATION', paymentVerificationNote: note.slice(0, 480), updatedAt: now })
+        .catch((err) => console.error(`[card] review flag on ${id} failed:`, err?.message));
+    }
+    console.warn(`[card] payment needs a manual check (orders ${orderIds.join(', ')}): ${note}`);
   },
   onAttemptFailed: async (orderIds) => {
     const now = new Date().toISOString();
@@ -2833,6 +2850,9 @@ app.post('/api/orders/create', async (req, res) => {
         code: 'CARD_NOT_ALLOWED',
       });
     }
+    // Which online gateway the customer picked (the first one set up when none / an unknown one)
+    const cardGateways = cardPayments.enabledIds();
+    const cardGateway = cardGateways.includes(String(req.body.cardGateway || '') as any) ? String(req.body.cardGateway) : cardGateways[0];
 
     if (['NAYAPAY', 'RAAST_IBAN'].includes(paymentMethod) && (!tid || !String(tid).trim())) {
       return res.status(400).json({
@@ -3167,6 +3187,7 @@ app.post('/api/orders/create', async (req, res) => {
             status: initialStatus,
             paymentStatus: initialPaymentStatus,
             paymentMethod: paymentMethod as any,
+            ...(paymentMethod === 'CARD' && cardGateway ? { paymentSubMethod: `CARD_${cardGateway}` } : {}),
             ...((tid || req.body.paymentReference) ? { paymentReference: String(tid || req.body.paymentReference).trim().slice(0, 120) } : {}),
             subtotal: g.subtotal,
             discount: g.discount,
@@ -3258,6 +3279,7 @@ app.post('/api/orders/create', async (req, res) => {
       const totalPkr = Number(result.created.reduce((s, c) => s + (Number(c.order.total) || 0), 0).toFixed(2));
       try {
         const opened = await cardPayments.startCheckout({
+          gateway: cardGateway,
           checkoutId: String(result.order.checkoutId),
           orderIds: result.created.map((c) => c.order.id),
           orderNumbers: result.created.map((c) => c.order.orderNumber),
@@ -3284,7 +3306,7 @@ app.post('/api/orders/create', async (req, res) => {
         });
         paymentUrl = opened.url;
       } catch (payErr: any) {
-        console.error('[card] could not open the payment page:', payErr?.message);
+        console.error(`[card] could not open the ${cardGateway} payment page:`, payErr?.message);
         for (const c of result.created) {
           await applyOrderStatusWithStock(adminDb.collection('orders').doc(c.order.id), {
             status: 'CANCELLED',

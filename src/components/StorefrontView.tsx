@@ -549,15 +549,27 @@ export const StorefrontView: React.FC = () => {
   const isNayaPayAvailable = Boolean(settings.nayapayEnabled ?? true);
   const isManualQuoteAvailable = Boolean(!isNationalPakistan && settings.allowInternationalManualQuotes);
   // International card payment, offered once the store has set up the gateway (one request per visit)
-  const [cardConfig, setCardConfig] = useState<{ enabled: boolean; currency: string; sandbox: boolean; usdToPkr: number } | null>(null);
+  type CardGatewayInfo = { id: string; label: string; note: string; sandbox: boolean };
+  const [cardConfig, setCardConfig] = useState<{ enabled: boolean; currency: string; sandbox: boolean; usdToPkr: number; gateways: CardGatewayInfo[] } | null>(null);
   useEffect(() => {
     if (subView !== 'CHECKOUT' || cardConfig) return;
     fetch('/api/payments/card-config')
       .then((r) => r.json())
-      .then((d) => setCardConfig({ enabled: !!d.enabled, currency: d.currency || 'USD', sandbox: !!d.sandbox, usdToPkr: Number(d.usdToPkr) || 0 }))
-      .catch(() => setCardConfig({ enabled: false, currency: 'USD', sandbox: false, usdToPkr: 0 }));
+      .then((d) =>
+        setCardConfig({
+          enabled: !!d.enabled,
+          currency: d.currency || 'USD',
+          sandbox: !!d.sandbox,
+          usdToPkr: Number(d.usdToPkr) || 0,
+          gateways: Array.isArray(d.gateways) ? d.gateways : [],
+        })
+      )
+      .catch(() => setCardConfig({ enabled: false, currency: 'USD', sandbox: false, usdToPkr: 0, gateways: [] }));
   }, [subView, cardConfig]);
   const isCardAvailable = Boolean(!isNationalPakistan && cardConfig?.enabled);
+  // Gateway chosen for an online payment (Tazapay / Verifone / Payoneer, whichever are set up)
+  const [cardGateway, setCardGateway] = useState('');
+  const selectedCardGateway = cardConfig?.gateways.find((g) => g.id === cardGateway) || cardConfig?.gateways[0];
 
   const availableStates = useMemo(
     () => getStatesForCountry(countryIso),
@@ -1140,6 +1152,7 @@ export const StorefrontView: React.FC = () => {
         paymentMethod,
         paymentSubMethod,
         paymentReference: isCod || isCard ? undefined : effectiveTid,
+        ...({ cardGateway: isCard ? selectedCardGateway?.id : undefined } as any),
         paymentProofDetails: proofSummary,
         notes: customerNote || undefined,
         isQuoteRequest: isQuoteFlow,
@@ -3890,26 +3903,35 @@ export const StorefrontView: React.FC = () => {
                       )}
 
                       {/* International card (Visa / Mastercard), paid on the gateway's secure page */}
-                      {isCardAvailable && cardShippingKnown && (
-                        <button
-                          type="button"
-                          onClick={() => setPaymentMethod('CARD')}
-                          className={`p-3.5 text-center border rounded flex flex-col items-center justify-center gap-2 transition-all cursor-pointer relative ${
-                            paymentMethod === 'CARD'
-                              ? 'border-[#F85606] bg-[#FFF8F5] shadow-xs ring-1 ring-[#F85606]'
-                              : 'border-black/15 bg-white hover:border-black/30'
-                          }`}
-                        >
-                          <div className="w-9 h-9 rounded-full bg-[#1D4ED8] flex items-center justify-center text-white shadow-xs">
-                            <CreditCard className="w-5 h-5" />
-                          </div>
-                          <div className="leading-tight">
-                            <span className="block text-xs font-bold text-[#141413]">Debit / Credit Card</span>
-                            <span className="block text-[10px] text-[#787774] mt-0.5">Visa · Mastercard · paid in {cardConfig?.currency || 'USD'}</span>
-                          </div>
-                          {paymentMethod === 'CARD' && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#F85606]" />}
-                        </button>
-                      )}
+                      {isCardAvailable &&
+                        cardShippingKnown &&
+                        cardConfig!.gateways.map((g) => {
+                          const active = paymentMethod === 'CARD' && selectedCardGateway?.id === g.id;
+                          return (
+                            <button
+                              key={g.id}
+                              type="button"
+                              onClick={() => {
+                                setPaymentMethod('CARD');
+                                setCardGateway(g.id);
+                              }}
+                              className={`p-3.5 text-center border rounded flex flex-col items-center justify-center gap-2 transition-all cursor-pointer relative ${
+                                active ? 'border-[#F85606] bg-[#FFF8F5] shadow-xs ring-1 ring-[#F85606]' : 'border-black/15 bg-white hover:border-black/30'
+                              }`}
+                            >
+                              <div className="w-9 h-9 rounded-full bg-[#1D4ED8] flex items-center justify-center text-white shadow-xs">
+                                <CreditCard className="w-5 h-5" />
+                              </div>
+                              <div className="leading-tight">
+                                <span className="block text-xs font-bold text-[#141413]">{g.label}</span>
+                                <span className="block text-[10px] text-[#787774] mt-0.5">
+                                  {g.note} · paid in {cardConfig?.currency || 'USD'}
+                                </span>
+                              </div>
+                              {active && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#F85606]" />}
+                            </button>
+                          );
+                        })}
 
                       {/* 4. International Customs Quote (only outside Pakistan) */}
                       {isManualQuoteAvailable && (
@@ -3946,7 +3968,7 @@ export const StorefrontView: React.FC = () => {
                           <Lock className="w-4 h-4 text-blue-700" /> Secure card payment
                         </div>
                         <p className="text-[#575653] leading-relaxed">
-                          After you place the order you go to our payment partner's secure page to pay
+                          After you place the order you go to {selectedCardGateway ? `${selectedCardGateway.note}'s` : "our payment partner's"} secure page to pay
                           {cardConfig?.usdToPkr ? (
                             <>
                               {' '}about <strong>USD {(grandTotal / cardConfig.usdToPkr).toFixed(2)}</strong> ({formatPKR(grandTotal)})
@@ -3954,7 +3976,7 @@ export const StorefrontView: React.FC = () => {
                           ) : null}
                           . Your card details never touch this website. The order is confirmed as soon as the payment goes through; unpaid orders are cancelled after 1 hour.
                         </p>
-                        {cardConfig?.sandbox && <p className="text-amber-800 font-semibold">Test mode: use the payment partner's test cards. No real money is charged.</p>}
+                        {selectedCardGateway?.sandbox && <p className="text-amber-800 font-semibold">Test mode: use the payment partner's test cards. No real money is charged.</p>}
                       </div>
                     )}
 

@@ -6,7 +6,7 @@ import { CreditCard, Loader2 } from 'lucide-react';
 // it checks a few times, since the bank's answer can take a moment.
 
 type CardStatus = {
-  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED';
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REVIEW';
   attemptFailed: boolean;
   amount: number;
   currency: string;
@@ -17,7 +17,10 @@ type CardStatus = {
 export const CardPaymentStatus: React.FC<{ checkoutId: string; token: string; onPaid?: () => void }> = ({ checkoutId, token, onPaid }) => {
   const [info, setInfo] = useState<CardStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const returned = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('payment') : null;
+  const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const returned = query?.get('payment') || null;
+  // 2Checkout adds its order number to the return link; the server confirms it with 2Checkout
+  const gatewayRef = query?.get('refno') || '';
 
   useEffect(() => {
     if (!checkoutId || !token) return;
@@ -26,7 +29,9 @@ export const CardPaymentStatus: React.FC<{ checkoutId: string; token: string; on
     let timer: ReturnType<typeof setTimeout> | undefined;
     const check = async () => {
       try {
-        const res = await fetch(`/api/payments/card/${encodeURIComponent(checkoutId)}?token=${encodeURIComponent(token)}`);
+        const res = await fetch(
+          `/api/payments/card/${encodeURIComponent(checkoutId)}?token=${encodeURIComponent(token)}${gatewayRef ? `&ref=${encodeURIComponent(gatewayRef)}` : ''}`
+        );
         const data = await res.json();
         if (!live) return;
         if (!res.ok) return setError(data.error || 'Could not check the payment.');
@@ -59,6 +64,13 @@ export const CardPaymentStatus: React.FC<{ checkoutId: string; token: string; on
     return (
       <div className="p-3 border border-emerald-200 bg-emerald-50 text-xs text-emerald-900 rounded flex items-center gap-2">
         <CreditCard className="w-4 h-4" /> Card payment of <strong>{amount}</strong> received. Your order is confirmed and a confirmation email is on its way.
+      </div>
+    );
+  }
+  if (info.status === 'REVIEW') {
+    return (
+      <div className="p-3 border border-amber-200 bg-amber-50 text-xs text-amber-900 rounded">
+        We received a payment notice for this order and our team is confirming it with the payment provider. You do not need to pay again; we will email you once it is confirmed.
       </div>
     );
   }
