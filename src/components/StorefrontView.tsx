@@ -65,6 +65,7 @@ import { FollowStoreButton } from './FollowStoreButton';
 import { NO_BRAND_LABEL } from '../services/brandRules';
 import { CardShareButton, ShareProductButton } from './ShareProductButton';
 import { callingCodeOf, postalRuleFor } from '../services/intlAddress';
+import { CurrencyNote, CurrencySelector, LocalPrice } from './CurrencyDisplay';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -1271,6 +1272,9 @@ export const StorefrontView: React.FC = () => {
               )}
             </button>
 
+            {/* Show prices in the shopper's currency (payment stays in PKR) */}
+            <CurrencySelector />
+
             <CustomerNotificationsBell onOpenOrder={openOrderTracking} />
 
             <button
@@ -1876,6 +1880,7 @@ export const StorefrontView: React.FC = () => {
                             </span>
                           )}
                         </div>
+                        <LocalPrice pkr={product.price} />
                       </div>
 
                       <button
@@ -2281,6 +2286,7 @@ export const StorefrontView: React.FC = () => {
                             <span className="text-base font-extrabold text-black block">
                               {formatPKR(product.price)}
                             </span>
+                            <LocalPrice pkr={product.price} />
                           </div>
                           <button
                             onClick={() => addToCart(product, 1)}
@@ -2463,6 +2469,7 @@ export const StorefrontView: React.FC = () => {
                           </span>
                         )}
                     </div>
+                    <LocalPrice pkr={selectedProduct.price} className="!text-sm" />
                   </div>
 
                   <p className="text-sm text-[#575653] leading-relaxed">
@@ -4258,8 +4265,10 @@ export const StorefrontView: React.FC = () => {
                       <span>Total Due</span>
                       <span className="font-mono tabular-nums text-right">
                         {formatPKR(grandTotal)}
+                        <LocalPrice pkr={grandTotal} />
                       </span>
                     </div>
+                    <CurrencyNote />
                   </div>
                 </aside>
               </div>
@@ -4791,8 +4800,10 @@ export const StorefrontView: React.FC = () => {
                     <span>Estimated Total</span>
                     <span className="font-mono tabular-nums text-right">
                       {formatPKR(Math.max(0, cartSubtotal - discountAmount))}
+                      <LocalPrice pkr={Math.max(0, cartSubtotal - discountAmount)} />
                     </span>
                   </div>
+                  <CurrencyNote />
                 </div>
 
                 <button

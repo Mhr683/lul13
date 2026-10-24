@@ -37,6 +37,7 @@ import { registerFeedbackRoutes } from './server/feedback';
 import { registerProductExtrasRoutes } from './server/productExtras';
 import { cleanProductInfo } from './src/services/productInfo';
 import { registerFollowRoutes } from './server/follows';
+import { createExchangeRates } from './server/exchangeRates';
 import { checkShippingAddress, addressOneLine } from './src/services/intlAddress';
 import { ALL_WORLD_COUNTRIES } from './src/services/addressAndPaymentVerification';
 import { registerPolicyRoutes } from './server/policy';
@@ -1227,6 +1228,13 @@ const catalogStore = createCatalogStore(adminDb, {
   onListenerError: noteFirestoreError,
 });
 catalogStore.start().catch((err) => console.warn('[Catalog] start failed:', err?.message));
+
+// Exchange rates for showing prices in the customer's currency (one document, refreshed daily)
+const exchangeRates = createExchangeRates(adminDb, {
+  fallbackPkr: () => Number(catalogStore.settings()?.usdToPkrRate) || 278.5,
+});
+exchangeRates.start().catch((err) => console.warn('[rates] start failed:', err?.message));
+exchangeRates.register(app, (name, max) => limitPerIp(name, max) as any);
 
 // Traffic / sales / conversion counters (names come from the catalog copy: no reads)
 const analytics = createAnalytics({
@@ -3047,7 +3055,8 @@ app.post('/api/orders/create', async (req, res) => {
             shippingFee: g.shippingFee,
             total: g.total,
             currency: 'PKR',
-            exchangeRateSnapshot: Number(storeSettings?.usdToPkrRate) || 278.5,
+            // Live USD→PKR of the day (the admin's manual rate only if no live rate is known)
+            exchangeRateSnapshot: Math.round(exchangeRates.usdToPkr() * 100) / 100 || Number(storeSettings?.usdToPkrRate) || 278.5,
             ...(couponData ? { couponCode: couponData.code } : welcomeUsed ? { couponCode: String(welcome.code).toUpperCase() } : {}),
             ...(g.promoDiscount > 0 ? { promoDiscount: g.promoDiscount } : {}),
             ...(welcomeUsed ? { welcomeOfferUsed: true } : {}),
