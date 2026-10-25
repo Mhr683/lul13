@@ -1258,12 +1258,13 @@ export const StorefrontView: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-[#FBFBF9] text-[#141413] overflow-x-clip">
       {/* Slim Announcement Bar with 24/7 Helpline */}
-      <div className="bg-[#141413] text-[#FBFBF9] text-xs py-2 px-6 flex flex-wrap items-center justify-between gap-2 tracking-wide">
-        <span className="truncate">
+      <div className="bg-[#141413] text-[#FBFBF9] text-[11px] sm:text-xs py-1.5 sm:py-2 px-3 sm:px-6 flex flex-wrap items-center justify-center sm:justify-between gap-x-2 gap-y-1 tracking-wide">
+        <span className="truncate max-w-full text-center sm:text-left">
           {settings.announcementText ||
             `Free delivery on orders above PKR ${(settings.domesticFreeShippingThreshold || 10000).toLocaleString()} · Cash on Delivery available`}
         </span>
-        <div className="flex items-center gap-3 text-[11px] shrink-0">
+        {/* Phones: the floating help button below already opens Help & Support */}
+        <div className="hidden sm:flex items-center gap-3 text-[11px] shrink-0">
           <button
             type="button"
             onClick={() => {
@@ -1293,7 +1294,7 @@ export const StorefrontView: React.FC = () => {
       {/* Top Bar Contract: Zone 1 Brand Wordmark | Zone 2 Dropdown Nav Links | Zone 3 Actions */}
       <header className="sticky top-0 z-30 bg-[#FBFBF9]/95 backdrop-blur-md border-b border-black/[0.07]">
         {/* Row 1: brand | search | actions */}
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 sm:gap-5">
+        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-5">
           {/* Mobile / tablet menu hamburger (the nav row only shows on large screens) */}
           <button
             type="button"
@@ -1312,10 +1313,16 @@ export const StorefrontView: React.FC = () => {
               setActiveCollection('ALL');
               setSubView('HOME');
             }}
-            className="shrink-0 cursor-pointer max-w-[52vw] min-w-0"
+            className="cursor-pointer min-w-0 flex-1 sm:flex-none sm:shrink-0 text-left"
             aria-label={`${settings.storeName} home`}
           >
-            <BrandLogo name={settings.storeName} />
+            {/* Phones get the small logo so the cart and login fit on the same row */}
+            <span className="flex sm:hidden min-w-0">
+              <BrandLogo name={settings.storeName} size="sm" className="max-w-full" />
+            </span>
+            <span className="hidden sm:flex">
+              <BrandLogo name={settings.storeName} />
+            </span>
           </button>
 
           {/* Global search */}
@@ -1334,7 +1341,7 @@ export const StorefrontView: React.FC = () => {
           </div>
 
           {/* Primary actions */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -1351,7 +1358,7 @@ export const StorefrontView: React.FC = () => {
             <button
               onClick={() => setSubView('WISHLIST')}
               aria-label="Wishlist"
-              className="p-2 text-[#575653] hover:text-[#141413] transition-colors relative cursor-pointer flex items-center"
+              className="p-2 text-[#575653] hover:text-[#141413] transition-colors relative cursor-pointer hidden sm:flex items-center"
             >
               <Heart className="w-5 h-5 stroke-[1.5]" />
               {wishlist.length > 0 && (
@@ -1359,14 +1366,16 @@ export const StorefrontView: React.FC = () => {
               )}
             </button>
 
-            {/* Show prices in the shopper's currency (payment stays in PKR) */}
-            <CurrencySelector />
+            {/* Show prices in the shopper's currency (payment stays in PKR); on phones it is in the menu */}
+            <span className="hidden sm:flex">
+              <CurrencySelector />
+            </span>
 
             <CustomerNotificationsBell onOpenOrder={openOrderTracking} />
 
             <button
               onClick={() => setCartDrawerOpen(true)}
-              className="px-3 py-2 bg-[#141413] text-[#FBFBF9] text-xs font-medium flex items-center gap-1.5 hover:bg-[#2A2A28] transition-colors whitespace-nowrap cursor-pointer"
+              className="px-2.5 sm:px-3 py-2 bg-[#141413] text-[#FBFBF9] text-xs font-medium flex items-center gap-1.5 hover:bg-[#2A2A28] transition-colors whitespace-nowrap cursor-pointer"
               aria-label="Shopping bag"
             >
               <ShoppingBag className="w-4 h-4 stroke-[1.5]" />
@@ -1382,7 +1391,7 @@ export const StorefrontView: React.FC = () => {
                   setSubView('ACCOUNT');
                 }
               }}
-              className="px-2.5 sm:px-3 py-2 border border-[#141413] text-[#141413] text-xs font-medium hover:bg-[#141413] hover:text-[#FBFBF9] transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+              className="px-2 sm:px-3 py-2 border border-[#141413] text-[#141413] text-xs font-medium hover:bg-[#141413] hover:text-[#FBFBF9] transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5"
               title={firebaseUser ? 'My account' : 'Login / Sign up'}
               aria-label={firebaseUser ? 'My account' : 'Login / Sign up'}
             >
@@ -1459,8 +1468,9 @@ export const StorefrontView: React.FC = () => {
 
         {/* Mobile Search Bar */}
         <div className="sm:hidden px-4 py-2 border-t border-black/[0.05] bg-[#FBFBF9] flex items-center gap-2">
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <GlobalHeaderSearch
+              fullWidth
               products={products}
               categories={categories}
               onSelectProduct={handleSelectProduct}
@@ -1526,6 +1536,23 @@ export const StorefrontView: React.FC = () => {
                 <span>{firebaseUser ? 'My Account' : 'Login / Sign up'}</span>
                 <User className="w-4 h-4 text-neutral-500" />
               </button>
+
+              {/* On phones these two live here instead of the header row */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSubView('WISHLIST');
+                  setMobileMenuOpen(false);
+                }}
+                className="sm:hidden w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
+              >
+                <span>Wishlist{wishlist.length ? ` (${wishlist.length})` : ''}</span>
+                <Heart className="w-4 h-4 text-neutral-500" />
+              </button>
+              <div className="sm:hidden py-2 px-3 flex items-center justify-between text-sm font-semibold text-neutral-800">
+                <span>Show prices in</span>
+                <CurrencySelector />
+              </div>
 
               <button
                 type="button"
@@ -1841,19 +1868,19 @@ export const StorefrontView: React.FC = () => {
             </section>
 
             {/* Section 2: Featured Collection Grid (with Category Filter Bar) */}
-            <section className="max-w-[1360px] mx-auto px-6 py-16 lg:py-24 border-b border-black/[0.07]">
-              <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
+            <section className="max-w-[1360px] mx-auto px-3 sm:px-6 py-8 sm:py-16 lg:py-24 border-b border-black/[0.07]">
+              <div className="flex flex-col md:flex-row md:items-end justify-between mb-4 sm:mb-10 gap-3 sm:gap-6">
                 <div>
-                  <div className="text-xs uppercase tracking-widest text-[#8C6D46] mb-2">
+                  <div className="text-xs uppercase tracking-widest text-[#8C6D46] mb-1 sm:mb-2">
                     Our Products
                   </div>
-                  <h2 className="text-3xl sm:text-4xl font-display font-medium text-[#141413]">
+                  <h2 className="text-2xl sm:text-4xl font-display font-medium text-[#141413]">
                     Featured Products
                   </h2>
                 </div>
 
-                {/* Interactive Segmented Category Filter */}
-                <div className="flex flex-wrap items-center gap-1.5 p-1 bg-[#EBEAE5] border border-black/20">
+                {/* Interactive Segmented Category Filter (phones: one row that scrolls sideways) */}
+                <div className="flex flex-nowrap md:flex-wrap items-center gap-1.5 p-1 bg-[#EBEAE5] border border-black/20 overflow-x-auto no-scrollbar max-w-full">
                   <button
                     onClick={() => {
                       setActiveCategory('ALL');
@@ -1888,19 +1915,19 @@ export const StorefrontView: React.FC = () => {
                 </div>
               </div>
 
-              {/* 3-Column Product Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {/* Product grid: 3 per row on every screen (compact cards on phones) */}
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-6 lg:gap-8">
                 {filteredProducts.slice(0, 12).map((product) => (
                   <article
                     key={product.id}
                     data-pid={product.id}
-                    className="group flex flex-col justify-between border border-black/15 bg-white transition-transform duration-150 hover:-translate-y-0.5 shadow-sm"
+                    className="group flex flex-col justify-between border border-black/15 bg-white transition-transform duration-150 hover:-translate-y-0.5 shadow-sm min-w-0"
                   >
                     <div className="relative">
                       <CardShareButton productId={product.id} productName={product.name} price={product.price} showToast={showToast} />
                       <div
                         onClick={() => handleSelectProduct(product)}
-                        className="aspect-[4/3] w-full bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
+                        className="aspect-square sm:aspect-[4/3] w-full bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
                       >
                         <ProductImage
                           src={product.primaryImage}
@@ -1914,19 +1941,19 @@ export const StorefrontView: React.FC = () => {
                             toggleWishlist(product.id);
                           }}
                           aria-label={`Save ${product.name}`}
-                          className="absolute top-3 right-3 p-2 bg-white/90 text-[#141413] hover:bg-[#141413] hover:text-white transition-colors cursor-pointer"
+                          className="absolute top-1 right-1 sm:top-3 sm:right-3 p-1 sm:p-2 bg-white/90 text-[#141413] hover:bg-[#141413] hover:text-white transition-colors cursor-pointer"
                         >
                           <Heart
-                            className={`w-4 h-4 ${
+                            className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${
                               wishlist.includes(product.id) ? 'fill-current' : ''
                             }`}
                           />
                         </button>
                       </div>
 
-                      <div className="p-5">
-                        {/* Unboxed metadata */}
-                        <div className="flex items-center gap-2 text-xs font-bold text-stone-900 mb-1.5">
+                      <div className="p-1.5 sm:p-5">
+                        {/* Unboxed metadata (phones skip it to keep the card short) */}
+                        <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-stone-900 mb-1.5">
                           <span className="uppercase tracking-wider">{product.brand}</span>
                           <span aria-hidden="true">·</span>
                           <span>{product.category}</span>
@@ -1942,40 +1969,49 @@ export const StorefrontView: React.FC = () => {
 
                         <h3
                           onClick={() => handleSelectProduct(product)}
-                          className="text-base font-extrabold text-black group-hover:text-stone-700 transition-colors cursor-pointer line-clamp-1"
+                          className="text-[11px] sm:text-base font-semibold sm:font-extrabold text-black group-hover:text-stone-700 transition-colors cursor-pointer line-clamp-2 sm:line-clamp-1 leading-tight sm:leading-snug"
                         >
                           {product.name}
                         </h3>
+                        {product.stock <= (product.lowStockThreshold || 5) && (
+                          <div className="sm:hidden text-[10px] text-red-700 font-bold mt-0.5">Only {product.stock} left</div>
+                        )}
 
-                        <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} className="mt-1" />
-                        <ShipsBadge product={product} className="mt-1 ml-1" />
+                        <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} size={9} className="mt-1 !text-[9px] sm:!text-[11px]" />
+                        <span className="hidden sm:inline">
+                          <ShipsBadge product={product} className="mt-1 ml-1" />
+                        </span>
 
-                        <p className="text-xs text-black font-medium mt-1.5 line-clamp-2 leading-relaxed">
+                        <p className="hidden sm:block text-xs text-black font-medium mt-1.5 line-clamp-2 leading-relaxed">
                           {product.shortDescription}
                         </p>
                       </div>
                     </div>
 
-                    <div className="px-5 pb-5 pt-3 border-t border-black/10 flex items-center justify-between gap-4">
-                      <div className="font-mono tabular-nums">
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-base font-extrabold text-black">
+                    <div className="px-1.5 pb-1.5 pt-1 sm:px-5 sm:pb-5 sm:pt-3 border-t border-black/10 flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                      <div className="font-mono tabular-nums min-w-0">
+                        <div className="flex flex-wrap items-baseline gap-x-1.5 sm:gap-x-2">
+                          <span className="text-[11px] sm:text-base font-extrabold text-black">
                             {formatPKR(product.price)}
                           </span>
-                          {product.compareAtPrice && product.compareAtPrice > product.price && (
-                            <span className="text-xs text-stone-600 line-through font-semibold">
-                              {formatPKR(product.compareAtPrice)}
+                          {/* A Number() check: compareAtPrice 0 would otherwise print a stray "0" */}
+                          {Number(product.compareAtPrice) > product.price && (
+                            <span className="text-[9px] sm:text-xs text-stone-600 line-through font-semibold">
+                              {formatPKR(Number(product.compareAtPrice))}
                             </span>
                           )}
                         </div>
-                        <LocalPrice pkr={product.price} />
+                        <span className="hidden sm:block">
+                          <LocalPrice pkr={product.price} />
+                        </span>
                       </div>
 
                       <button
                         onClick={() => addToCart(product, 1)}
-                        className="px-3.5 py-2 bg-black text-white text-xs font-bold hover:bg-stone-800 transition-colors whitespace-nowrap cursor-pointer shadow-sm"
+                        className="w-full sm:w-auto px-1 sm:px-3.5 py-1 sm:py-2 bg-black text-white text-[10px] sm:text-xs font-bold hover:bg-stone-800 transition-colors whitespace-nowrap cursor-pointer shadow-sm"
                       >
-                        Add to Bag
+                        <span className="sm:hidden">Add</span>
+                        <span className="hidden sm:inline">Add to Bag</span>
                       </button>
                     </div>
                   </article>
@@ -2321,18 +2357,19 @@ export const StorefrontView: React.FC = () => {
                   </div>
                 ) : (
                   <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {/* 3 per row on every screen (compact cards on phones) */}
+                  <div className="grid grid-cols-3 gap-1.5 sm:gap-6">
                     {visibleCatalogProducts.map((product) => (
                       <article
                         key={product.id}
                         data-pid={product.id}
-                        className="group flex flex-col justify-between border border-black/[0.07] bg-white"
+                        className="group flex flex-col justify-between border border-black/[0.07] bg-white min-w-0"
                       >
                         <div className="relative">
                           <CardShareButton productId={product.id} productName={product.name} price={product.price} showToast={showToast} />
                           <div
                             onClick={() => handleSelectProduct(product)}
-                            className="aspect-[4/3] bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
+                            className="aspect-square sm:aspect-[4/3] bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
                           >
                             <ProductImage
                               src={product.primaryImage}
@@ -2341,28 +2378,30 @@ export const StorefrontView: React.FC = () => {
                               className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
                             />
                           </div>
-                          <div className="p-4">
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-stone-900 mb-1">
+                          <div className="p-1.5 sm:p-4">
+                            <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-stone-900 mb-1">
                               <span>{product.sku}</span>
                               <span aria-hidden="true">·</span>
                               <span>{product.category}</span>
                             </div>
                             <h3
                               onClick={() => handleSelectProduct(product)}
-                              className="text-base font-extrabold text-black group-hover:text-stone-700 cursor-pointer line-clamp-1"
+                              className="text-[11px] sm:text-base font-semibold sm:font-extrabold text-black group-hover:text-stone-700 cursor-pointer line-clamp-2 sm:line-clamp-1 leading-tight sm:leading-normal"
                             >
                               {product.name}
                             </h3>
-                            <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} className="mt-1" />
-                            <ShipsBadge product={product} className="mt-1 ml-1" />
-                            <p className="text-xs text-black font-medium mt-1 line-clamp-2">
+                            <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} size={9} className="mt-1 !text-[9px] sm:!text-[11px]" />
+                            <span className="hidden sm:inline">
+                              <ShipsBadge product={product} className="mt-1 ml-1" />
+                            </span>
+                            <p className="hidden sm:block text-xs text-black font-medium mt-1 line-clamp-2">
                               {product.shortDescription}
                             </p>
                             {product.sellerId && product.sellerName && (
                               <button
                                 type="button"
                                 onClick={() => openShop(product.sellerId!)}
-                                className="mt-1.5 text-[11px] font-semibold text-[#0E7A43] hover:underline cursor-pointer truncate max-w-full"
+                                className="hidden sm:block mt-1.5 text-[11px] font-semibold text-[#0E7A43] hover:underline cursor-pointer truncate max-w-full"
                               >
                                 by {product.sellerName} · visit store
                               </button>
@@ -2370,18 +2409,21 @@ export const StorefrontView: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="px-4 pb-4 pt-3 border-t border-black/10 flex items-center justify-between">
-                          <div className="font-mono tabular-nums">
-                            <span className="text-base font-extrabold text-black block">
+                        <div className="px-1.5 pb-1.5 pt-1 sm:px-4 sm:pb-4 sm:pt-3 border-t border-black/10 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                          <div className="font-mono tabular-nums min-w-0">
+                            <span className="text-[11px] sm:text-base font-extrabold text-black block">
                               {formatPKR(product.price)}
                             </span>
-                            <LocalPrice pkr={product.price} />
+                            <span className="hidden sm:block">
+                              <LocalPrice pkr={product.price} />
+                            </span>
                           </div>
                           <button
                             onClick={() => addToCart(product, 1)}
-                            className="px-3.5 py-1.5 bg-black text-white text-xs font-bold hover:bg-stone-800 transition-colors cursor-pointer shadow-sm"
+                            className="w-full sm:w-auto px-1 sm:px-3.5 py-1 sm:py-1.5 bg-black text-white text-[10px] sm:text-xs font-bold hover:bg-stone-800 transition-colors cursor-pointer shadow-sm whitespace-nowrap"
                           >
-                            Add to Bag
+                            <span className="sm:hidden">Add</span>
+                            <span className="hidden sm:inline">Add to Bag</span>
                           </button>
                         </div>
                       </article>
@@ -5466,7 +5508,7 @@ export const StorefrontView: React.FC = () => {
       {/* 8. FLOATING 24/7 HELPLINE & CLIENT CONCIERGE WIDGET */}
       {/* Quick access to AI Chat, WhatsApp direct chat, and Email Tickets */}
       {/* ========================================================================= */}
-      <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
+      <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center gap-2">
         {/* Direct WhatsApp Instant Chat Launch Pill */}
         <a
           href={`https://wa.me/${settings.helplineWhatsApp || ''}?text=${encodeURIComponent(
@@ -5487,13 +5529,15 @@ export const StorefrontView: React.FC = () => {
             setHelplineInitialTab('AI_CHAT');
             setIsHelplineOpen(true);
           }}
-          className="px-4 py-2.5 rounded-full bg-[#141413] hover:bg-[#2A2A28] text-[#FBFBF9] shadow-xl border border-white/20 flex items-center gap-2.5 transition-transform hover:scale-105 active:scale-95 cursor-pointer text-xs font-medium"
+          aria-label="24/7 Helpline & AI"
+          className="w-11 h-11 sm:w-auto sm:h-auto justify-center sm:px-4 sm:py-2.5 rounded-full bg-[#141413] hover:bg-[#2A2A28] text-[#FBFBF9] shadow-xl border border-white/20 flex items-center gap-2.5 transition-transform hover:scale-105 active:scale-95 cursor-pointer text-xs font-medium"
         >
           <div className="relative flex items-center justify-center">
-            <Headphones className="w-4 h-4 text-emerald-400" />
+            <Headphones className="w-5 h-5 sm:w-4 sm:h-4 text-emerald-400" />
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
           </div>
-          <span className="font-semibold tracking-wide">24/7 Helpline & AI</span>
+          {/* Phones: icon only, so it does not cover the page */}
+          <span className="hidden sm:inline font-semibold tracking-wide">24/7 Helpline & AI</span>
         </button>
       </div>
 

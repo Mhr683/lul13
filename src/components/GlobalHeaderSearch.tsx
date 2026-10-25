@@ -9,6 +9,8 @@ interface GlobalHeaderSearchProps {
   categories: { id: string; name: string }[];
   onSelectProduct: (product: Product) => void;
   onViewAllResults: (query: string, category?: string) => void;
+  /** Phone search row: the box and its results take the full width */
+  fullWidth?: boolean;
 }
 
 export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
@@ -16,6 +18,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
   categories,
   onSelectProduct,
   onViewAllResults,
+  fullWidth = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -151,7 +154,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
     <div ref={containerRef} className="relative">
       {/* Desktop & Mobile Trigger / Search Input */}
       <div className="relative flex items-center">
-        <form onSubmit={handleSubmit} className="relative flex items-center">
+        <form onSubmit={handleSubmit} className={`relative flex items-center ${fullWidth ? 'w-full' : ''}`}>
           <input
             ref={inputRef}
             type="text"
@@ -163,9 +166,11 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
             }}
             placeholder="Search products..."
             className={`pl-9 pr-8 py-1.5 text-xs text-[#141413] bg-[#F3F2EE] border transition-all duration-200 placeholder:text-[#8C8A85] focus:outline-none focus:bg-white focus:border-[#141413] ${
+              fullWidth ? 'w-full py-2 text-sm ' : ''
+            }${
               isOpen
-                ? 'w-64 sm:w-80 md:w-96 border-[#141413] bg-white shadow-sm ring-1 ring-black/5'
-                : 'w-48 sm:w-60 md:w-72 border-black/10 hover:border-black/25'
+                ? `${fullWidth ? '' : 'w-64 sm:w-80 md:w-96 '}border-[#141413] bg-white shadow-sm ring-1 ring-black/5`
+                : `${fullWidth ? '' : 'w-48 sm:w-60 md:w-72 '}border-black/10 hover:border-black/25`
             }`}
           />
           <Search className="w-3.5 h-3.5 text-[#787774] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -194,7 +199,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
 
       {/* Luxury Search Results Dropdown Overlay */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-[340px] sm:w-[460px] md:w-[540px] bg-white border border-black/15 shadow-2xl z-50 overflow-hidden divide-y divide-black/[0.06] animate-in fade-in slide-in-from-top-1 duration-150">
+        <div className={`absolute right-0 top-full mt-2 ${fullWidth ? 'left-0 w-full' : 'w-[340px] sm:w-[460px] md:w-[540px]'} bg-white border border-black/15 shadow-2xl z-50 overflow-hidden divide-y divide-black/[0.06] animate-in fade-in slide-in-from-top-1 duration-150`}>
           {/* Category Filter Chips */}
           <div className="p-3 bg-[#FAF9F6] flex items-center gap-1.5 overflow-x-auto text-[11px] font-medium no-scrollbar">
             <span className="text-[#8C6D46] uppercase tracking-wider text-[10px] font-semibold shrink-0 mr-1 flex items-center gap-1">

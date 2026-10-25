@@ -20,13 +20,13 @@ export const productShareUrl = (productId: string) => `${storeOrigin()}/p/${enco
  * can open below the picture. Clicks on it do not open the product.
  */
 export const CardShareButton: React.FC<{ productId: string; productName: string; price?: number; showToast?: (msg: string) => void }> = (props) => (
-  <div className="absolute top-3 left-3 z-20" onClick={(e) => e.stopPropagation()}>
+  <div className="absolute top-1 left-1 sm:top-3 sm:left-3 z-20" onClick={(e) => e.stopPropagation()}>
     <ShareProductButton
       {...props}
       variant="icon"
       align="left"
-      iconClassName="w-4 h-4"
-      className="p-2 bg-white/90 text-[#141413] hover:bg-[#141413] hover:text-white transition-colors cursor-pointer shadow-sm"
+      iconClassName="w-3.5 h-3.5 sm:w-4 sm:h-4"
+      className="p-1 sm:p-2 bg-white/90 text-[#141413] hover:bg-[#141413] hover:text-white transition-colors cursor-pointer shadow-sm"
     />
   </div>
 );
