@@ -337,6 +337,8 @@ export interface Order {
   paymentVerificationNote?: string;
   cancellationReason?: string;
   cancelledAt?: string;
+  /** The customer asked to cancel after the free-cancel time (src/services/cancelPolicy.ts) */
+  cancelRequest?: import('../services/cancelPolicy').CancelRequest;
   /** Set by the server: true while this order's items are back in stock (cancelled/returned) */
   stockReleased?: boolean;
   /** Seller who ships this order; one checkout creates one order per seller */

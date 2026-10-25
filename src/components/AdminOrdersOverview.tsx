@@ -155,6 +155,9 @@ export const AdminOrdersOverview: React.FC = () => {
                   <span className="font-mono font-bold">{o.orderNumber}</span>
                   <span>
                     <span className={`px-2 py-0.5 border text-[10px] font-bold ${tone(o.status)}`}>{o.status.replace(/_/g, ' ')}</span>
+                    {o.cancelRequest?.status === 'PENDING' && !CLOSED.includes(o.status) && (
+                      <span className="ml-1 px-2 py-0.5 border border-rose-300 bg-rose-50 text-rose-800 text-[10px] font-bold">Cancel requested</span>
+                    )}
                   </span>
                   <span className="truncate">{o.customerName}</span>
                   <span className="truncate text-[#454441]">{o.sellerName || 'Store'}</span>
@@ -190,6 +193,13 @@ export const AdminOrdersOverview: React.FC = () => {
                           <span className="font-mono">{o.trackingNumber || 'not shipped yet'}</span>
                         </div>
                         {o.cancellationReason && <div className="text-rose-800">Reason: {o.cancellationReason}</div>}
+                        {o.cancelRequest && (
+                          <div className={o.cancelRequest.status === 'PENDING' ? 'text-rose-800 font-semibold' : 'text-[#575653]'}>
+                            Customer cancel request ({o.cancelRequest.status.toLowerCase()}): {o.cancelRequest.reason}
+                            {o.cancelRequest.note ? ` — "${o.cancelRequest.note}"` : ''}
+                            {o.cancelRequest.reply ? ` · Seller: ${o.cancelRequest.reply}` : ''}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <OrderTimeline order={o} compact />

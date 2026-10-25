@@ -1755,6 +1755,7 @@ const SellerOrderCard: React.FC<{
   const { settings, showToast } = useStore();
   const [courier, setCourier] = useState(o.courierName || 'TCS');
   const [tracking, setTracking] = useState(o.trackingNumber || '');
+  const [declineReply, setDeclineReply] = useState('');
   const closed = ['CANCELLED', 'RETURNED', 'REFUNDED', 'DELIVERED'].includes(o.status);
   const shipped = ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status);
   const btn = 'px-2.5 py-1.5 text-[11px] font-semibold border cursor-pointer disabled:opacity-50';
@@ -1868,6 +1869,39 @@ const SellerOrderCard: React.FC<{
                 ✓ Sent to supplier
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* The customer asked to cancel after the free-cancel time: accept (cancels the order) or decline */}
+      {!closed && o.cancelRequest?.status === 'PENDING' && (
+        <div className="p-3 bg-rose-50 border border-rose-300 space-y-2">
+          <div className="font-bold text-rose-900">
+            The customer asked to cancel this order: {o.cancelRequest.reason}
+            {o.cancelRequest.note ? ` — "${o.cancelRequest.note}"` : ''}
+          </div>
+          <div className="text-[#454441]">
+            If the parcel is not packed yet, please accept. Decline only when it is already being packed or sent, and say why.
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" disabled={busy} onClick={() => act(o, { status: 'CANCELLED' })} className={`${btn} bg-rose-700 text-white border-rose-700`}>
+              Accept and cancel order
+            </button>
+            <input
+              value={declineReply}
+              onChange={(e) => setDeclineReply(e.target.value)}
+              placeholder="Why it cannot be cancelled (e.g. already packed)"
+              maxLength={200}
+              className="flex-1 min-w-[180px] px-2 py-1.5 border border-black/20 bg-white"
+            />
+            <button
+              type="button"
+              disabled={busy || declineReply.trim().length < 5}
+              onClick={() => act(o, { reply: declineReply.trim() }, '/api/seller/orders/cancel-request/decline')}
+              className={`${btn} bg-white border-black/30`}
+            >
+              Decline
+            </button>
           </div>
         </div>
       )}

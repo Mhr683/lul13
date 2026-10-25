@@ -159,7 +159,7 @@ service cloud.firestore {
           'subtotal', 'discount', 'tax', 'shippingFee', 'total', 'currency', 'exchangeRateSnapshot',
           'couponCode', 'shippingAddressSummary', 'shippingAddress', 'shippingCalculationSnapshot',
           'trackingNumber', 'courierName', 'shipments', 'confirmedByCustomer', 'confirmedAt', 'confirmedBy',
-          'cancellationReason', 'cancelledAt', 'stockReleased', 'trackingEvents',
+          'cancellationReason', 'cancelledAt', 'cancelRequest', 'stockReleased', 'trackingEvents',
           'sellerId', 'sellerName', 'checkoutId', 'returnRequestStatus', 'lateNoticeAt',
           'promoDiscount', 'referredBy', 'referralFirstOrder', 'welcomeOfferUsed',
           'quoteAmount', 'quoteCourier', 'quoteEstimatedDays',
@@ -210,6 +210,8 @@ service cloud.firestore {
         (!('confirmedAt' in data) || (data.confirmedAt is string && data.confirmedAt.size() <= 64)) &&
         (!('confirmedBy' in data) || (data.confirmedBy is string && data.confirmedBy.size() <= 150)) &&
         (!('cancellationReason' in data) || (data.cancellationReason is string && data.cancellationReason.size() <= 500)) &&
+        // Customer's cancel request and the seller's answer (written by the server)
+        (!('cancelRequest' in data) || (data.cancelRequest is map && data.cancelRequest.size() <= 8)) &&
         (!('cancelledAt' in data) || (data.cancelledAt is string && data.cancelledAt.size() <= 64)) &&
         (!('stockReleased' in data) || data.stockReleased is bool) &&
         (!('trackingEvents' in data) || (data.trackingEvents is list && data.trackingEvents.size() <= 60)) &&

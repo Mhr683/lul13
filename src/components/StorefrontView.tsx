@@ -70,6 +70,7 @@ import { setVisitorCountry, useVisitorCountry } from '../services/currency';
 import { routingScore } from '../services/productShipping';
 import { ShipsBadge } from './ShipsBadge';
 import { CardPaymentStatus } from './CardPaymentStatus';
+import { OrderCancelBox } from './OrderCancelBox';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -4687,6 +4688,9 @@ export const StorefrontView: React.FC = () => {
                         </div>
                       )}
 
+                      {/* Cancel within the free-cancel time, or ask the seller (src/services/cancelPolicy.ts) */}
+                      <OrderCancelBox order={order} token={order.orderAccessToken || tokenForOrder(order.orderNumber)} onDone={(m) => showToast?.(m)} />
+
                       {/* Order Fulfillment Stepper Timeline */}
                       <div className="grid grid-cols-5 gap-2 pt-2">
                         {(['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'] as const).map(
@@ -5428,47 +5432,17 @@ export const StorefrontView: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Customer Cancellation Option for PENDING orders */}
-                    {(trackedOrder.status === 'PENDING' || trackedOrder.status === 'PENDING_CONFIRMATION') && (
-                      <div className="border-t border-black/[0.06] pt-3 flex items-center justify-between">
-                        <span className="text-[11px] text-[#787774]">
-                          Order is currently pending fulfillment. You may cancel it to restore items.
-                        </span>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (!window.confirm('Are you sure you want to cancel this order?')) return;
-                            try {
-                              const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-                              const cRes = await fetch('/api/orders/cancel', {
-                                method: 'POST',
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                                },
-                                body: JSON.stringify({
-                                  orderNumber: trackedOrder.orderNumber,
-                                  orderAccessToken: trackingTokenInput || confirmedOrderAccessToken,
-                                  reason: 'Cancelled by customer',
-                                }),
-                              });
-                              const cData = await cRes.json();
-                              if (cRes.ok) {
-                                showToast?.('Order cancelled and inventory restored.');
-                                handleTrackOrder(trackedOrder.orderNumber, trackingTokenInput);
-                              } else {
-                                showToast?.(cData.error || 'Failed to cancel order.');
-                              }
-                            } catch {
-                              showToast?.('Network error cancelling order.');
-                            }
-                          }}
-                          className="px-3.5 py-1.5 border border-red-300 text-red-700 hover:bg-red-50 text-xs font-medium cursor-pointer"
-                        >
-                          Cancel Order
-                        </button>
-                      </div>
-                    )}
+                    {/* Cancel within the free-cancel time, or ask the seller (src/services/cancelPolicy.ts) */}
+                    <div className="border-t border-black/[0.06] pt-3">
+                      <OrderCancelBox
+                        order={trackedOrder}
+                        token={trackingTokenInput || confirmedOrderAccessToken || ''}
+                        onDone={(m) => {
+                          showToast?.(m);
+                          handleTrackOrder(trackedOrder.orderNumber, trackingTokenInput || confirmedOrderAccessToken || '');
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               )}

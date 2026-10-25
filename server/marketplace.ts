@@ -935,8 +935,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (courierName) updates.courierName = courierName;
       if (status === 'DELIVERED' && order.paymentMethod === 'COD') updates.paymentStatus = 'PAID';
       if (status === 'CANCELLED') {
-        updates.cancellationReason = str(req.body?.reason, 300) || `Cancelled by seller (${(req as any).seller.shopName})`;
+        // Cancelling an order the customer asked to cancel accepts their request
+        const asked = order.cancelRequest?.status === 'PENDING';
+        updates.cancellationReason =
+          str(req.body?.reason, 300) ||
+          (asked ? `Cancelled at the customer's request: ${order.cancelRequest.reason}` : `Cancelled by seller (${(req as any).seller.shopName})`);
         updates.cancelledAt = updates.updatedAt;
+        if (asked) updates.cancelRequest = { ...order.cancelRequest, status: 'APPROVED', decidedAt: updates.updatedAt, decidedBy: 'seller' };
+        // Money already taken online goes back to the customer
+        if (order.paymentMethod === 'CARD' && order.paymentStatus === 'PAID') updates.paymentStatus = 'REFUND_PENDING';
       }
       await d.applyOrderStatusWithStock(ref, updates);
       forgetOrders(uid);
@@ -945,6 +952,35 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (d.isInsufficientStockError(err)) return res.status(409).json({ error: (err as Error).message });
       console.error('[seller/orders/status] failed:', err);
       res.status(503).json({ error: 'Could not update the status. Please try again.' });
+    }
+  });
+
+  // The customer asked to cancel after the free-cancel time: the seller accepts with the usual
+  // Cancel button (status CANCELLED), or declines here with a short reason the customer sees
+  app.post('/api/seller/orders/cancel-request/decline', requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const reply = str(req.body?.reply, 200);
+    if (reply.length < 5) return res.status(400).json({ error: 'Tell the customer why the order cannot be cancelled (e.g. "already packed").' });
+    try {
+      const own = await loadOwnOrder(uid, String(req.body?.orderId || ''));
+      if (!own) return res.status(404).json({ error: 'Order not found.' });
+      const now = new Date().toISOString();
+      await adminDb.runTransaction(async (tx) => {
+        const snap = await tx.get(own.ref);
+        const o = snap.data() as any;
+        if (o?.cancelRequest?.status !== 'PENDING') throw new Error('NO_REQUEST');
+        tx.update(own.ref, {
+          cancelRequest: { ...o.cancelRequest, status: 'REJECTED', reply, decidedAt: now, decidedBy: 'seller' },
+          updatedAt: now,
+          trackingEvents: d.appendTrackingEvent(o.trackingEvents, { at: now, note: `The seller could not cancel the order: ${reply}` }),
+        });
+      });
+      forgetOrders(uid);
+      res.json({ success: true });
+    } catch (err: any) {
+      if (err?.message === 'NO_REQUEST') return res.status(409).json({ error: 'There is no open cancel request on this order.' });
+      console.error('[seller/orders/cancel-request] failed:', err);
+      res.status(503).json({ error: 'Could not save your answer. Please try again.' });
     }
   });
 

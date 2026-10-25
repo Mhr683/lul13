@@ -31,6 +31,7 @@ import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus, OrderShipment }
 import { ShippingCalculationService, generateCourierTrackingUrl } from './src/services/shippingService';
 import { shipsToCountry } from './src/services/productShipping';
 import { setupCardPayments } from './server/cardPayments';
+import { CANCEL_POLICY, CANCEL_REASONS, cancelOptionFor, codPausedUntil, recentStrikes, type CancelOption, type CancelRequest } from './src/services/cancelPolicy';
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
 import { createCatalogStore } from './server/catalogStore';
@@ -2850,6 +2851,23 @@ app.post('/api/orders/create', async (req, res) => {
         code: 'CARD_NOT_ALLOWED',
       });
     }
+    // Too many cancelled orders on this number pause Cash on Delivery (src/services/cancelPolicy.ts);
+    // one small read, only for COD orders
+    if (paymentMethod === 'COD') {
+      try {
+        const flags = await adminDb.collection('customer_flags').doc(phoneKey(cleanPhone)).get();
+        const until = codPausedUntil((flags.data()?.cancels as string[]) || []);
+        if (until) {
+          return res.status(400).json({
+            error: `COD is paused for this number until ${new Date(until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} because ${CANCEL_POLICY.STRIKE_LIMIT} or more orders were cancelled in the last ${CANCEL_POLICY.STRIKE_DAYS} days. Please pay in advance (bank transfer, NayaPay or card).`,
+            code: 'COD_PAUSED',
+          });
+        }
+      } catch (flagErr: any) {
+        console.warn('[orders/create] cancellation check skipped:', flagErr?.message);
+      }
+    }
+
     // Which online gateway the customer picked (the first one set up when none / an unknown one)
     const cardGateways = cardPayments.enabledIds();
     const cardGateway = cardGateways.includes(String(req.body.cardGateway || '') as any) ? String(req.body.cardGateway) : cardGateways[0];
@@ -3493,6 +3511,8 @@ app.get('/api/orders/track', async (req, res) => {
         paymentReference: orderData.paymentReference,
         // Card orders: the tracking page checks the payment with this (and the order's token)
         ...(orderData.paymentMethod === 'CARD' ? { checkoutId: orderData.checkoutId } : {}),
+        // The customer's cancel request and the seller's answer (src/services/cancelPolicy.ts)
+        cancelRequest: (orderData as any).cancelRequest || null,
         subtotal: orderData.subtotal,
         discount: orderData.discount,
         shippingFee: orderData.shippingFee,
@@ -3641,30 +3661,79 @@ app.post('/api/orders/cancel', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to cancel this order.' });
     }
 
-    // New orders start as PENDING_CONFIRMATION; customers may cancel until the store confirms them
-    if (!callerIsAdmin && !['PENDING_CONFIRMATION', 'PENDING', 'QUOTE_REQUESTED'].includes(orderData.status)) {
-      return res.status(400).json({
-        error: `Cannot cancel order with status "${orderData.status}". Only orders that are not yet confirmed can be cancelled.`,
-      });
-    }
-
     if (['CANCELLED', 'REFUNDED'].includes(orderData.status)) {
       return res.status(400).json({ error: 'Order is already cancelled or refunded.' });
     }
 
+    // Customers: the shared cancel policy decides (src/services/cancelPolicy.ts) — cancel at once
+    // inside the time window, otherwise a request the seller answers; never once packed
+    const option = callerIsAdmin ? ({ mode: 'INSTANT', endsAt: null, strike: false } as CancelOption) : cancelOptionFor(orderData);
+    if (option.mode === 'NONE') return res.status(400).json({ error: option.why, code: 'CANCEL_NOT_ALLOWED' });
+    const customerReason = String(reason || '').trim();
+    if (!callerIsAdmin && !(CANCEL_REASONS as readonly string[]).includes(customerReason)) {
+      return res.status(400).json({ error: 'Please choose why you want to cancel.', code: 'CANCEL_REASON_REQUIRED' });
+    }
+    const note = String(req.body.note || '').trim().slice(0, 300);
+    const fullReason = (callerIsAdmin ? String(reason || 'Cancelled by the store') : `Cancelled by customer: ${customerReason}${note ? ` (${note})` : ''}`).slice(0, 500);
+    const now = new Date().toISOString();
+
+    // Every customer cancellation (or request) is a strike on the delivery number; enough of them
+    // pause Cash on Delivery (one small document per number: 1 read + 1 write per cancellation)
+    let strikes: number | null = null;
+    let codPause: string | null = null;
+    if (!callerIsAdmin && (option.mode === 'REQUEST' || option.strike) && orderData.customerPhone) {
+      try {
+        const flagRef = adminDb.collection('customer_flags').doc(phoneKey(orderData.customerPhone));
+        const cancels = await adminDb.runTransaction(async (tx) => {
+          const snap = await tx.get(flagRef);
+          const list = [...((snap.data()?.cancels as string[]) || []), now].slice(-10);
+          tx.set(flagRef, { cancels: list, updatedAt: now }, { merge: true });
+          return list;
+        });
+        strikes = recentStrikes(cancels);
+        codPause = codPausedUntil(cancels);
+      } catch (flagErr: any) {
+        console.warn('[orders/cancel] strike not recorded:', flagErr?.message);
+      }
+    }
+
+    if (option.mode === 'REQUEST') {
+      // Too late to cancel alone: the seller (or the store) accepts or declines
+      const request: CancelRequest = { status: 'PENDING', reason: customerReason, ...(note ? { note } : {}), at: now };
+      try {
+        await adminDb.runTransaction(async (tx) => {
+          const fresh = await tx.get(orderDocRef!);
+          tx.update(orderDocRef!, {
+            cancelRequest: request,
+            updatedAt: now,
+            trackingEvents: appendTrackingEvent(fresh.data()?.trackingEvents, { at: now, note: `You asked to cancel this order (${customerReason}). Waiting for the seller's reply.` }),
+          });
+        });
+      } catch (e: any) {
+        console.error('Cancel request failed:', e);
+        return res.status(503).json({ error: 'Could not send the cancel request. Please try again.' });
+      }
+      if (orderData.sellerId) marketplace.forgetOrders(orderData.sellerId);
+      return res.json({ success: true, mode: 'REQUEST', strikes, codPausedUntil: codPause, message: 'Cancel request sent. The seller will reply soon.' });
+    }
+
     // Cancel and put the items back in stock (once) in one transaction
     try {
-      const cancelledAt = new Date().toISOString();
+      const paidOnline = orderData.paymentMethod === 'CARD' && orderData.paymentStatus === 'PAID';
       await applyOrderStatusWithStock(orderDocRef!, {
         status: 'CANCELLED',
-        cancellationReason: String(reason || 'Cancelled by customer/operator').slice(0, 500),
-        cancelledAt,
-        updatedAt: cancelledAt,
-      });
+        cancellationReason: fullReason,
+        cancelledAt: now,
+        updatedAt: now,
+        // Money already taken by card goes back to the customer
+        ...(paidOnline ? { paymentStatus: 'REFUND_PENDING' } : {}),
+        ...(orderData.cancelRequest?.status === 'PENDING' ? { cancelRequest: { ...orderData.cancelRequest, status: 'APPROVED', decidedAt: now, decidedBy: 'store' } } : {}),
+      } as any);
     } catch (e: any) {
       console.error('Firestore cancel transaction failed:', e);
       return res.status(503).json({ error: 'Service temporarily unavailable: failed to cancel order in database.' });
     }
+    if (orderData.sellerId) marketplace.forgetOrders(orderData.sellerId);
 
     // Send real transactional email for cancelled order to customer via Resend
     // If sending fails, it is logged in email_logs and never breaks order cancellation
@@ -3679,7 +3748,7 @@ app.post('/api/orders/cancel', async (req, res) => {
         await sendOrderCancelledEmail(
           adminDb,
           orderData,
-          reason || 'Cancelled upon customer request or payment verification failure.',
+          fullReason,
           {
             storeName: storeCfg?.storeName || 'Store',
             supportEmail: storeCfg?.supportEmail,
@@ -3693,7 +3762,10 @@ app.post('/api/orders/cancel', async (req, res) => {
 
     res.json({
       success: true,
+      mode: 'INSTANT',
       orderNumber: orderData.orderNumber,
+      strikes,
+      codPausedUntil: codPause,
       message: 'Order cancelled successfully and product inventory has been restored.',
     });
   } catch (err: any) {
@@ -4045,8 +4117,11 @@ app.post('/api/orders/update-status', requireAdmin, async (req, res) => {
       updates.paymentStatus = 'REFUND_PENDING';
     }
     if (status === 'CANCELLED' && orderData.status !== 'CANCELLED') {
-      updates.cancellationReason = String(reason || 'Cancelled by store').slice(0, 480);
+      const asked = (orderData as any).cancelRequest?.status === 'PENDING';
+      updates.cancellationReason = String(reason || (asked ? `Cancelled at the customer's request: ${(orderData as any).cancelRequest.reason}` : 'Cancelled by store')).slice(0, 480);
       updates.cancelledAt = now;
+      // Cancelling an order the customer asked to cancel accepts their request
+      if (asked) (updates as any).cancelRequest = { ...(orderData as any).cancelRequest, status: 'APPROVED', decidedAt: now, decidedBy: 'store' };
     }
 
     // Status and stock change together (stock back on cancel/return, taken again on reactivation)
