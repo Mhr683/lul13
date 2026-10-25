@@ -71,6 +71,7 @@ import { routingScore } from '../services/productShipping';
 import { ShipsBadge } from './ShipsBadge';
 import { CardPaymentStatus } from './CardPaymentStatus';
 import { OrderCancelBox } from './OrderCancelBox';
+import { HeroSlider, TrendingTicker } from './HeroSlider';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -79,7 +80,6 @@ import {
   WelcomeOfferPopup,
   DailyDeals,
   SocialProofToast,
-  CampaignBanners,
   CampaignPage,
   ReferAndEarnCard,
   liveCampaigns,
@@ -101,7 +101,6 @@ const PdpSellerRating: React.FC<{ sellerId: string }> = ({ sellerId }) => {
   ) : null;
 };
 import { PWAInstallModal } from './PWAInstallModal';
-import { HERO_IMAGE_PATH } from '../data/seedData';
 import { SHIPPING_METHODS, calculateShippingFee, formatDualPrice, formatPKR } from '../services/abstractions';
 import { ShippingCalculationService, ShippingCalculationResponse } from '../services/shippingService';
 import {
@@ -1772,8 +1771,35 @@ export const StorefrontView: React.FC = () => {
         {/* ======================== 1. HOME VIEW ======================== */}
         {subView === 'HOME' && (
           <div>
-            {/* Festival / event campaigns (Eid, Black Friday, ...) and flash deals with a countdown */}
-            <CampaignBanners campaigns={campaignsLive} onOpen={showCampaign} />
+            {/* Moving hero: campaigns, flash deals with a countdown, product videos, sales, new arrivals */}
+            <HeroSlider
+              products={products}
+              campaigns={campaignsLive}
+              settings={settings}
+              onOpenProduct={handleSelectProduct}
+              onOpenCampaign={showCampaign}
+              onShopAll={() => {
+                setActiveCategory('ALL');
+                setSubView('CATALOG');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              renderImage={(src, alt, className) => <ProductImage src={src} alt={alt} className={className} />}
+            />
+            {/* Store promises, one short line */}
+            <div className="bg-[#0E7A43] text-white text-[11px] sm:text-xs font-semibold">
+              <div className="max-w-[1360px] mx-auto px-3 sm:px-6 py-2 flex items-center justify-center gap-x-4 sm:gap-x-8 gap-y-1 flex-wrap">
+                {(settings.heroHighlights || 'Cash on Delivery|Nationwide Delivery|Easy Returns')
+                  .split('|')
+                  .map((h) => h.trim())
+                  .filter(Boolean)
+                  .map((h) => (
+                    <span key={h} className="flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" /> {h}
+                    </span>
+                  ))}
+              </div>
+            </div>
+            <TrendingTicker products={products} onOpen={handleSelectProduct} renderImage={(src, alt, className) => <ProductImage src={src} alt={alt} className={className} />} />
             <DailyDeals
               products={products}
               onSelect={handleSelectProduct}
@@ -1793,79 +1819,6 @@ export const StorefrontView: React.FC = () => {
               </div>
             )}
 
-            {/* Section 1: Storefront Hero */}
-            <section className="relative border-b border-black/[0.07]">
-              <div className="max-w-[1360px] mx-auto px-6 py-12 lg:py-20 grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-                <div className="lg:col-span-5 space-y-6">
-                  <div className="text-xs tracking-widest uppercase text-[#8C6D46] font-medium">
-                    {settings.heroEyebrow || 'Cash on Delivery · All over Pakistan'}
-                  </div>
-                  <h1 className="text-4xl sm:text-5xl lg:text-[54px] font-display font-medium leading-[1.08] tracking-tight text-[#141413]">
-                    {settings.heroTitle || settings.tagline || `Welcome to ${settings.storeName || 'our store'}`}
-                  </h1>
-                  <p className="text-base text-[#575653] leading-relaxed max-w-xl">
-                    {settings.heroSubtitle ||
-                      'Quality products at fair prices, delivered to your door. Order now and pay when your parcel arrives.'}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-4 pt-2">
-                    <button
-                      onClick={() => {
-                        setActiveCategory('ALL');
-                        setSubView('CATALOG');
-                      }}
-                      className="px-6 py-3.5 bg-[#141413] text-[#FBFBF9] text-sm font-medium flex items-center gap-3 hover:bg-[#2A2A28] transition-colors whitespace-nowrap cursor-pointer"
-                    >
-                      <span>Shop Now</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="pt-4 border-t border-black/[0.06] flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-[#575653]">
-                    {(settings.heroHighlights || 'Cash on Delivery|Nationwide Delivery|Easy Returns')
-                      .split('|')
-                      .map((h) => h.trim())
-                      .filter(Boolean)
-                      .map((h, i) => (
-                        <React.Fragment key={h}>
-                          {i > 0 && <span aria-hidden="true">·</span>}
-                          <span>{h}</span>
-                        </React.Fragment>
-                      ))}
-                  </div>
-                </div>
-
-                <div className="lg:col-span-7">
-                  {(() => {
-                    // Admin-chosen banner, otherwise the first featured / active product photo
-                    const heroProduct =
-                      products.find((p) => p.status === 'ACTIVE' && p.featured && p.primaryImage) ||
-                      products.find((p) => p.status === 'ACTIVE' && p.primaryImage);
-                    const heroSrc = settings.heroImageUrl || heroProduct?.primaryImage || HERO_IMAGE_PATH;
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!settings.heroImageUrl && heroProduct) handleSelectProduct(heroProduct);
-                          else {
-                            setActiveCategory('ALL');
-                            setSubView('CATALOG');
-                          }
-                        }}
-                        className="block aspect-[16/9] w-full overflow-hidden bg-[#F3F2EE] relative cursor-pointer"
-                      >
-                        <ProductImage src={heroSrc} alt={heroProduct?.name || settings.storeName} className="w-full h-full object-cover" />
-                        {!settings.heroImageUrl && heroProduct && (
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent flex items-end p-6">
-                            <div className="text-white text-sm font-semibold tracking-wide text-left [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">
-                              {heroProduct.name} · {formatPKR(heroProduct.price)}
-                            </div>
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })()}
-                </div>
-              </div>
-            </section>
 
             {/* Section 2: Featured Collection Grid (with Category Filter Bar) */}
             <section className="max-w-[1360px] mx-auto px-3 sm:px-6 py-8 sm:py-16 lg:py-24 border-b border-black/[0.07]">
