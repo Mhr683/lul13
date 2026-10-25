@@ -66,6 +66,7 @@ import { AdminGrowthPanel } from './AdminGrowthPanel';
 import { QuestionsInbox } from './QuestionsInbox';
 import { AdminTrafficPanel } from './AdminTrafficPanel';
 import { AdminPaymentKeysPanel } from './AdminPaymentKeysPanel';
+import { AdminShippingZonesEditor } from './AdminShippingZonesEditor';
 import {
   Product,
   Order,
@@ -4499,32 +4500,13 @@ export const AdminDashboardView: React.FC<{
               </div>
 
               {/* 4. International Zones & Manual Quote Rules */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-black/[0.08] pb-2">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-[#86672A]">
-                    04. International Shipping Zones &amp; Freight Rates ({settings.internationalZones?.length || 0} Zones)
-                  </h2>
-                  <span className="text-[11px] font-mono text-emerald-700">
-                    Customs Mode: DAP (Delivered at Place)
-                  </span>
-                </div>
-                <div className="divide-y divide-black/[0.08] bg-[#FBFBF9] border border-black/[0.08] p-4 space-y-3">
-                  {settings.internationalZones?.map((z) => (
-                    <div key={z.id} className="pt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <div>
-                        <strong className="text-[#141413]">{z.name}</strong>
-                        <div className="text-[11px] text-[#575653] font-mono">
-                          Countries: {z.countries.join(', ')} · Courier: {z.courier}
-                        </div>
-                      </div>
-                      <div className="font-mono text-right">
-                        <div className="text-[#141413] font-semibold">PKR {z.baseFee.toLocaleString()} base</div>
-                        <div className="text-[10px] text-[#575653]">+PKR {z.perAdditionalKgFee}/kg additional</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <AdminShippingZonesEditor
+                zones={settings.internationalZones || []}
+                allowManualQuotes={settings.allowInternationalManualQuotes !== false}
+                onSave={(internationalZones, allowInternationalManualQuotes) =>
+                  updateStoreSettings({ internationalZones, allowInternationalManualQuotes })
+                }
+              />
 
               {/* 5. 24/7 Client Helpline, WhatsApp & AI Concierge Configuration */}
               <div className="space-y-4">
