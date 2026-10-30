@@ -33,7 +33,8 @@ function friendlyAuthError(error: any): string {
     case 'auth/wrong-password':
     case 'auth/user-not-found':
     case 'auth/invalid-login-credentials':
-      return 'Incorrect email or password.';
+      // Accounts made with "Sign in with Google" have no password, so email + password always fails
+      return 'Incorrect email or password. If you made this account with Google, press "Sign in with Google" instead.';
     case 'auth/too-many-requests':
       return 'Too many attempts. Please wait a moment and try again.';
     case 'auth/user-disabled':
