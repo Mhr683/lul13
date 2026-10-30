@@ -6,6 +6,7 @@ import { formatPKR } from '../services/abstractions';
 import { SellerAvatar } from './SellerAvatar';
 import { REINSTATEMENT_FEE } from '../data/policies';
 import { payoutSummary } from '../services/vendorRules';
+import { storeOrigin } from './ShareProductButton';
 
 // Admin: one seller's full profile and performance report: bio and payout details, orders by
 // stage, sales and earnings (today / 7 days / 30 days / all time), returns and cancellations,
@@ -180,7 +181,7 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
         </button>
         <div className="flex gap-2">
           <a
-            href={`/#shop/${encodeURIComponent(s.id)}`}
+            href={`${storeOrigin()}/#shop/${encodeURIComponent(s.id)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="px-3 py-1.5 border border-black/20 bg-white font-semibold flex items-center gap-1"

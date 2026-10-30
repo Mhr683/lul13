@@ -427,10 +427,28 @@ const app = express();
 const PORT = 3000;
 // Seller Center and Admin also answer on their own ports (see the end of this file)
 const PORTAL_PORTS: Record<string, 'seller' | 'admin'> = { '3001': 'seller', '3002': 'admin' };
+// Online they have their own subdomains (seller.<domain>, admin.<domain>), so each installs as its
+// own app. The store's domain comes from APP_URL; localhost keeps the port scheme above.
+const STORE_HOST = (() => {
+  try {
+    const h = new URL(String(process.env.APP_URL || '')).hostname.toLowerCase();
+    return h && h !== 'localhost' && !/^\d+\.\d+\.\d+\.\d+$/.test(h) ? h : '';
+  } catch {
+    return '';
+  }
+})();
 app.use((req, res, next) => {
-  const portal = PORTAL_PORTS[String(req.socket.localPort)];
-  // The home page of a portal port opens that portal
+  const host = String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
+  const portal = PORTAL_PORTS[String(req.socket.localPort)] || (/^(seller|admin)\./.exec(host)?.[1] as 'seller' | 'admin' | undefined);
+  // The home page of a portal port / subdomain opens that portal
   if (portal && (req.path === '/' || req.path === '/index.html')) return res.redirect(302, `/${portal}`);
+  // On the store's own domain, the Seller Center and admin pages move to their subdomain
+  // (page visits only; the API, pictures and app files stay on every address)
+  const pagePortal = /^\/(seller|admin|vendor)(\/|$)/i.exec(req.path)?.[1]?.toLowerCase();
+  if (STORE_HOST && pagePortal && req.method === 'GET' && (host === STORE_HOST || host === `www.${STORE_HOST}`)) {
+    const sub = pagePortal === 'admin' ? 'admin' : 'seller';
+    return res.redirect(302, `https://${sub}.${STORE_HOST}${req.originalUrl}`);
+  }
   next();
 });
 

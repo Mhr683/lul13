@@ -5,11 +5,15 @@ import { Copy, Facebook, MessageCircle, Share2 } from 'lucide-react';
 // /p/<productId> on the store: chat apps show the product's picture, name and price as a preview
 // (server.ts) and the customer lands on the product page.
 
-/** The customer store's address. Seller Center and the admin app run on their own ports locally. */
+/**
+ * The customer store's address. Seller Center and the admin app have their own address: their own
+ * port on this computer (3001 / 3002) and their own subdomain online (seller. / admin.<domain>).
+ */
 export const storeOrigin = () => {
   const { protocol, hostname, port } = window.location;
   const storePort = port === '3001' || port === '3002' ? '3000' : port;
-  return `${protocol}//${hostname}${storePort ? `:${storePort}` : ''}`;
+  const storeHost = hostname.replace(/^(seller|admin)\./i, '');
+  return `${protocol}//${storeHost}${storePort ? `:${storePort}` : ''}`;
 };
 
 export const productShareUrl = (productId: string) => `${storeOrigin()}/p/${encodeURIComponent(productId)}`;

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { EyeOff, Eye, MessageCircleQuestion, RefreshCw, Send } from 'lucide-react';
 import { auth } from '../lib/firebase';
+import { storeOrigin } from './ShareProductButton';
 
 // Customer questions about products, answered by the seller (Seller Center) or the store (Admin).
 // The answer appears on the product page and is emailed to the customer if they left an email.
@@ -143,7 +144,7 @@ export const QuestionsInbox: React.FC<{ mode: 'seller' | 'admin'; onWaitingChang
               className={`p-3 border space-y-2 ${q.status === 'PENDING' ? 'border-amber-300 bg-amber-50/50' : q.status === 'HIDDEN' ? 'border-black/10 bg-black/[0.03] opacity-70' : 'border-black/10'}`}
             >
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#575653]">
-                <a href={`/#product/${encodeURIComponent(q.productId)}`} target="_blank" rel="noopener noreferrer" className="font-bold text-[#141413] underline truncate max-w-[60%]">
+                <a href={`${storeOrigin()}/#product/${encodeURIComponent(q.productId)}`} target="_blank" rel="noopener noreferrer" className="font-bold text-[#141413] underline truncate max-w-[60%]">
                   {q.productName}
                 </a>
                 <span>·</span>

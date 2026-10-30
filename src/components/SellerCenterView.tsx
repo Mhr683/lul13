@@ -28,7 +28,7 @@ import { SellerOnboardingWizard } from './SellerOnboardingWizard';
 import { ProductShippingEditor, emptyShipping, shippingFormOf, type ShippingForm } from './ProductShippingEditor';
 import type { ProductInfo } from '../services/productInfo';
 import { famousBrandIn } from '../services/brandRules';
-import { ShareProductButton } from './ShareProductButton';
+import { ShareProductButton, storeOrigin } from './ShareProductButton';
 import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services/vendorRules';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { callingCodeOf } from '../services/intlAddress';
@@ -296,7 +296,7 @@ export const SellerCenterView: React.FC = () => {
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <a href="/" className="text-xs text-white/80 hover:text-white underline hidden sm:inline">
+            <a href={`${storeOrigin()}/`} className="text-xs text-white/80 hover:text-white underline hidden sm:inline">
               View store
             </a>
             <PWAInstallButton variant="onDark" />
@@ -456,7 +456,7 @@ export const SellerCenterView: React.FC = () => {
                 {Number((seller as any).followers) === 1 ? 'follower' : 'followers'} (emailed when you add products) ·{' '}
               </>
             )}
-            <a href={`/#shop/${encodeURIComponent(seller.id || uid)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#0E7A43] underline">
+            <a href={`${storeOrigin()}/#shop/${encodeURIComponent(seller.id || uid)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#0E7A43] underline">
               My shop page
             </a>{' '}
             ·{' '}
