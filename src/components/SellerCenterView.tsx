@@ -24,6 +24,7 @@ import {
 import { SellerAiAssistant } from './SellerAiAssistant';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
 import { ProductInfoEditor } from './ProductInfoEditor';
+import { SellerOnboardingWizard } from './SellerOnboardingWizard';
 import { ProductShippingEditor, emptyShipping, shippingFormOf, type ShippingForm } from './ProductShippingEditor';
 import type { ProductInfo } from '../services/productInfo';
 import { famousBrandIn } from '../services/brandRules';
@@ -338,8 +339,9 @@ export const SellerCenterView: React.FC = () => {
         <div className="bg-white border border-black/10 p-6">
           <AuthPanel
             title="Seller login / new account"
-            subtitle="Create an account or sign in, then fill in the seller application."
+            subtitle="Step 1 of 5: create your account (or sign in). Then 4 short steps for your shop, ID, payout and review."
             allowSignup
+            sellerSignup
           />
         </div>
       </div>
@@ -348,7 +350,8 @@ export const SellerCenterView: React.FC = () => {
 
   if (!seller || seller.status === 'REJECTED') {
     return shell(
-      <ApplyForm
+      <SellerOnboardingWizard
+        uid={uid}
         storeName={storeName}
         rejectedReason={seller?.status === 'REJECTED' ? seller.statusReason || 'Your application was not accepted.' : ''}
         emailVerified={emailVerified}
@@ -1233,269 +1236,6 @@ const ReviewsTab: React.FC<{ onSeen: () => void }> = ({ onSeen }) => {
           </ul>
         )}
       </section>
-    </div>
-  );
-};
-
-// ------------------------------------------------------------------ apply form
-
-const ApplyForm: React.FC<{
-  storeName: string;
-  rejectedReason: string;
-  emailVerified: boolean;
-  defaultName: string;
-  onResendVerification: () => void;
-  onRecheck: () => void;
-  onSubmitted: () => void;
-}> = ({ storeName, rejectedReason, emailVerified, defaultName, onResendVerification, onRecheck, onSubmitted }) => {
-  const { showToast } = useStore();
-  const [form, setForm] = useState({
-    sellerType: 'INDIVIDUAL' as SellerType,
-    countryCode: 'PK',
-    shopName: '',
-    ownerName: defaultName,
-    businessName: '',
-    phone: '',
-    city: '',
-    idNumber: '',
-    taxId: '',
-    address: '',
-    warehouseCountry: 'PK',
-    warehouseCity: '',
-  });
-  const [payout, setPayout] = useState<PayoutDetails>({ method: 'PK_BANK', accountHolder: '' });
-  const [saving, setSaving] = useState(false);
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
-  const setPay = (k: keyof PayoutDetails) => (e: React.ChangeEvent<HTMLInputElement>) => setPayout((p) => ({ ...p, [k]: e.target.value }));
-  const isPk = form.countryCode === 'PK';
-  const dial = callingCodeOf(form.countryCode);
-  // What the tax number is called in the seller's country
-  const taxLabel =
-    ({ PK: 'NTN', AE: 'TRN (VAT)', SA: 'VAT number', GB: 'VAT number', US: 'EIN', IN: 'GSTIN', CA: 'Business Number' } as Record<string, string>)[form.countryCode] ||
-    'Tax ID / VAT number';
-  // Choosing a country also suggests its payout method and makes it the warehouse country
-  const chooseCountry = (code: string) => {
-    setForm((f) => ({ ...f, countryCode: code, warehouseCountry: code }));
-    setPayout((p) => ({ ...p, method: code === 'PK' ? 'PK_BANK' : code === 'US' ? 'US_ACH' : 'IBAN' }));
-  };
-
-  return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
-      <div>
-        <h1 className="text-2xl font-display">Seller application</h1>
-        <p className="text-xs text-[#575653]">
-          Sellers from any country can apply to sell on {storeName}. Your ID, tax number and payout details are only visible
-          to the store team, for verification and payouts.
-        </p>
-      </div>
-      {rejectedReason && (
-        <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs">
-          Your previous application was not accepted: <strong>{rejectedReason}</strong>. Please correct the details and
-          apply again.
-        </div>
-      )}
-      {!emailVerified && (
-        <div className="p-3 bg-amber-50 border border-amber-400 text-amber-950 text-xs space-y-2">
-          <p>Please verify your email before applying. Click the link we sent to your inbox (or spam folder).</p>
-          <div className="flex gap-2">
-            <button type="button" onClick={onResendVerification} className="px-3 py-1.5 border border-amber-500 font-semibold cursor-pointer">
-              Resend email
-            </button>
-            <button type="button" onClick={onRecheck} className="px-3 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer">
-              I have verified it
-            </button>
-          </div>
-        </div>
-      )}
-      <form
-        className="bg-white border border-black/10 p-5 grid grid-cols-1 sm:grid-cols-2 gap-4"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setSaving(true);
-          try {
-            await api('/api/seller/apply', { method: 'POST', body: JSON.stringify({ ...form, payout }) });
-            showToast('Application sent. Please wait for approval.');
-            onSubmitted();
-          } catch (err: any) {
-            showToast(err.message);
-          } finally {
-            setSaving(false);
-          }
-        }}
-      >
-        {/* Who and where */}
-        <div className="sm:col-span-2">
-          <span className={labelCls}>I am selling as *</span>
-          <div className="grid grid-cols-2 gap-2">
-            {(
-              [
-                ['INDIVIDUAL', 'Individual', 'A person selling under their own name'],
-                ['BUSINESS', 'Business / company', 'A registered business (tax number needed)'],
-              ] as const
-            ).map(([v, t, h]) => (
-              <label key={v} className={`p-2.5 border cursor-pointer flex gap-2 ${form.sellerType === v ? 'border-[#0E7A43] bg-[#0E7A43]/[0.06]' : 'border-black/15'}`}>
-                <input type="radio" name="sellerType" checked={form.sellerType === v} onChange={() => setForm((f) => ({ ...f, sellerType: v }))} className="mt-0.5" />
-                <span>
-                  <span className="block text-xs font-bold">{t}</span>
-                  <span className="block text-[11px] text-[#575653]">{h}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-        <div className="sm:col-span-2">
-          <label className={labelCls}>Country of operation *</label>
-          <select className={inputCls} value={form.countryCode} onChange={(e) => chooseCountry(e.target.value)}>
-            {ALL_WORLD_COUNTRIES.map((c) => (
-              <option key={c.isoCode} value={c.isoCode}>
-                {c.flag} {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={labelCls}>Shop name *</label>
-          <input className={inputCls} value={form.shopName} onChange={set('shopName')} placeholder="e.g. Ali Electronics" required />
-        </div>
-        <div>
-          <label className={labelCls}>Your full name *</label>
-          <input className={inputCls} value={form.ownerName} onChange={set('ownerName')} required />
-        </div>
-        {form.sellerType === 'BUSINESS' && (
-          <div className="sm:col-span-2">
-            <label className={labelCls}>Registered business name *</label>
-            <input className={inputCls} value={form.businessName} onChange={set('businessName')} placeholder="As on your trade licence / registration" required />
-          </div>
-        )}
-        <div>
-          <label className={labelCls}>Mobile number *</label>
-          <div className="flex">
-            <span className="shrink-0 px-2.5 py-2 border border-r-0 border-black/20 bg-[#F4F3EF] text-xs font-mono font-semibold">+{dial}</span>
-            <input className={inputCls} value={form.phone} onChange={set('phone')} placeholder={isPk ? '03XXXXXXXXX' : 'Local mobile number'} inputMode="tel" required />
-          </div>
-        </div>
-        <div>
-          <label className={labelCls}>City *</label>
-          <input className={inputCls} value={form.city} onChange={set('city')} placeholder={isPk ? 'e.g. Lahore' : 'e.g. Dubai'} required />
-        </div>
-        <div>
-          <label className={labelCls}>{isPk ? 'CNIC *' : 'National ID / passport number *'}</label>
-          <input className={inputCls} value={form.idNumber} onChange={set('idNumber')} placeholder={isPk ? 'XXXXX-XXXXXXX-X' : 'As on your ID document'} required />
-        </div>
-        <div>
-          <label className={labelCls}>
-            {taxLabel} {form.sellerType === 'BUSINESS' ? '*' : '(optional)'}
-          </label>
-          <input className={inputCls} value={form.taxId} onChange={set('taxId')} required={form.sellerType === 'BUSINESS'} />
-        </div>
-        <div className="sm:col-span-2">
-          <label className={labelCls}>Business address *</label>
-          <textarea className={inputCls} rows={2} value={form.address} onChange={set('address')} required />
-        </div>
-
-        {/* Warehouse: where orders are shipped from */}
-        <div className="sm:col-span-2 pt-2 border-t border-black/10">
-          <div className="text-xs font-bold">Warehouse (orders ship from here)</div>
-        </div>
-        <div>
-          <label className={labelCls}>Warehouse country *</label>
-          <select className={inputCls} value={form.warehouseCountry} onChange={set('warehouseCountry')}>
-            {ALL_WORLD_COUNTRIES.map((c) => (
-              <option key={c.isoCode} value={c.isoCode}>
-                {c.flag} {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={labelCls}>Warehouse city *</label>
-          <input className={inputCls} value={form.warehouseCity} onChange={set('warehouseCity')} placeholder="City" required />
-        </div>
-
-        {/* Payout */}
-        <div className="sm:col-span-2 pt-2 border-t border-black/10 space-y-2">
-          <div className="text-xs font-bold">How you get paid *</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {PAYOUT_METHODS.map((m) => (
-              <label key={m.id} className={`p-2.5 border cursor-pointer flex gap-2 ${payout.method === m.id ? 'border-[#0E7A43] bg-[#0E7A43]/[0.06]' : 'border-black/15'}`}>
-                <input type="radio" name="payoutMethod" checked={payout.method === m.id} onChange={() => setPayout((p) => ({ ...p, method: m.id }))} className="mt-0.5" />
-                <span>
-                  <span className="block text-xs font-bold">{m.label}</span>
-                  <span className="block text-[11px] text-[#575653]">{m.hint}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-        {payout.method !== 'PAYONEER' && (
-          <div>
-            <label className={labelCls}>Account holder name *</label>
-            <input className={inputCls} value={payout.accountHolder} onChange={setPay('accountHolder')} required />
-          </div>
-        )}
-        {payout.method !== 'PAYONEER' && (
-          <div>
-            <label className={labelCls}>Bank {payout.method === 'PK_BANK' ? '/ wallet *' : '(optional)'}</label>
-            <input
-              className={inputCls}
-              value={payout.bankName || ''}
-              onChange={setPay('bankName')}
-              placeholder={payout.method === 'PK_BANK' ? 'e.g. MCB, Meezan, NayaPay' : 'e.g. Emirates NBD'}
-              required={payout.method === 'PK_BANK'}
-            />
-          </div>
-        )}
-        {payout.method === 'PK_BANK' && (
-          <div className="sm:col-span-2">
-            <label className={labelCls}>Account number / IBAN *</label>
-            <input className={inputCls} value={payout.accountNumber || ''} onChange={setPay('accountNumber')} placeholder="PK36SCBL0000001123456702" required />
-          </div>
-        )}
-        {payout.method === 'IBAN' && (
-          <>
-            <div>
-              <label className={labelCls}>IBAN *</label>
-              <input className={inputCls} value={payout.iban || ''} onChange={setPay('iban')} placeholder="AE07 0331 2345 6789 0123 456" required />
-            </div>
-            <div>
-              <label className={labelCls}>SWIFT / BIC (optional)</label>
-              <input className={inputCls} value={payout.swift || ''} onChange={setPay('swift')} placeholder="EBILAEAD" />
-            </div>
-          </>
-        )}
-        {payout.method === 'US_ACH' && (
-          <>
-            <div>
-              <label className={labelCls}>Routing number *</label>
-              <input className={inputCls} value={payout.routingNumber || ''} onChange={setPay('routingNumber')} placeholder="9 digits" inputMode="numeric" required />
-            </div>
-            <div>
-              <label className={labelCls}>Account number *</label>
-              <input className={inputCls} value={payout.accountNumber || ''} onChange={setPay('accountNumber')} inputMode="numeric" required />
-            </div>
-          </>
-        )}
-        {payout.method === 'PAYONEER' && (
-          <div className="sm:col-span-2">
-            <label className={labelCls}>Payoneer account email *</label>
-            <input className={inputCls} type="email" value={payout.payoneerEmail || ''} onChange={setPay('payoneerEmail')} required />
-          </div>
-        )}
-        <p className="sm:col-span-2 text-[11px] text-[#575653]">
-          Payouts are sent after delivery and the return window, in PKR or converted by your bank / Payoneer. The store checks
-          these details before approving your shop.
-        </p>
-        <div className="sm:col-span-2">
-          <button
-            type="submit"
-            disabled={saving || !emailVerified}
-            className="w-full py-2.5 bg-[#141413] text-white text-sm font-bold disabled:opacity-50 cursor-pointer"
-          >
-            {saving ? 'Sending...' : 'Send application'}
-          </button>
-        </div>
-      </form>
     </div>
   );
 };

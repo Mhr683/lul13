@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
+import { MIN_SELLER_PASSWORD_SCORE, passwordStrength } from '../services/sellerOnboarding';
 
 type AuthMode = 'LOGIN' | 'SIGNUP' | 'FORGOT';
 
@@ -8,15 +9,19 @@ interface AuthPanelProps {
   subtitle?: string;
   allowSignup?: boolean;
   onSuccess?: () => void;
+  /** Seller Center: open on "create account" and require a "Good" password or better */
+  sellerSignup?: boolean;
 }
 
 // Login / sign-up / forgot-password form used by the storefront account modal and the admin gate
-export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSignup = true, onSuccess }) => {
+export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSignup = true, onSuccess, sellerSignup = false }) => {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useStore();
   const [mode, setMode] = useState<AuthMode>('LOGIN');
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const strength = passwordStrength(password);
   const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +43,9 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
       if (password.length < 8) return setError('Password kam az kam 8 characters ka rakhein.');
       if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
         return setError('The password must contain both letters and numbers.');
+      }
+      if (sellerSignup && strength.score < MIN_SELLER_PASSWORD_SCORE) {
+        return setError(`Seller accounts need a stronger password: add ${strength.tips.join(', ') || 'more characters'}.`);
       }
       if (password !== confirmPassword) return setError('The two passwords do not match.');
     }
@@ -148,15 +156,43 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
             <label className="block text-xs text-[#575653] mb-1" htmlFor="auth-password">
               Password
             </label>
-            <input
-              id="auth-password"
-              type="password"
-              autoComplete={mode === 'SIGNUP' ? 'new-password' : 'current-password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
-              required
-            />
+            <div className="relative">
+              <input
+                id="auth-password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete={mode === 'SIGNUP' ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={`${inputClass} pr-14`}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[#575653] cursor-pointer"
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            {/* How strong the new password is, and what would make it stronger */}
+            {mode === 'SIGNUP' && password && (
+              <div className="mt-1.5 space-y-1">
+                <div className="grid grid-cols-4 gap-1">
+                  {[1, 2, 3, 4].map((n) => (
+                    <span
+                      key={n}
+                      className={`h-1 rounded-full ${
+                        strength.score >= n ? (strength.score <= 1 ? 'bg-rose-500' : strength.score === 2 ? 'bg-amber-500' : 'bg-emerald-600') : 'bg-black/10'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <div className="text-[11px] text-[#575653]">
+                  <strong>{strength.label}</strong>
+                  {strength.tips.length > 0 && ` — add ${strength.tips.join(', ')}`}
+                </div>
+              </div>
+            )}
           </div>
         )}
         {mode === 'SIGNUP' && (

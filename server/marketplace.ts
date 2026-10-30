@@ -6,6 +6,7 @@ import { buildCoach } from './coach';
 import { cleanProductInfo, type ProductInfo } from '../src/services/productInfo';
 import { famousBrandIn } from '../src/services/brandRules';
 import { cleanProductShipping, type ProductShipping } from '../src/services/productShipping';
+import { KYC_LABELS, KYC_MAX_BYTES, idDocTypeFor, requiredKyc, type KycKind } from '../src/services/sellerOnboarding';
 import { checkVendorApplication } from '../src/services/vendorRules';
 import { checkPhone } from '../src/services/intlAddress';
 
@@ -45,6 +46,9 @@ export interface MarketplaceDeps {
   postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => Promise<void>;
   /** Saves an uploaded picture / video and returns its public URL */
   storeMedia: (buffer: Buffer, ext: string, contentType: string) => Promise<string>;
+  /** Saves / reads a private file (sellers' ID and business documents); never publicly served */
+  storePrivateFile: (rel: string, buffer: Buffer) => Promise<void>;
+  readPrivateFile: (rel: string) => Promise<Buffer | null>;
   HOUSE_SELLER_ID: string;
   DEFAULT_COMMISSION_PERCENT: number;
 }
@@ -272,6 +276,64 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
+  // What the sign-up wizard asks for. Mobile OTP is switched on with SELLER_PHONE_OTP=required in
+  // .env once SMS sign-in is enabled in Firebase (until then the number is only checked by format).
+  const phoneOtpRequired = () => String(process.env.SELLER_PHONE_OTP || '').toLowerCase() === 'required';
+  app.get('/api/seller/onboarding-config', (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json({ phoneOtp: phoneOtpRequired() });
+  });
+
+  // ID card / passport / business documents, uploaded during sign-up (before the seller record
+  // exists). Saved privately under kyc/<uid>/; only admins can open them.
+  const sniffDoc = (b: Buffer): { ext: string; type: string } | null => {
+    if (b.length < 12) return null;
+    if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { ext: 'jpg', type: 'image/jpeg' };
+    if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { ext: 'png', type: 'image/png' };
+    if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return { ext: 'webp', type: 'image/webp' };
+    if (b.toString('ascii', 0, 5) === '%PDF-') return { ext: 'pdf', type: 'application/pdf' };
+    return null;
+  };
+  const KYC_TYPES: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf' };
+  app.post('/api/seller/kyc/upload', d.requireAuth, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const kind = String(req.query.kind || '') as KycKind;
+    if (!(kind in KYC_LABELS)) return res.status(400).json({ error: 'Unknown document.' });
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!body.length) return res.status(400).json({ error: 'Choose a file to upload.' });
+    if (body.length > KYC_MAX_BYTES) return res.status(413).json({ error: 'The file is too large (8 MB at most).' });
+    const t = sniffDoc(body);
+    if (!t) return res.status(400).json({ error: 'Upload a photo (JPG, PNG, WEBP) or a PDF.' });
+    try {
+      const ref = `kyc/${uid}/${kind}-${crypto.createHash('sha256').update(body).digest('hex').slice(0, 16)}.${t.ext}`;
+      await d.storePrivateFile(ref, body);
+      res.json({ success: true, kind, ref });
+    } catch (err) {
+      console.error('[seller/kyc/upload] failed:', err);
+      res.status(503).json({ error: 'Could not save the document. Please try again.' });
+    }
+  });
+
+  // Admins open a seller's document (sent as the file itself; never cached)
+  app.get('/api/admin/sellers/:id/kyc/:kind', d.requireAdmin, async (req, res) => {
+    try {
+      const snap = await adminDb.collection('seller_private').doc(String(req.params.id)).get();
+      const ref = String(snap.data()?.kycDocs?.[String(req.params.kind)] || '');
+      if (!ref.startsWith(`kyc/${req.params.id}/`)) return res.status(404).json({ error: 'No such document.' });
+      const file = await d.readPrivateFile(ref);
+      if (!file) return res.status(404).json({ error: 'The file is missing on this server.' });
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Type', KYC_TYPES[ref.split('.').pop() || ''] || 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'inline');
+      res.send(file);
+    } catch (err) {
+      console.error('[admin/sellers kyc] failed:', err);
+      res.status(503).json({ error: 'Could not open the document.' });
+    }
+  });
+
+  const hashOf = (v: string) => crypto.createHash('sha256').update(v).digest('hex').slice(0, 40);
+
   // Apply (or re-apply after a rejection). The store's admins approve applications.
   app.post('/api/seller/apply', d.requireAuth, async (req, res) => {
     const user = (req as any).user;
@@ -283,6 +345,24 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const checked = checkVendorApplication(req.body || {});
     if (!checked.ok) return res.status(400).json({ error: `Please check: ${checked.problems.join(', ')}.`, problems: checked.problems });
     const a = checked.app;
+
+    // Mobile number proved with an SMS code (the account's verified phone must be this number)
+    const phoneVerified = Boolean(user.phoneNumber) && user.phoneNumber === checked.phoneE164;
+    if (phoneOtpRequired() && !phoneVerified) {
+      return res.status(400).json({ error: 'Please verify your mobile number with the SMS code first.', code: 'PHONE_NOT_VERIFIED' });
+    }
+
+    // ID card (both sides) / passport, and the business registration for companies
+    const idDocType = idDocTypeFor(a.countryCode, req.body?.idDocType);
+    const sentDocs = (req.body?.kycDocs || {}) as Record<string, unknown>;
+    const kycDocs: Record<string, string> = {};
+    for (const kind of requiredKyc(a.countryCode, a.sellerType, idDocType)) {
+      const ref = String(sentDocs[kind] || '');
+      if (!ref.startsWith(`kyc/${user.uid}/${kind}-`) || !(await d.readPrivateFile(ref))) {
+        return res.status(400).json({ error: `Please upload: ${KYC_LABELS[kind]}.`, code: 'KYC_MISSING' });
+      }
+      kycDocs[kind] = ref;
+    }
     const { shopName, ownerName, phone, city, address } = a;
     // Older screens read these from seller_private; kept filled for every payout method
     const legacyBank = {
@@ -305,6 +385,21 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         return res.status(409).json({ error: 'A shop with this name already exists. Please choose another name.' });
       }
 
+      // One seller account per ID document and per mobile number (only hashes are compared and kept)
+      const idHash = hashOf(`${a.countryCode}:${a.idNumber.replace(/[^A-Z0-9]/gi, '').toUpperCase()}`);
+      const phoneHash = hashOf(checked.phoneE164);
+      const privCol = adminDb.collection('seller_private');
+      const [idClash, phoneClash] = await Promise.all([
+        privCol.where('idHash', '==', idHash).limit(2).get(),
+        privCol.where('phoneHash', '==', phoneHash).limit(2).get(),
+      ]);
+      if (idClash.docs.some((doc) => doc.id !== user.uid)) {
+        return res.status(409).json({ error: 'This ID number is already registered with another seller account. Please sign in to that account, or contact the store.', code: 'DUPLICATE_ID' });
+      }
+      if (phoneClash.docs.some((doc) => doc.id !== user.uid)) {
+        return res.status(409).json({ error: 'This mobile number is already registered with another seller account.', code: 'DUPLICATE_PHONE' });
+      }
+
       const now = new Date().toISOString();
       await ref.set({
         id: user.uid,
@@ -322,6 +417,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         warehouseCity: a.warehouseCity,
         // given at approval: vendorId and shipsFromCountry
         ...(current?.vendorId ? { vendorId: current.vendorId } : {}),
+        // What the admin sees at a glance before approving
+        phoneVerified,
+        kycSubmitted: Object.keys(kycDocs),
         status: 'PENDING',
         statusReason: '',
         createdAt: current?.createdAt || now,
@@ -335,6 +433,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         address,
         payout: a.payout,
         ...legacyBank,
+        idDocType,
+        kycDocs,
+        idHash,
+        phoneHash,
         updatedAt: now,
       });
       forgetSeller(user.uid);

@@ -39,6 +39,37 @@ async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+const KYC_NAMES: Record<string, string> = { ID_FRONT: 'ID front', ID_BACK: 'ID back', BUSINESS_DOC: 'Business document' };
+
+/** Opens one private seller document in a new tab (fetched with the admin's sign-in) */
+const KycDocButton: React.FC<{ sellerId: string; kind: string }> = ({ sellerId, kind }) => {
+  const [busy, setBusy] = React.useState(false);
+  const open = async () => {
+    const tab = window.open('', '_blank');
+    setBusy(true);
+    try {
+      await auth.authStateReady();
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const res = await fetch(`/api/admin/sellers/${encodeURIComponent(sellerId)}/kyc/${kind}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Could not open the document.');
+      const url = URL.createObjectURL(await res.blob());
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err: any) {
+      tab?.close();
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" onClick={open} disabled={busy} className="px-2 py-1 border border-black/20 bg-white text-[11px] font-semibold cursor-pointer disabled:opacity-50">
+      {busy ? 'Opening…' : `View ${KYC_NAMES[kind] || kind}`}
+    </button>
+  );
+};
+
 export const HEALTH_STYLE: Record<string, { box: string; badge: string; label: string; Icon: any }> = {
   GREEN: { box: 'bg-emerald-50 border-emerald-400 text-emerald-950', badge: 'bg-emerald-600 text-white', label: 'Good', Icon: ShieldCheck },
   YELLOW: { box: 'bg-amber-50 border-amber-400 text-amber-950', badge: 'bg-amber-500 text-black', label: 'Watch', Icon: ShieldQuestion },
@@ -179,7 +210,12 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
               <strong>Email:</strong> {s.ownerEmail || '-'}
             </div>
             <div>
-              <strong>Phone:</strong> <span className="font-mono">{s.phone || '-'}</span>
+              <strong>Phone:</strong> <span className="font-mono">{s.phone || '-'}</span>{' '}
+              {(s as any).phoneVerified ? (
+                <span className="text-emerald-700 font-bold">✓ SMS verified</span>
+              ) : (
+                <span className="text-amber-700">not SMS-verified</span>
+              )}
             </div>
             <div>
               <strong>City:</strong> {s.city || '-'}
@@ -193,6 +229,15 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
             </div>
             <div>
               <strong>Tax ID / VAT:</strong> <span className="font-mono">{p.taxId || '—'}</span>
+            </div>
+            {/* ID card / passport / business documents (private: opened through the admin API) */}
+            <div className="sm:col-span-2 flex flex-wrap items-center gap-2">
+              <strong>Documents:</strong>
+              {p.kycDocs && Object.keys(p.kycDocs).length ? (
+                Object.keys(p.kycDocs).map((kind) => <KycDocButton key={kind} sellerId={s.id} kind={kind} />)
+              ) : (
+                <span className="text-amber-700">none uploaded (applied before documents were required)</span>
+              )}
             </div>
             <div className="sm:col-span-2 break-all">
               <strong>Payout:</strong> {payoutSummary(p.payout, p)}

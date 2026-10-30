@@ -303,6 +303,8 @@ async function requireAuth(
       email: decodedToken.email,
       emailVerified: Boolean(decodedToken.email_verified),
       name: decodedToken.name,
+      // Set only when the account proved the number with an SMS code (Firebase phone auth)
+      phoneNumber: decodedToken.phone_number || '',
     };
     next();
   } catch (err: any) {
@@ -438,6 +440,8 @@ app.set('trust proxy', 1);
 // Seller picture / video uploads arrive as the raw file (checked again in server/marketplace.ts)
 app.use('/api/seller/media/upload', express.raw({ type: () => true, limit: '52mb' }));
 app.use('/api/returns/upload', express.raw({ type: () => true, limit: '9mb' }));
+// Seller ID / business documents (private, see storePrivateFile)
+app.use('/api/seller/kyc/upload', express.raw({ type: () => true, limit: '9mb' }));
 // Review photos (8 MB) and short videos (20 MB), checked again in server/feedback.ts
 app.use('/api/feedback/upload', express.raw({ type: () => true, limit: '21mb' }));
 // Payment webhooks are checked against the exact bytes received (server/cardPayments.ts)
@@ -3923,9 +3927,32 @@ async function storeMedia(buffer: Buffer, ext: string, contentType: string): Pro
 }
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true, fallthrough: false }));
 
+// Private files (sellers' ID cards and business documents). Kept in .private/ on this server's
+// disk, which is never served: only the admin routes in server/marketplace.ts read them back.
+const PRIVATE_DIR = path.join(process.cwd(), '.private');
+const privatePath = (rel: string) => {
+  const full = path.resolve(PRIVATE_DIR, rel);
+  if (!full.startsWith(PRIVATE_DIR + path.sep)) throw new Error('Bad private path');
+  return full;
+};
+async function storePrivateFile(rel: string, buffer: Buffer) {
+  const full = privatePath(rel);
+  await fs.promises.mkdir(path.dirname(full), { recursive: true });
+  await fs.promises.writeFile(full, buffer);
+}
+async function readPrivateFile(rel: string): Promise<Buffer | null> {
+  try {
+    return await fs.promises.readFile(privatePath(rel));
+  } catch {
+    return null;
+  }
+}
+
 // Seller Center API and admin seller/payout management
 const marketplace = registerMarketplaceRoutes(app, {
   storeMedia,
+  storePrivateFile,
+  readPrivateFile,
   // the seller inbox is registered just below; this only runs later, on a request
   postNotice: (...args) => sellerInbox.postNotice(...args),
   adminDb,
