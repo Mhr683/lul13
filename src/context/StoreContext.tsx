@@ -60,6 +60,7 @@ let lastCatalogLoad = 0;
 
 // Profile confirmed on the previous visit (UI hint only, see the userProfile state below)
 const PROFILE_CACHE_KEY = 'store_profile_cache_v1';
+const STEP_UP_HINT_KEY = 'store_step_up_hint_v1';
 function readCachedProfile(): UserProfile | null {
   try {
     const raw = localStorage.getItem(PROFILE_CACHE_KEY);
@@ -169,6 +170,9 @@ interface StoreContextValue {
   resetPassword: (email: string) => Promise<AuthResult>;
   resendVerificationEmail: () => Promise<AuthResult>;
   refreshAccount: () => Promise<void>;
+  /** This sign-in passed the extra login checks (super admin / seller) */
+  stepUpOk: boolean;
+  refreshStepUp: () => Promise<void>;
   signOut: () => Promise<void>;
 
   // Store Data
@@ -294,6 +298,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => readCachedProfile());
   const [authReady, setAuthReady] = useState(() => readCachedProfile() !== null);
   const [emailVerified, setEmailVerified] = useState(false);
+  // This sign-in passed the extra login checks (server/stepUp.ts). Remembered per account as a UI
+  // hint for the next open; the server and Firestore rules check the real token.
+  const [stepUpOk, setStepUpOkState] = useState(() => {
+    try {
+      const hint = localStorage.getItem(STEP_UP_HINT_KEY);
+      return Boolean(hint && hint === readCachedProfile()?.uid);
+    } catch {
+      return false;
+    }
+  });
+  const setStepUpOk = (uid: string | null, ok: boolean) => {
+    setStepUpOkState(ok);
+    try {
+      if (ok && uid) localStorage.setItem(STEP_UP_HINT_KEY, uid);
+      else localStorage.removeItem(STEP_UP_HINT_KEY);
+    } catch {}
+  };
+  const readStepUp = async (user: User, forceRefresh = false) => {
+    try {
+      const { claims } = await user.getIdTokenResult(forceRefresh);
+      const list = (claims as any).stepUp;
+      setStepUpOk(user.uid, Array.isArray(list) && list.includes(Number(claims.auth_time)));
+    } catch {}
+  };
+  // After the login checks are passed: fetch a token that carries the new claim
+  const refreshStepUp = async () => {
+    if (auth.currentUser) await readStepUp(auth.currentUser, true);
+  };
 
   const [products, setProducts] = useState<Product[]>(() => {
     if (SELLER_PORTAL) return [];
@@ -434,11 +466,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     hydrateServerCatalog();
   }, []);
 
+  // The super admin counts as admin only once this sign-in passed the extra login checks
   const isAdmin = Boolean(
     userProfile &&
       ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PRODUCT_MANAGER', 'ORDER_MANAGER'].includes(
         userProfile.role
-      )
+      ) &&
+      (userProfile.role !== 'SUPER_ADMIN' || stepUpOk)
   );
 
   // 1. Auth Listener & Profile Synchronization
@@ -446,6 +480,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       setEmailVerified(Boolean(user?.emailVerified));
+      if (user) await readStepUp(user);
+      else setStepUpOk(null, false);
       if (user) {
         // Hold the UI (e.g. the admin gate) until this user's role is known, unless the cached
         // profile from the last visit already belongs to this user
@@ -834,6 +870,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const signOut = async () => {
+    // This device's checked sign-in stops counting (the next login asks for the checks again)
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (token) await fetch('/api/auth/step-up/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    } catch {}
+    setStepUpOk(null, false);
     writeCachedProfile(null);
     await firebaseSignOut(auth);
     setUserProfile(null);
@@ -2274,6 +2316,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         resetPassword,
         resendVerificationEmail,
         refreshAccount,
+        stepUpOk,
+        refreshStepUp,
         signOut,
         products: productsView,
         categories,

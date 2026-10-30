@@ -39,6 +39,7 @@ import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../servi
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AuthPanel } from './AuthPanel';
+import { LoginStepUp } from './LoginStepUp';
 import { PWAInstallButton } from './PWAInstallButton';
 import { SellerAvatar } from './SellerAvatar';
 import { BrandLogo } from './BrandLogo';
@@ -204,6 +205,7 @@ export const SellerCenterView: React.FC = () => {
     settings,
     categories,
     showToast,
+    stepUpOk,
   } = useStore();
   const storeName = settings.storeName || 'My Store';
   // The signed-in user, or the one remembered from the last visit while Firebase restores the sign-in
@@ -241,9 +243,19 @@ export const SellerCenterView: React.FC = () => {
     }
   }, [uid, showToast]);
 
+  // Seller login check (captcha / email code) when the server has it switched on
+  const [sellerCheckRequired, setSellerCheckRequired] = useState<boolean | undefined>(undefined);
   useEffect(() => {
-    if (authReady) loadMe();
-  }, [authReady, loadMe]);
+    fetch('/api/auth/step-up/config')
+      .then((r) => r.json())
+      .then((c) => setSellerCheckRequired(Boolean(c.sellerRequired)))
+      .catch(() => setSellerCheckRequired(false));
+  }, []);
+  const needsLoginCheck = Boolean(firebaseUser && sellerCheckRequired && !stepUpOk);
+
+  useEffect(() => {
+    if (authReady && sellerCheckRequired !== undefined && !needsLoginCheck) loadMe();
+  }, [authReady, loadMe, sellerCheckRequired, needsLoginCheck]);
 
   // Messages with the store and store notices; checked every minute while the app is open
   const [inbox, setInbox] = useState<SellerInbox | null>(null);
@@ -315,6 +327,8 @@ export const SellerCenterView: React.FC = () => {
       {children}
     </div>
   );
+
+  if (needsLoginCheck) return <LoginStepUp portal="SELLER" />;
 
   if (!authReady || (uid && loadingMe && !seller)) {
     return shell(<div className="p-10 text-center text-sm text-[#575653]">Opening Seller Center...</div>);

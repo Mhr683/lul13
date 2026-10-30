@@ -35,6 +35,7 @@ import { ROLE_LABELS, adminAreaOfPath, roleCanUseTab } from './src/services/admi
 import { CANCEL_POLICY, CANCEL_REASONS, cancelOptionFor, codPausedUntil, recentStrikes, type CancelOption, type CancelRequest } from './src/services/cancelPolicy';
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
+import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/stepUp';
 import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
@@ -87,6 +88,7 @@ import {
   sendOrderShippedEmail,
   sendOrderCancelledEmail,
   sendSupportReplyEmail,
+  sendLoginCheckEmail,
 } from './src/services/serverEmailService';
 
 dotenv.config();
@@ -369,6 +371,11 @@ async function requireAdmin(
       });
     }
 
+    // The super admin's sign-in must also have passed the extra login checks (server/stepUp.ts)
+    if (String(role).toUpperCase() === 'SUPER_ADMIN' && adminStepUpRequired() && !hasStepUp(decodedToken)) {
+      return res.status(403).json({ error: 'Please finish the login check first.', code: 'STEP_UP_REQUIRED' });
+    }
+
     (req as any).user = {
       uid: decodedToken.uid,
       email: decodedToken.email,
@@ -478,6 +485,8 @@ app.use('/api/payments/tazapay/webhook', express.raw({ type: () => true, limit: 
 app.use('/api/payments/verifone/ipn', express.raw({ type: () => true, limit: '1mb' }));
 app.use('/api/payments/payoneer/notify', express.raw({ type: () => true, limit: '1mb' }));
 app.use(express.json({ limit: '10mb' }));
+// The "Yes, it's me" button on the emailed admin-login page posts a plain form
+app.use('/api/auth/step-up/email', express.urlencoded({ extended: false, limit: '4kb' }));
 
 // When the free Firestore database has used up its daily reads, say so plainly instead of the
 // generic "could not load" (it resets at midnight US Pacific time, 12:00 noon in Pakistan)
@@ -543,6 +552,26 @@ app.use('/api/admin/team', (req, res, next) => {
       ownerEmailCache = null;
     });
   next();
+});
+
+// Extra login checks for the super admin and sellers (registered before the seller routes, so its
+// guard on /api/seller runs first)
+let loginStoreName: { name: string; at: number } | null = null;
+registerStepUpRoutes(app, {
+  adminDb,
+  adminAuth,
+  requireAuth,
+  requireSuperAdmin,
+  roleOf: (decoded) => resolveUserRole(decoded),
+  adminOrigin: (req) => (STORE_HOST ? `https://admin.${STORE_HOST}` : `${req.protocol}://${req.get('host')}`),
+  storeName: async () => {
+    if (loginStoreName && Date.now() - loginStoreName.at < 60 * 60 * 1000) return loginStoreName.name;
+    const snap = await adminDb.collection('settings').doc('store_config').get().catch(() => null);
+    const name = String(snap?.data()?.storeName || DEFAULT_SETTINGS.storeName || 'Store');
+    loginStoreName = { name, at: Date.now() };
+    return name;
+  },
+  sendLoginEmail: ({ storeName, ...params }) => sendLoginCheckEmail(adminDb, { ...params, storeName }),
 });
 
 // Owner, current admins and pending admin invites

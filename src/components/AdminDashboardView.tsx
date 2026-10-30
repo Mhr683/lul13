@@ -53,6 +53,7 @@ import {
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AdminTeamPanel } from './AdminTeamPanel';
+import { AdminLoginSecurityPanel } from './AdminLoginSecurityPanel';
 import { PWAInstallButton } from './PWAInstallButton';
 import { AdminCatalogPanel } from './AdminCatalogPanel';
 import { AdminSellerInbox } from './AdminSellerInbox';
@@ -4064,6 +4065,7 @@ export const AdminDashboardView: React.FC<{
 
               {/* 0. Admins & owner login */}
               <AdminTeamPanel />
+              <AdminLoginSecurityPanel />
 
               {/* 0b. Customer-facing home page texts */}
               <StoreTextsPanel />

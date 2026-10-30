@@ -17,11 +17,12 @@ const SellerCenterView = lazy(() =>
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthPanel } from './components/AuthPanel';
 import { storeOrigin } from './components/ShareProductButton';
+import { LoginStepUp } from './components/LoginStepUp';
 import { Portal, applyPortalBranding, portalFromLocation } from './portalBranding';
 
 // Only signed-in admins can open the admin console; everyone else gets a login / access-denied screen.
 const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = ({ children, onBack }) => {
-  const { authReady, firebaseUser, userProfile, isAdmin, emailVerified, signOut, refreshAccount } = useStore();
+  const { authReady, firebaseUser, userProfile, isAdmin, emailVerified, signOut, refreshAccount, stepUpOk } = useStore();
 
   // authReady turns true only after the signed-in user's profile/role has been loaded
   if (!authReady) {
@@ -43,6 +44,11 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
         {children}
       </>
     );
+  }
+
+  // The super admin passes the extra login checks once per sign-in (stays until logout)
+  if (firebaseUser && userProfile?.role === 'SUPER_ADMIN' && userProfile.uid === firebaseUser.uid && !stepUpOk) {
+    return <LoginStepUp portal="ADMIN" />;
   }
 
   const usesPassword = firebaseUser?.providerData.some((p) => p.providerId === 'password');

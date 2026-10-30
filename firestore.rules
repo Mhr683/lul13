@@ -36,19 +36,27 @@ service cloud.firestore {
         request.auth.token.email in ['specialforme683@gmail.com'];
     }
 
+    // This sign-in passed the extra login checks (server/stepUp.ts adds its auth_time to the
+    // stepUp claim, and removes it on logout)
+    function passedLoginCheck() {
+      return isSignedIn() &&
+        request.auth.token.stepUp is list &&
+        request.auth.token.auth_time in request.auth.token.stepUp;
+    }
+
+    // Super admin power needs a checked sign-in
     function isSuperAdmin() {
-      return isBuiltInOwner() || (
-        isSignedIn() &&
+      return passedLoginCheck() && (isBuiltInOwner() || (
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'SUPER_ADMIN'
-      );
+      ));
     }
 
     function isAdmin() {
       return isSuperAdmin() || (
         isSignedIn() &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PRODUCT_MANAGER', 'ORDER_MANAGER']
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['ADMIN', 'MANAGER', 'PRODUCT_MANAGER', 'ORDER_MANAGER']
       );
     }
 

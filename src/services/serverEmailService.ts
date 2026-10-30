@@ -14,7 +14,8 @@ export interface EmailLogEntry {
     | 'SUPPORT_REPLY'
     | 'BACK_IN_STOCK'
     | 'QUESTION_ANSWERED'
-    | 'FOLLOWED_SHOP_NEW_PRODUCTS';
+    | 'FOLLOWED_SHOP_NEW_PRODUCTS'
+    | 'LOGIN_CHECK';
   recipient: string;
   sender: string;
   subject: string;
@@ -337,6 +338,36 @@ function renderItemsTableHtml(items?: any[], currency: string = 'PKR'): string {
     </tr>`
     )
     .join('');
+}
+
+// ============================================================================
+// LOGIN CHECK (admin: "confirm it's you" link / seller: one-time code)
+// ============================================================================
+export async function sendLoginCheckEmail(
+  adminDb: FirebaseFirestore.Firestore | null | undefined,
+  params: { to: string; storeName?: string; portal: 'ADMIN' | 'SELLER'; link?: string; code?: string }
+): Promise<SendEmailResult> {
+  const storeName = params.storeName || 'Store';
+  const where = params.portal === 'ADMIN' ? 'Admin panel' : 'Seller Center';
+  // The subject is saved in email_logs, so it never contains the code
+  const subject = params.code ? `Your ${where} login code | ${storeName}` : `Confirm your ${where} login | ${storeName}`;
+  const action = params.link
+    ? `<p style="margin: 0 0 20px 0;"><a href="${escapeHtml(params.link)}" style="display: inline-block; padding: 12px 22px; background-color: #111827; color: #FFFFFF; text-decoration: none; font-weight: 700; font-size: 14px;">Yes, it's me: verify login</a></p>`
+    : `<p style="margin: 0 0 20px 0; font-size: 30px; letter-spacing: 6px; font-family: monospace; font-weight: 700; color: #111827;">${escapeHtml(params.code || '')}</p>`;
+  const html = wrapEmailHtml({
+    storeName,
+    bannerTitle: `${where} login`,
+    bannerSubtitle: 'Someone is signing in with your account',
+    bannerColor: 'dark',
+    contentHtml: `
+      <p style="margin: 0 0 16px 0; font-size: 14px;">If this is you, ${params.link ? 'press the button below' : 'enter this code on the login screen'}. It works for 5 minutes.</p>
+      ${action}
+      <p style="margin: 0; font-size: 12px; color: #B91C1C;">If this was not you, do not press anything and change your password at once.</p>`,
+  });
+  const text = params.link
+    ? `${where} login: if this is you, open this link within 5 minutes:\n${params.link}\n\nIf this was not you, ignore this email and change your password.`
+    : `${where} login code: ${params.code} (valid for 5 minutes).\n\nIf this was not you, ignore this email and change your password.`;
+  return sendViaResend(adminDb, { to: params.to, subject, html, text, type: 'LOGIN_CHECK', metadata: { portal: params.portal } });
 }
 
 // ============================================================================
