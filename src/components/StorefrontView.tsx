@@ -1871,8 +1871,8 @@ export const StorefrontView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Product grid: 3 per row on every screen (compact cards on phones) */}
-              <div className="grid grid-cols-3 gap-1.5 sm:gap-6 lg:gap-8">
+              {/* Product grid: 4 per row on phones, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
+              <div className="grid grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1 sm:gap-2 lg:gap-6">
                 {filteredProducts.slice(0, 12).map((product) => (
                   <article
                     key={product.id}
@@ -1883,7 +1883,7 @@ export const StorefrontView: React.FC = () => {
                       <CardShareButton productId={product.id} productName={product.name} price={product.price} showToast={showToast} />
                       <div
                         onClick={() => handleSelectProduct(product)}
-                        className="aspect-square sm:aspect-[4/3] w-full bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
+                        className="aspect-square lg:aspect-[4/3] w-full bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
                       >
                         <ProductImage
                           src={product.primaryImage}
@@ -1897,19 +1897,19 @@ export const StorefrontView: React.FC = () => {
                             toggleWishlist(product.id);
                           }}
                           aria-label={`Save ${product.name}`}
-                          className="absolute top-1 right-1 sm:top-3 sm:right-3 p-1 sm:p-2 bg-white/90 text-[#141413] hover:bg-[#141413] hover:text-white transition-colors cursor-pointer"
+                          className="absolute top-1 right-1 lg:top-3 lg:right-3 p-1 lg:p-2 bg-white/90 text-[#141413] hover:bg-[#141413] hover:text-white transition-colors cursor-pointer"
                         >
                           <Heart
-                            className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${
+                            className={`w-3.5 h-3.5 lg:w-4 lg:h-4 ${
                               wishlist.includes(product.id) ? 'fill-current' : ''
                             }`}
                           />
                         </button>
                       </div>
 
-                      <div className="p-1.5 sm:p-5">
+                      <div className="p-1 sm:p-1.5 lg:p-5">
                         {/* Unboxed metadata (phones skip it to keep the card short) */}
-                        <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-stone-900 mb-1.5">
+                        <div className="hidden lg:flex items-center gap-2 text-xs font-bold text-stone-900 mb-1.5">
                           <span className="uppercase tracking-wider">{product.brand}</span>
                           <span aria-hidden="true">·</span>
                           <span>{product.category}</span>
@@ -1925,49 +1925,49 @@ export const StorefrontView: React.FC = () => {
 
                         <h3
                           onClick={() => handleSelectProduct(product)}
-                          className="text-[11px] sm:text-base font-semibold sm:font-extrabold text-black group-hover:text-stone-700 transition-colors cursor-pointer line-clamp-2 sm:line-clamp-1 leading-tight sm:leading-snug"
+                          className="text-[10px] sm:text-[11px] lg:text-base font-semibold lg:font-extrabold text-black group-hover:text-stone-700 transition-colors cursor-pointer line-clamp-2 lg:line-clamp-1 leading-tight lg:leading-snug"
                         >
                           {product.name}
                         </h3>
                         {product.stock <= (product.lowStockThreshold || 5) && (
-                          <div className="sm:hidden text-[10px] text-red-700 font-bold mt-0.5">Only {product.stock} left</div>
+                          <div className="lg:hidden text-[10px] text-red-700 font-bold mt-0.5">Only {product.stock} left</div>
                         )}
 
-                        <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} size={9} className="mt-1 !text-[9px] sm:!text-[11px]" />
-                        <span className="hidden sm:inline">
+                        <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} size={9} className="mt-1 !text-[9px] lg:!text-[11px]" />
+                        <span className="hidden lg:inline">
                           <ShipsBadge product={product} className="mt-1 ml-1" />
                         </span>
 
-                        <p className="hidden sm:block text-xs text-black font-medium mt-1.5 line-clamp-2 leading-relaxed">
+                        <p className="hidden lg:block text-xs text-black font-medium mt-1.5 line-clamp-2 leading-relaxed">
                           {product.shortDescription}
                         </p>
                       </div>
                     </div>
 
-                    <div className="px-1.5 pb-1.5 pt-1 sm:px-5 sm:pb-5 sm:pt-3 border-t border-black/10 flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                    <div className="px-1 pb-1 pt-1 sm:px-1.5 sm:pb-1.5 lg:px-5 lg:pb-5 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:items-center justify-between gap-1 lg:gap-4">
                       <div className="font-mono tabular-nums min-w-0">
-                        <div className="flex flex-wrap items-baseline gap-x-1.5 sm:gap-x-2">
-                          <span className="text-[11px] sm:text-base font-extrabold text-black">
+                        <div className="flex flex-wrap items-baseline gap-x-1.5 lg:gap-x-2">
+                          <span className="text-[10px] sm:text-[11px] lg:text-base font-extrabold text-black">
                             {formatMoney(product.price)}
                           </span>
                           {/* A Number() check: compareAtPrice 0 would otherwise print a stray "0" */}
                           {Number(product.compareAtPrice) > product.price && (
-                            <span className="text-[9px] sm:text-xs text-stone-600 line-through font-semibold">
+                            <span className="text-[9px] lg:text-xs text-stone-600 line-through font-semibold">
                               {formatMoney(Number(product.compareAtPrice))}
                             </span>
                           )}
                         </div>
-                        <span className="hidden sm:block">
+                        <span className="hidden lg:block">
                           <LocalPrice pkr={product.price} />
                         </span>
                       </div>
 
                       <button
                         onClick={() => addToCart(product, 1)}
-                        className="w-full sm:w-auto px-1 sm:px-3.5 py-1 sm:py-2 bg-black text-white text-[10px] sm:text-xs font-bold hover:bg-stone-800 transition-colors whitespace-nowrap cursor-pointer shadow-sm"
+                        className="w-full lg:w-auto px-1 lg:px-3.5 py-1 lg:py-2 bg-black text-white text-[10px] lg:text-xs font-bold hover:bg-stone-800 transition-colors whitespace-nowrap cursor-pointer shadow-sm"
                       >
-                        <span className="sm:hidden">Add</span>
-                        <span className="hidden sm:inline">Add to Bag</span>
+                        <span className="lg:hidden">Add</span>
+                        <span className="hidden lg:inline">Add to Bag</span>
                       </button>
                     </div>
                   </article>
@@ -2313,8 +2313,8 @@ export const StorefrontView: React.FC = () => {
                   </div>
                 ) : (
                   <>
-                  {/* 3 per row on every screen (compact cards on phones) */}
-                  <div className="grid grid-cols-3 gap-1.5 sm:gap-6">
+                  {/* 4 per row on phones, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
+                  <div className="grid grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1 sm:gap-2 lg:gap-6">
                     {visibleCatalogProducts.map((product) => (
                       <article
                         key={product.id}
@@ -2325,7 +2325,7 @@ export const StorefrontView: React.FC = () => {
                           <CardShareButton productId={product.id} productName={product.name} price={product.price} showToast={showToast} />
                           <div
                             onClick={() => handleSelectProduct(product)}
-                            className="aspect-square sm:aspect-[4/3] bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
+                            className="aspect-square lg:aspect-[4/3] bg-[#F7F6F2] overflow-hidden relative cursor-pointer"
                           >
                             <ProductImage
                               src={product.primaryImage}
@@ -2334,30 +2334,30 @@ export const StorefrontView: React.FC = () => {
                               className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
                             />
                           </div>
-                          <div className="p-1.5 sm:p-4">
-                            <div className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-stone-900 mb-1">
+                          <div className="p-1 sm:p-1.5 lg:p-4">
+                            <div className="hidden lg:flex items-center gap-1.5 text-xs font-bold text-stone-900 mb-1">
                               <span>{product.sku}</span>
                               <span aria-hidden="true">·</span>
                               <span>{product.category}</span>
                             </div>
                             <h3
                               onClick={() => handleSelectProduct(product)}
-                              className="text-[11px] sm:text-base font-semibold sm:font-extrabold text-black group-hover:text-stone-700 cursor-pointer line-clamp-2 sm:line-clamp-1 leading-tight sm:leading-normal"
+                              className="text-[10px] sm:text-[11px] lg:text-base font-semibold lg:font-extrabold text-black group-hover:text-stone-700 cursor-pointer line-clamp-2 lg:line-clamp-1 leading-tight lg:leading-normal"
                             >
                               {product.name}
                             </h3>
-                            <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} size={9} className="mt-1 !text-[9px] sm:!text-[11px]" />
-                            <span className="hidden sm:inline">
+                            <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} size={9} className="mt-1 !text-[9px] lg:!text-[11px]" />
+                            <span className="hidden lg:inline">
                               <ShipsBadge product={product} className="mt-1 ml-1" />
                             </span>
-                            <p className="hidden sm:block text-xs text-black font-medium mt-1 line-clamp-2">
+                            <p className="hidden lg:block text-xs text-black font-medium mt-1 line-clamp-2">
                               {product.shortDescription}
                             </p>
                             {product.sellerId && product.sellerName && (
                               <button
                                 type="button"
                                 onClick={() => openShop(product.sellerId!)}
-                                className="hidden sm:block mt-1.5 text-[11px] font-semibold text-[#0E7A43] hover:underline cursor-pointer truncate max-w-full"
+                                className="hidden lg:block mt-1.5 text-[11px] font-semibold text-[#0E7A43] hover:underline cursor-pointer truncate max-w-full"
                               >
                                 by {product.sellerName} · visit store
                               </button>
@@ -2365,21 +2365,21 @@ export const StorefrontView: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="px-1.5 pb-1.5 pt-1 sm:px-4 sm:pb-4 sm:pt-3 border-t border-black/10 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <div className="px-1 pb-1 pt-1 sm:px-1.5 sm:pb-1.5 lg:px-4 lg:pb-4 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:items-center justify-between gap-1">
                           <div className="font-mono tabular-nums min-w-0">
-                            <span className="text-[11px] sm:text-base font-extrabold text-black block">
+                            <span className="text-[10px] sm:text-[11px] lg:text-base font-extrabold text-black block">
                               {formatMoney(product.price)}
                             </span>
-                            <span className="hidden sm:block">
+                            <span className="hidden lg:block">
                               <LocalPrice pkr={product.price} />
                             </span>
                           </div>
                           <button
                             onClick={() => addToCart(product, 1)}
-                            className="w-full sm:w-auto px-1 sm:px-3.5 py-1 sm:py-1.5 bg-black text-white text-[10px] sm:text-xs font-bold hover:bg-stone-800 transition-colors cursor-pointer shadow-sm whitespace-nowrap"
+                            className="w-full lg:w-auto px-1 lg:px-3.5 py-1 lg:py-1.5 bg-black text-white text-[10px] lg:text-xs font-bold hover:bg-stone-800 transition-colors cursor-pointer shadow-sm whitespace-nowrap"
                           >
-                            <span className="sm:hidden">Add</span>
-                            <span className="hidden sm:inline">Add to Bag</span>
+                            <span className="lg:hidden">Add</span>
+                            <span className="hidden lg:inline">Add to Bag</span>
                           </button>
                         </div>
                       </article>
