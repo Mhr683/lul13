@@ -574,6 +574,9 @@ app.post('/api/admin/team/invite', requireSuperAdmin, async (req, res) => {
   if (!isEmail(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
   if (!ALLOWED_ADMIN_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role.' });
   try {
+    if (await isOwnerEmail(email)) {
+      return res.status(400).json({ error: 'The store owner always has full access.' });
+    }
     const usersSnap = await adminDb.collection('users').where('email', '==', email).limit(1).get();
     if (!usersSnap.empty) {
       await usersSnap.docs[0].ref.update({ role, updatedAt: new Date().toISOString() });

@@ -53,8 +53,8 @@ const AdminGate: React.FC<{ children: React.ReactNode; onBack: () => void }> = (
         {!firebaseUser ? (
           <AuthPanel
             title="Admin login"
-            subtitle="The admin panel is only for the store owner and the admins they have added."
-            allowSignup={false}
+            subtitle="The admin panel is only for the store owner and the team they have added. Invited team members can create their account here with the invited email."
+            strongPassword
           />
         ) : (
           <div className="space-y-4 text-sm text-[#141413]">

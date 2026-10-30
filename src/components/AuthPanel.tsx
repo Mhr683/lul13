@@ -9,12 +9,12 @@ interface AuthPanelProps {
   subtitle?: string;
   allowSignup?: boolean;
   onSuccess?: () => void;
-  /** Seller Center: open on "create account" and require a "Good" password or better */
-  sellerSignup?: boolean;
+  /** Seller Center / admin team: require a "Good" password or better for new accounts */
+  strongPassword?: boolean;
 }
 
 // Login / sign-up / forgot-password form used by the storefront account modal and the admin gate
-export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSignup = true, onSuccess, sellerSignup = false }) => {
+export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSignup = true, onSuccess, strongPassword = false }) => {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useStore();
   const [mode, setMode] = useState<AuthMode>('LOGIN');
   const [showPassword, setShowPassword] = useState(false);
@@ -44,8 +44,8 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
       if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
         return setError('The password must contain both letters and numbers.');
       }
-      if (sellerSignup && strength.score < MIN_SELLER_PASSWORD_SCORE) {
-        return setError(`Seller accounts need a stronger password: add ${strength.tips.join(', ') || 'more characters'}.`);
+      if (strongPassword && strength.score < MIN_SELLER_PASSWORD_SCORE) {
+        return setError(`This account needs a stronger password: add ${strength.tips.join(', ') || 'more characters'}.`);
       }
       if (password !== confirmPassword) return setError('The two passwords do not match.');
     }

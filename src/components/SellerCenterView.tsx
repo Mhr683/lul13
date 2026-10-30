@@ -341,7 +341,7 @@ export const SellerCenterView: React.FC = () => {
             title="Seller login / new account"
             subtitle="Step 1 of 5: create your account (or sign in). Then 4 short steps for your shop, ID, payout and review."
             allowSignup
-            sellerSignup
+            strongPassword
           />
         </div>
       </div>
