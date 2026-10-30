@@ -38,6 +38,11 @@ export const PORTAL_BRANDING: Record<Portal, PortalBranding> = {
 
 export const portalFromLocation = (): Portal => {
   if (typeof window === 'undefined') return 'STOREFRONT';
+  // seller.<domain> and admin.<domain> always open their own part, whatever the path
+  // (an installed app or cached page may open them at "/" without the server's redirect)
+  const host = window.location.hostname.toLowerCase();
+  if (host.startsWith('seller.')) return 'SELLER';
+  if (host.startsWith('admin.')) return 'ADMIN';
   const path = window.location.pathname.replace(/\/+$/, '').toLowerCase();
   if (path === '/seller' || path.startsWith('/seller/')) return 'SELLER';
   // Seller sign-up link (opens Seller Center, which shows the application to new sellers)

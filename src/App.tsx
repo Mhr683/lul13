@@ -16,6 +16,7 @@ const SellerCenterView = lazy(() =>
 );
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthPanel } from './components/AuthPanel';
+import { storeOrigin } from './components/ShareProductButton';
 import { Portal, applyPortalBranding, portalFromLocation } from './portalBranding';
 
 // Only signed-in admins can open the admin console; everyone else gets a login / access-denied screen.
@@ -125,6 +126,11 @@ const MainRouter: React.FC = () => {
   const { toastMessage } = useStore();
 
   const handleSwitchMode = (newMode: Portal) => {
+    // On seller./admin. addresses the store lives on the main domain, so go there instead
+    if (newMode === 'STOREFRONT' && /^(seller|admin)\./i.test(window.location.hostname)) {
+      window.location.href = `${storeOrigin()}/`;
+      return;
+    }
     setMode(newMode);
     try {
       window.history.pushState(null, '', newMode === 'ADMIN' ? '/admin' : newMode === 'SELLER' ? '/seller' : '/');
