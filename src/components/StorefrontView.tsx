@@ -1871,8 +1871,8 @@ export const StorefrontView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Product grid: 4 per row on phones, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
-              <div className="grid grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1 sm:gap-2 lg:gap-6">
+              {/* Product grid: 3 per row on phones, 4 on tablets, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1.5 sm:gap-2 lg:gap-6">
                 {filteredProducts.slice(0, 12).map((product) => (
                   <article
                     key={product.id}
@@ -1907,7 +1907,7 @@ export const StorefrontView: React.FC = () => {
                         </button>
                       </div>
 
-                      <div className="p-1 sm:p-1.5 lg:p-5">
+                      <div className="p-1.5 lg:p-5">
                         {/* Unboxed metadata (phones skip it to keep the card short) */}
                         <div className="hidden lg:flex items-center gap-2 text-xs font-bold text-stone-900 mb-1.5">
                           <span className="uppercase tracking-wider">{product.brand}</span>
@@ -1925,7 +1925,7 @@ export const StorefrontView: React.FC = () => {
 
                         <h3
                           onClick={() => handleSelectProduct(product)}
-                          className="text-[10px] sm:text-[11px] lg:text-base font-semibold lg:font-extrabold text-black group-hover:text-stone-700 transition-colors cursor-pointer line-clamp-2 lg:line-clamp-1 leading-tight lg:leading-snug"
+                          className="text-[11px] lg:text-base font-semibold lg:font-extrabold text-black group-hover:text-stone-700 transition-colors cursor-pointer line-clamp-2 lg:line-clamp-1 leading-tight lg:leading-snug"
                         >
                           {product.name}
                         </h3>
@@ -1944,10 +1944,10 @@ export const StorefrontView: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="px-1 pb-1 pt-1 sm:px-1.5 sm:pb-1.5 lg:px-5 lg:pb-5 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:items-center justify-between gap-1 lg:gap-4">
+                    <div className="px-1.5 pb-1.5 pt-1 lg:px-5 lg:pb-5 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:items-center justify-between gap-1 lg:gap-4">
                       <div className="font-mono tabular-nums min-w-0">
                         <div className="flex flex-wrap items-baseline gap-x-1.5 lg:gap-x-2">
-                          <span className="text-[10px] sm:text-[11px] lg:text-base font-extrabold text-black">
+                          <span className="text-[11px] lg:text-base font-extrabold text-black">
                             {formatMoney(product.price)}
                           </span>
                           {/* A Number() check: compareAtPrice 0 would otherwise print a stray "0" */}
@@ -2313,8 +2313,8 @@ export const StorefrontView: React.FC = () => {
                   </div>
                 ) : (
                   <>
-                  {/* 4 per row on phones, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
-                  <div className="grid grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1 sm:gap-2 lg:gap-6">
+                  {/* 3 per row on phones, 4 on tablets, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
+                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1.5 sm:gap-2 lg:gap-6">
                     {visibleCatalogProducts.map((product) => (
                       <article
                         key={product.id}
@@ -2334,7 +2334,7 @@ export const StorefrontView: React.FC = () => {
                               className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
                             />
                           </div>
-                          <div className="p-1 sm:p-1.5 lg:p-4">
+                          <div className="p-1.5 lg:p-4">
                             <div className="hidden lg:flex items-center gap-1.5 text-xs font-bold text-stone-900 mb-1">
                               <span>{product.sku}</span>
                               <span aria-hidden="true">·</span>
@@ -2342,7 +2342,7 @@ export const StorefrontView: React.FC = () => {
                             </div>
                             <h3
                               onClick={() => handleSelectProduct(product)}
-                              className="text-[10px] sm:text-[11px] lg:text-base font-semibold lg:font-extrabold text-black group-hover:text-stone-700 cursor-pointer line-clamp-2 lg:line-clamp-1 leading-tight lg:leading-normal"
+                              className="text-[11px] lg:text-base font-semibold lg:font-extrabold text-black group-hover:text-stone-700 cursor-pointer line-clamp-2 lg:line-clamp-1 leading-tight lg:leading-normal"
                             >
                               {product.name}
                             </h3>
@@ -2365,9 +2365,9 @@ export const StorefrontView: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="px-1 pb-1 pt-1 sm:px-1.5 sm:pb-1.5 lg:px-4 lg:pb-4 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:items-center justify-between gap-1">
+                        <div className="px-1.5 pb-1.5 pt-1 lg:px-4 lg:pb-4 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:items-center justify-between gap-1">
                           <div className="font-mono tabular-nums min-w-0">
-                            <span className="text-[10px] sm:text-[11px] lg:text-base font-extrabold text-black block">
+                            <span className="text-[11px] lg:text-base font-extrabold text-black block">
                               {formatMoney(product.price)}
                             </span>
                             <span className="hidden lg:block">
