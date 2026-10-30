@@ -15,7 +15,8 @@ export interface EmailLogEntry {
     | 'BACK_IN_STOCK'
     | 'QUESTION_ANSWERED'
     | 'FOLLOWED_SHOP_NEW_PRODUCTS'
-    | 'LOGIN_CHECK';
+    | 'LOGIN_CHECK'
+    | 'SELLER_STATUS';
   recipient: string;
   sender: string;
   subject: string;
@@ -370,6 +371,79 @@ export async function sendLoginCheckEmail(
     ? `${where} login: if this is you, open this link within 5 minutes:\n${params.link}\n\nIf this was not you, ignore this email and change your password.`
     : `${where} login code: ${params.code} (valid for 5 minutes).\n\nIf this was not you, ignore this email and change your password.`;
   return sendViaResend(adminDb, { to: params.to, subject, html, text, type: 'LOGIN_CHECK', metadata: { portal: params.portal } });
+}
+
+// ============================================================================
+// SELLER APPLICATION / ACCOUNT STATUS (approved, rejected, suspended)
+// ============================================================================
+export async function sendSellerStatusEmail(
+  adminDb: FirebaseFirestore.Firestore | null | undefined,
+  params: {
+    to: string;
+    ownerName?: string;
+    shopName: string;
+    status: 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+    reason?: string;
+    vendorId?: string;
+    sellerCenterUrl: string;
+    storeName?: string;
+    supportEmail?: string;
+  }
+): Promise<SendEmailResult> {
+  const storeName = params.storeName || 'Store';
+  const shop = escapeHtml(params.shopName);
+  const view = {
+    APPROVED: {
+      subject: `Your shop "${params.shopName}" is approved | ${storeName}`,
+      title: 'Your shop is approved',
+      color: 'emerald' as const,
+      body: `<p style="margin: 0 0 16px 0; font-size: 14px;">Congratulations! <strong>${shop}</strong> is now approved on ${escapeHtml(storeName)}. You can add your products and start selling today.</p>${
+        params.vendorId ? `<p style="margin: 0 0 16px 0; font-size: 14px;">Your vendor ID: <strong style="font-family: monospace;">${escapeHtml(params.vendorId)}</strong></p>` : ''
+      }`,
+      button: 'Open Seller Center',
+      text: `Congratulations! ${params.shopName} is now approved on ${storeName}. Add your products and start selling.${params.vendorId ? `\nVendor ID: ${params.vendorId}` : ''}`,
+    },
+    REJECTED: {
+      subject: `About your seller application | ${storeName}`,
+      title: 'Your application was not approved',
+      color: 'rose' as const,
+      body: `<p style="margin: 0 0 16px 0; font-size: 14px;">We could not approve <strong>${shop}</strong> yet.</p>`,
+      button: 'Fix and apply again',
+      text: `We could not approve ${params.shopName} yet.`,
+    },
+    SUSPENDED: {
+      subject: `Your shop "${params.shopName}" is suspended | ${storeName}`,
+      title: 'Your shop is suspended',
+      color: 'rose' as const,
+      body: `<p style="margin: 0 0 16px 0; font-size: 14px;"><strong>${shop}</strong> is suspended and its products are hidden from the store.</p>`,
+      button: 'Open Seller Center',
+      text: `${params.shopName} is suspended and its products are hidden from the store.`,
+    },
+  }[params.status];
+  const reasonHtml = params.reason
+    ? `<div style="margin: 0 0 16px 0; padding: 12px 16px; background-color: #F9FAFB; border-left: 3px solid #9CA3AF; font-size: 14px;">Reason: ${escapeHtml(params.reason)}</div>`
+    : '';
+  const html = wrapEmailHtml({
+    storeName,
+    bannerTitle: view.title,
+    bannerSubtitle: params.shopName,
+    bannerColor: view.color,
+    supportEmail: params.supportEmail,
+    contentHtml: `
+      <p style="margin: 0 0 16px 0; font-size: 14px;">Assalam o Alaikum ${escapeHtml(params.ownerName || '')},</p>
+      ${view.body}
+      ${reasonHtml}
+      <p style="margin: 0 0 8px 0;"><a href="${escapeHtml(params.sellerCenterUrl)}" style="display: inline-block; padding: 12px 22px; background-color: #111827; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 14px;">${view.button}</a></p>`,
+  });
+  const text = `Assalam o Alaikum ${params.ownerName || ''},\n\n${view.text}${params.reason ? `\nReason: ${params.reason}` : ''}\n\nSeller Center: ${params.sellerCenterUrl}\n\n${storeName}`;
+  return sendViaResend(adminDb, {
+    to: params.to,
+    subject: view.subject,
+    html,
+    text,
+    type: 'SELLER_STATUS',
+    metadata: { shopName: params.shopName, status: params.status },
+  });
 }
 
 // ============================================================================

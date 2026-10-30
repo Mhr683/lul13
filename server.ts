@@ -89,6 +89,7 @@ import {
   sendOrderCancelledEmail,
   sendSupportReplyEmail,
   sendLoginCheckEmail,
+  sendSellerStatusEmail,
 } from './src/services/serverEmailService';
 
 dotenv.config();
@@ -4028,6 +4029,21 @@ const marketplace = registerMarketplaceRoutes(app, {
   supplierOf: (productId) => (catalogStore.privateReady ? catalogStore.supplierOf(productId) : undefined),
   HOUSE_SELLER_ID,
   DEFAULT_COMMISSION_PERCENT,
+  emailSellerStatus: async (seller, status, reason, vendorId) => {
+    const s: any = catalogStore.settings() || {};
+    const r = await sendSellerStatusEmail(adminDb, {
+      to: String(seller.ownerEmail || ''),
+      ownerName: seller.ownerName,
+      shopName: String(seller.shopName || 'Your shop'),
+      status,
+      reason,
+      vendorId,
+      sellerCenterUrl: STORE_HOST ? `https://seller.${STORE_HOST}` : `${String(process.env.APP_URL || '').replace(/\/+$/, '')}/seller`,
+      storeName: s.storeName || DEFAULT_SETTINGS.storeName || 'Store',
+      supportEmail: s.supportEmail || s.contactEmail || undefined,
+    });
+    console.log(`[admin/sellers] ${seller.shopName} ${status}: email ${r.success ? 'sent' : `failed (${r.error})`}`);
+  },
 });
 
 // Messages and notices between sellers and the store

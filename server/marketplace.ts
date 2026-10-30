@@ -51,6 +51,8 @@ export interface MarketplaceDeps {
   readPrivateFile: (rel: string) => Promise<Buffer | null>;
   HOUSE_SELLER_ID: string;
   DEFAULT_COMMISSION_PERCENT: number;
+  /** Tells the seller by email that their shop was approved / rejected / suspended */
+  emailSellerStatus: (seller: any, status: 'APPROVED' | 'REJECTED' | 'SUSPENDED', reason: string, vendorId?: string) => Promise<void>;
 }
 
 const SELLER_ORDER_STATUSES = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
@@ -1649,6 +1651,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
 
       const statusChanged = updates.status && updates.status !== current.status;
       const changedProducts = statusChanged ? await syncProductsWithSellerStatus(id, updates.status) : 0;
+      if (statusChanged && updates.status !== 'PENDING') {
+        // Not awaited: a slow or failed email never holds up the admin's screen
+        d.emailSellerStatus({ ...current, id }, updates.status, updates.statusReason, (identity as any)?.vendorId || current.vendorId).catch(
+          (err) => console.error('[admin/sellers] status email failed:', err?.message || err)
+        );
+      }
       res.json({ success: true, changedProducts, ...identity });
     } catch (err) {
       console.error('[admin/sellers update] failed:', err);
