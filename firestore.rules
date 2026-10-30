@@ -33,7 +33,7 @@ service cloud.firestore {
     function isBuiltInOwner() {
       return isSignedIn() &&
         request.auth.token.email_verified == true &&
-        request.auth.token.email in ['specialforme683@gmail.com', 'brucewayne16700@gmail.com'];
+        request.auth.token.email in ['specialforme683@gmail.com'];
     }
 
     function isSuperAdmin() {
