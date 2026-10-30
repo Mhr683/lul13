@@ -1873,11 +1873,15 @@ export const StorefrontView: React.FC = () => {
 
               {/* Product grid: 3 per row on phones, 4 on tablets, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
               <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1.5 sm:gap-2 lg:gap-6">
-                {filteredProducts.slice(0, 12).map((product) => (
+                {/* Full rows on every screen: 21 on phones (7 × 3), 20 on tablets and laptops (5 × 4 / 4 × 5),
+                    24 on very wide screens (4 × 6); the extra cards are hidden with CSS, nothing is loaded twice */}
+                {filteredProducts.slice(0, 24).map((product, i) => (
                   <article
                     key={product.id}
                     data-pid={product.id}
-                    className="group flex flex-col justify-between border border-black/15 bg-white transition-transform duration-150 hover:-translate-y-0.5 shadow-sm min-w-0"
+                    className={`group flex flex-col justify-between border border-black/15 bg-white transition-transform duration-150 hover:-translate-y-0.5 shadow-sm min-w-0 ${
+                      i === 20 ? 'sm:hidden 2xl:flex' : i > 20 ? 'hidden 2xl:flex' : ''
+                    }`}
                   >
                     <div className="relative">
                       <CardShareButton productId={product.id} productName={product.name} price={product.price} showToast={showToast} />
