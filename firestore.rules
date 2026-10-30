@@ -423,8 +423,9 @@ service cloud.firestore {
 
     // Collection 7: /audit_logs/{logId}
     match /audit_logs/{logId} {
-      allow get: if isValidId(logId) && isAdmin();
-      allow list: if isSignedIn() && (resource.data.actorUid == request.auth.uid || isAdmin());
+      // The security log is for the owner and admins; other team roles see only their own entries
+      allow get: if isValidId(logId) && (isFullAdmin() || (isSignedIn() && resource.data.actorUid == request.auth.uid));
+      allow list: if isSignedIn() && (resource.data.actorUid == request.auth.uid || isFullAdmin());
       allow create: if isSignedIn() && isValidId(logId) && isValidAuditLog(incoming()) &&
         incoming().actorUid == request.auth.uid &&
         isAdmin();

@@ -67,6 +67,7 @@ import { QuestionsInbox } from './QuestionsInbox';
 import { AdminTrafficPanel } from './AdminTrafficPanel';
 import { AdminPaymentKeysPanel } from './AdminPaymentKeysPanel';
 import { AdminShippingZonesEditor } from './AdminShippingZonesEditor';
+import { ADMIN_TABS, ROLE_LABELS, tabsForRole, type AdminTab } from '../services/adminRoles';
 import {
   Product,
   Order,
@@ -98,27 +99,7 @@ import {
   validateAIToolArgs,
 } from '../validation/validators';
 
-type AdminTab =
-  | 'DASHBOARD'
-  | 'CATALOG'
-  | 'ORDERS'
-  | 'COUPONS'
-  | 'REVIEWS'
-  | 'AI_COMMAND_CENTER'
-  | 'AI_TASKS'
-  | 'AUDIT_LOGS'
-  | 'NOTIFICATIONS'
-  | 'SETTINGS'
-  | 'SELLERS'
-  | 'SELLER_INBOX'
-  | 'RETURNS'
-  | 'GROWTH'
-  | 'TRAFFIC'
-  | 'QUESTIONS';
-
-const ADMIN_TABS: AdminTab[] = [
-  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'GROWTH', 'TRAFFIC', 'COUPONS', 'REVIEWS', 'QUESTIONS', 'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
-];
+// Sections and which team role may use them: src/services/adminRoles.ts
 // Tabs remembered from before the listing work moved to Seller Center fall back to the dashboard
 const validTab = (tab: string | undefined): AdminTab => (ADMIN_TABS.includes(tab as AdminTab) ? (tab as AdminTab) : 'DASHBOARD');
 
@@ -220,10 +201,19 @@ export const AdminDashboardView: React.FC<{
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<AdminTab>(validTab(initialTab));
+  // Only the sections of this person's role (the server enforces the same list); everything while
+  // the profile is still loading
+  const myRole = String(userProfile?.role || '').toUpperCase();
+  const allowedTabs = useMemo(() => (userProfile ? tabsForRole(myRole) : ADMIN_TABS), [userProfile, myRole]);
+  useEffect(() => {
+    if (allowedTabs.length && !allowedTabs.includes(activeTab)) setActiveTab(allowedTabs.includes('DASHBOARD') ? 'DASHBOARD' : allowedTabs[0]);
+  }, [allowedTabs, activeTab]);
 
   // Unread seller conversations (badge on "Seller Messages"); a count query, checked every 2 minutes
   const [sellerUnread, setSellerUnread] = useState(0);
+  const canSeeSellerInbox = allowedTabs.includes('SELLER_INBOX');
   useEffect(() => {
+    if (!canSeeSellerInbox) return;
     let stop = false;
     const check = async () => {
       if (document.visibilityState !== 'visible') return;
@@ -243,7 +233,7 @@ export const AdminDashboardView: React.FC<{
       stop = true;
       clearInterval(t);
     };
-  }, []);
+  }, [canSeeSellerInbox]);
   const [dateFilter, setDateFilter] = useState<'TODAY' | '7D' | '30D' | 'ALL'>('30D');
   const [supplierFilter, setSupplierFilter] = useState<string>('ALL');
   const [selectedOrderForFulfillment, setSelectedOrderForFulfillment] = useState<Order | null>(null);
@@ -2560,6 +2550,12 @@ export const AdminDashboardView: React.FC<{
             </button>
           </div>
 
+          {userProfile && (
+            <div className="mb-2 px-3 py-1.5 bg-black/[0.05] text-[11px] text-[#141413]" title="Each team role sees only its own sections">
+              Signed in as <strong>{ROLE_LABELS[myRole] || myRole}</strong>
+              {allowedTabs.length < ADMIN_TABS.length && <span className="text-[#575653]"> · {allowedTabs.length} sections</span>}
+            </div>
+          )}
           <nav className="space-y-1 text-xs">
             {(
               [
@@ -2580,7 +2576,9 @@ export const AdminDashboardView: React.FC<{
                 { id: 'SELLERS', label: 'Sellers & Payouts', icon: Store },
                 { id: 'SETTINGS', label: 'Store & AI Settings', icon: Settings },
               ] as { id: AdminTab; label: string; icon: any }[]
-            ).map((item) => {
+            )
+              .filter((item) => allowedTabs.includes(item.id))
+              .map((item) => {
               const Icon = item.icon;
               const active = activeTab === item.id;
               const isInbox = item.id === 'NOTIFICATIONS';

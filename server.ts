@@ -31,6 +31,7 @@ import { UserRole, Order, OrderItem, OrderStatus, PaymentStatus, OrderShipment }
 import { ShippingCalculationService, generateCourierTrackingUrl } from './src/services/shippingService';
 import { shipsToCountry } from './src/services/productShipping';
 import { setupCardPayments } from './server/cardPayments';
+import { ROLE_LABELS, adminAreaOfPath, roleCanUseTab } from './src/services/adminRoles';
 import { CANCEL_POLICY, CANCEL_REASONS, cancelOptionFor, codPausedUntil, recentStrikes, type CancelOption, type CancelRequest } from './src/services/cancelPolicy';
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
@@ -373,6 +374,16 @@ async function requireAdmin(
       email: decodedToken.email,
       role: String(role).toUpperCase(),
     };
+
+    // Team roles only reach their own admin sections (src/services/adminRoles.ts): a Product
+    // Manager cannot open payouts or settings through the API either
+    const area = adminAreaOfPath(req.originalUrl.split('?')[0]);
+    if (area && !roleCanUseTab(role, area)) {
+      return res.status(403).json({
+        error: `Your role (${ROLE_LABELS[String(role).toUpperCase()] || role}) does not have access to this section.`,
+        code: 'ROLE_AREA_FORBIDDEN',
+      });
+    }
 
     next();
   } catch (err: any) {
