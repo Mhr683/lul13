@@ -9,13 +9,17 @@ import { formatPKR } from '../services/abstractions';
 // manual quote, and card payment is not offered there (the total is not final).
 // Changes stay in this form until "Save zones": one settings write per save.
 
-const PRESETS: Array<{ name: string; countries: string[]; baseFee: number; perKg: number; days: string }> = [
-  { name: 'Gulf (UAE, Saudi, Qatar, Kuwait, Oman, Bahrain)', countries: ['AE', 'SA', 'QA', 'KW', 'OM', 'BH'], baseFee: 4500, perKg: 1500, days: '5–8 business days' },
-  { name: 'United Kingdom', countries: ['GB'], baseFee: 6500, perKg: 2500, days: '6–10 business days' },
-  { name: 'Europe', countries: ['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'IE', 'AT', 'SE', 'DK', 'NO', 'FI', 'PT', 'PL', 'CH', 'GR'], baseFee: 7000, perKg: 2700, days: '7–12 business days' },
-  { name: 'USA & Canada', countries: ['US', 'CA'], baseFee: 7500, perKg: 3000, days: '7–12 business days' },
-  { name: 'Australia & New Zealand', countries: ['AU', 'NZ'], baseFee: 8000, perKg: 3200, days: '8–14 business days' },
-  { name: 'Asia', countries: ['MY', 'SG', 'CN', 'HK', 'JP', 'KR', 'TH', 'ID', 'BD', 'LK', 'NP', 'TR'], baseFee: 5500, perKg: 2000, days: '6–12 business days' },
+// Recommended starting rates, based on Pakistan Post's International EMS tariff (1 Dec 2024):
+// UAE 5,700 + 500/kg, UK 9,700 + 1,800/kg, USA 15,300 + 4,000/kg are from the tariff; the other
+// zones are estimates in between. Check them against the courier's current rates.
+const RATES_SOURCE = 'Pakistan Post International EMS tariff (1 Dec 2024)';
+const PRESETS: Array<{ name: string; countries: string[]; baseFee: number; perKg: number; days: string; courier: string }> = [
+  { name: 'Gulf (UAE, Saudi, Qatar, Kuwait, Oman, Bahrain)', countries: ['AE', 'SA', 'QA', 'KW', 'OM', 'BH'], baseFee: 5700, perKg: 500, days: '5–8 business days', courier: 'Pakistan Post EMS' },
+  { name: 'United Kingdom', countries: ['GB'], baseFee: 9700, perKg: 1800, days: '6–10 business days', courier: 'Pakistan Post EMS' },
+  { name: 'USA & Canada', countries: ['US', 'CA'], baseFee: 15300, perKg: 4000, days: '7–12 business days', courier: 'Pakistan Post EMS' },
+  { name: 'Europe', countries: ['DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'IE', 'AT', 'SE', 'DK', 'NO', 'FI', 'PT', 'PL', 'CH', 'GR'], baseFee: 11000, perKg: 2500, days: '7–12 business days', courier: 'Pakistan Post EMS' },
+  { name: 'Australia & New Zealand', countries: ['AU', 'NZ'], baseFee: 12000, perKg: 3000, days: '8–14 business days', courier: 'Pakistan Post EMS' },
+  { name: 'Asia', countries: ['MY', 'SG', 'CN', 'HK', 'JP', 'KR', 'TH', 'ID', 'BD', 'LK', 'NP', 'TR'], baseFee: 7000, perKg: 1500, days: '6–12 business days', courier: 'Pakistan Post EMS' },
 ];
 
 const inputCls = 'w-full px-2.5 py-1.5 bg-white border border-black/20 text-xs text-[#141413] focus:border-black focus:outline-none';
@@ -26,7 +30,7 @@ const newZone = (p?: (typeof PRESETS)[number]): ShippingZoneConfig => ({
   id: `zone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
   name: p?.name || 'New zone',
   countries: p?.countries || [],
-  courier: 'DHL Express',
+  courier: p?.courier || 'Pakistan Post EMS',
   baseFee: p?.baseFee ?? 6000,
   includedWeightKg: 1,
   perAdditionalKgFee: p?.perKg ?? 2500,
@@ -121,9 +125,33 @@ export const AdminShippingZonesEditor: React.FC<{
         Countries without a zone may request a manual shipping quote
       </label>
 
+      {/* One click: every recommended zone with its rate, ready to check and save */}
+      <div className="p-3 bg-emerald-50 border border-emerald-300 text-xs space-y-2">
+        <div className="font-bold text-emerald-900">Don't know the rates? Fill in the recommended delivery rates</div>
+        <p className="text-emerald-900/80">
+          Gulf, UK, USA & Canada, Europe, Australia & NZ and Asia, from the {RATES_SOURCE}. They appear in the form below: check
+          them, change any fee, then press <strong>Save zones</strong>. Zones you already have are kept.
+        </p>
+        <button
+          type="button"
+          onClick={() =>
+            setDraft((d) => {
+              const taken = new Set(d.flatMap((z) => z.countries));
+              const add = PRESETS.filter((p) => !d.some((z) => z.name === p.name))
+                .map((p) => newZone({ ...p, countries: p.countries.filter((c) => !taken.has(c)) }))
+                .filter((z) => z.countries.length);
+              return [...d, ...add];
+            })
+          }
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 text-white font-bold cursor-pointer hover:bg-emerald-800"
+        >
+          <Plus className="w-3.5 h-3.5" /> Fill recommended rates
+        </button>
+      </div>
+
       {draft.length === 0 && (
         <div className="p-3 bg-amber-50 border border-amber-200 text-xs text-amber-900">
-          No zones yet: every customer outside Pakistan gets a manual quote and cannot pay by card. Add the suggested zones below and adjust the fees.
+          No zones yet: every customer outside Pakistan gets a manual quote and cannot pay by card. Press "Fill recommended rates" above, or add zones one by one below.
         </div>
       )}
 
