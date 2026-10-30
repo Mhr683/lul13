@@ -18,6 +18,7 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthPanel } from './components/AuthPanel';
 import { storeOrigin } from './components/ShareProductButton';
 import { LoginStepUp } from './components/LoginStepUp';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { Portal, applyPortalBranding, portalFromLocation } from './portalBranding';
 
 // Only signed-in admins can open the admin console; everyone else gets a login / access-denied screen.
@@ -146,6 +147,8 @@ const MainRouter: React.FC = () => {
 
   return (
     <div className="relative min-h-screen">
+      {/* "Install App" strip on all three parts of the site, also before signing in */}
+      <PWAInstallButton variant="banner" />
       {mode === 'SELLER' ? (
         <Suspense
           fallback={
