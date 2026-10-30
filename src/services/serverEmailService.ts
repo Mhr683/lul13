@@ -60,8 +60,10 @@ export async function logEmailAttempt(
     return;
   }
   try {
+    // Firestore refuses undefined values (e.g. no orderId on login emails): leave those fields out
+    const entry = Object.fromEntries(Object.entries(logData).filter(([, v]) => v !== undefined));
     await adminDb.collection('email_logs').add({
-      ...logData,
+      ...entry,
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
