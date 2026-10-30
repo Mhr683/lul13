@@ -3,6 +3,7 @@ import { ArrowRight, ChevronLeft, ChevronRight, Flame, PlayCircle, Sparkles, Tag
 import type { Product, StoreSettings } from '../types/store';
 import type { Campaign } from '../services/promotions';
 import { formatPKR } from '../services/abstractions';
+import { formatMoney } from '../services/currency';
 
 // Home page hero: slides that move by themselves (and with a swipe) — live campaigns, flash deals
 // with a running countdown, product videos, big discounts, new arrivals and the store's own slide.
@@ -323,10 +324,10 @@ export const HeroSlider: React.FC<{
                   )}
                   {(s.price || s.endsAt) && (
                     <div className={`${isActive ? 'hs-up' : ''} flex flex-wrap items-center gap-x-3 gap-y-1.5`} style={{ animationDelay: '200ms' }}>
-                      {s.price ? <span className="text-lg sm:text-2xl font-extrabold font-mono">{formatPKR(s.price)}</span> : null}
+                      {s.price ? <span className="text-lg sm:text-2xl font-extrabold font-mono">{formatMoney(s.price)}</span> : null}
                       {off > 0 && (
                         <>
-                          <span className="text-xs sm:text-sm line-through text-white/60 font-mono">{formatPKR(Number(s.oldPrice))}</span>
+                          <span className="text-xs sm:text-sm line-through text-white/60 font-mono">{formatMoney(Number(s.oldPrice))}</span>
                           <span className="px-1.5 py-0.5 bg-[#DC2626] text-white text-[11px] font-bold rounded">-{off}%</span>
                         </>
                       )}
@@ -431,7 +432,7 @@ export const TrendingTicker: React.FC<{
               >
                 <span className="w-9 h-9 rounded-full overflow-hidden bg-white shrink-0">{renderImage(p.primaryImage!, p.name, 'w-full h-full object-cover', false)}</span>
                 <span className="text-[11px] font-semibold text-[#141413] max-w-[120px] truncate">{p.name}</span>
-                <span className="text-[11px] font-extrabold font-mono text-[#0E7A43]">{formatPKR(p.price)}</span>
+                <span className="text-[11px] font-extrabold font-mono text-[#0E7A43]">{formatMoney(p.price)}</span>
               </button>
             ))}
           </div>

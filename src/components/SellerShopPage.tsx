@@ -9,6 +9,7 @@ import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
 import { fetchShop, ProductRatingBadge, SellerRatingBadge, SellerScoreCards, Stars, type ShopInfo } from './SellerRating';
+import { formatMoney } from '../services/currency';
 
 // A seller's shop inside the store (#shop/<sellerId>): the shop's name, picture and city, and every
 // live product it sells, with search, category filter and sorting. Products come from the catalog
@@ -229,9 +230,9 @@ export const SellerShopPage: React.FC<{
                     </div>
                     <div className="px-3 pb-3 pt-2 border-t border-black/10 flex flex-wrap items-center justify-between gap-2">
                       <span className="font-mono text-sm font-extrabold text-black">
-                        {formatPKR(p.price)}
+                        {formatMoney(p.price)}
                         {p.compareAtPrice && p.compareAtPrice > p.price ? (
-                          <span className="block text-[11px] font-normal text-[#575653] line-through">{formatPKR(p.compareAtPrice)}</span>
+                          <span className="block text-[11px] font-normal text-[#575653] line-through">{formatMoney(p.compareAtPrice)}</span>
                         ) : null}
                       </span>
                       <button

@@ -6,6 +6,7 @@ import { welcomeOf, isCampaignLive, type Campaign } from '../services/promotions
 import { referralLink } from '../services/referral';
 import { getSavedOrders } from '../services/myOrders';
 import type { Product, StoreSettings } from '../types/store';
+import { formatMoney } from '../services/currency';
 
 // Store growth widgets: welcome offer, flash deals with a countdown, real-purchase notifications,
 // festival campaign banners and Refer & Earn.
@@ -47,7 +48,7 @@ export const WelcomeOfferPopup: React.FC<{ settings: StoreSettings; onApply: (co
         <Gift className="w-10 h-10 mx-auto text-[#0E7A43]" />
         <h2 className="text-2xl font-display font-medium">Welcome! {w.percent}% off</h2>
         <p className="text-sm text-[#575653]">
-          Your first order gets {w.percent}% off{w.maxDiscount ? ` (up to ${formatPKR(w.maxDiscount)})` : ''}. Use this code at checkout:
+          Your first order gets {w.percent}% off{w.maxDiscount ? ` (up to ${formatMoney(w.maxDiscount)})` : ''}. Use this code at checkout:
         </p>
         <div className="flex items-center justify-center gap-2">
           <span className="px-4 py-2 border-2 border-dashed border-[#0E7A43] font-mono text-lg font-bold tracking-widest">{w.code}</span>
@@ -134,8 +135,8 @@ export const DailyDeals: React.FC<{
                 </button>
                 <div className="p-2 space-y-1">
                   <p className="text-xs font-semibold line-clamp-2 min-h-[2rem]">{p.name}</p>
-                  <div className="text-sm font-bold text-[#B91C1C]">{formatPKR(p.price)}</div>
-                  {p.compareAtPrice ? <div className="text-[11px] text-[#787774] line-through">{formatPKR(p.compareAtPrice)}</div> : null}
+                  <div className="text-sm font-bold text-[#B91C1C]">{formatMoney(p.price)}</div>
+                  {p.compareAtPrice ? <div className="text-[11px] text-[#787774] line-through">{formatMoney(p.compareAtPrice)}</div> : null}
                   <Countdown endsAt={p.flashEndsAt!} className="text-[10px] text-[#B91C1C]" />
                   <button type="button" onClick={() => onAdd(p)} className="w-full mt-1 py-1.5 bg-[#141413] text-white text-[11px] font-bold cursor-pointer">
                     Add to bag
@@ -288,8 +289,8 @@ export const CampaignPage: React.FC<{
             </button>
             <div className="p-2.5 flex-1 flex flex-col gap-1">
               <p className="text-xs font-semibold line-clamp-2 min-h-[2rem]">{p.name}</p>
-              <div className="text-sm font-bold">{formatPKR(p.price)}</div>
-              {p.compareAtPrice && p.compareAtPrice > p.price ? <div className="text-[11px] text-[#787774] line-through">{formatPKR(p.compareAtPrice)}</div> : null}
+              <div className="text-sm font-bold">{formatMoney(p.price)}</div>
+              {p.compareAtPrice && p.compareAtPrice > p.price ? <div className="text-[11px] text-[#787774] line-through">{formatMoney(p.compareAtPrice)}</div> : null}
               <button type="button" onClick={() => onAdd(p)} disabled={p.stock <= 0} className="mt-auto py-1.5 bg-[#141413] text-white text-[11px] font-bold disabled:opacity-40 cursor-pointer">
                 {p.stock > 0 ? 'Add to bag' : 'Out of stock'}
               </button>
@@ -338,7 +339,7 @@ export const ReferAndEarnCard: React.FC<{ signedIn: boolean; onSignIn: () => voi
       </div>
       <p className="text-xs text-[#454441]">
         Share your link. When a friend places their first order and it is delivered, you get{' '}
-        <strong>{formatPKR(info?.rewardPkr ?? 200)}</strong> off your next purchase.
+        <strong>{formatMoney(info?.rewardPkr ?? 200)}</strong> off your next purchase.
       </p>
       {!signedIn ? (
         <button type="button" onClick={onSignIn} className="px-4 py-2 bg-[#141413] text-white text-xs font-bold cursor-pointer">
@@ -360,11 +361,11 @@ export const ReferAndEarnCard: React.FC<{ signedIn: boolean; onSignIn: () => voi
               <div className="text-[10px] text-[#575653]">friends ordered</div>
             </div>
             <div className="p-2 bg-white border border-black/10 rounded">
-              <div className="text-lg font-bold">{formatPKR(info.earned)}</div>
+              <div className="text-lg font-bold">{formatMoney(info.earned)}</div>
               <div className="text-[10px] text-[#575653]">earned</div>
             </div>
             <div className="p-2 bg-white border border-emerald-300 rounded">
-              <div className="text-lg font-bold text-[#0E7A43]">{formatPKR(info.available)}</div>
+              <div className="text-lg font-bold text-[#0E7A43]">{formatMoney(info.available)}</div>
               <div className="text-[10px] text-[#575653]">to use at checkout</div>
             </div>
           </div>

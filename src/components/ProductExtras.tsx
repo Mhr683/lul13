@@ -5,6 +5,7 @@ import { formatPKR } from '../services/abstractions';
 import { ProductImage } from './ProductImage';
 import { ProductRatingBadge } from './SellerRating';
 import type { Product } from '../types/store';
+import { formatMoney } from '../services/currency';
 
 // Product page extras (server side: server/productExtras.ts):
 //   - "Tell me when it's back" for out-of-stock products
@@ -58,7 +59,7 @@ const MiniCard: React.FC<{ p: Product; onSelect: (p: Product) => void; extra?: R
       <div className="p-2.5 space-y-1">
         <div className="text-xs font-semibold text-[#141413] line-clamp-2 min-h-[2.5em]">{p.name}</div>
         <ProductRatingBadge rating={p.rating} reviewCount={p.reviewCount} size={10} />
-        <div className="text-sm font-mono tabular-nums font-bold text-[#141413]">{formatPKR(p.price)}</div>
+        <div className="text-sm font-mono tabular-nums font-bold text-[#141413]">{formatMoney(p.price)}</div>
       </div>
     </button>
     {extra}
@@ -255,7 +256,7 @@ export const BoughtTogether: React.FC<{
             onClick={() => list.forEach((p) => onAdd(p))}
             className="px-4 py-2.5 bg-[#141413] text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer hover:bg-[#2A2A28]"
           >
-            <ShoppingBag className="w-4 h-4" /> Add all {list.length} · {formatPKR(total)}
+            <ShoppingBag className="w-4 h-4" /> Add all {list.length} · {formatMoney(total)}
           </button>
         )}
       </div>

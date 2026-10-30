@@ -4,6 +4,7 @@ import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { useVisitorCountry } from '../services/currency';
 import { originOf, routingScore, sellerFeeFor } from '../services/productShipping';
 import { formatPKR } from '../services/abstractions';
+import { formatMoney } from '../services/currency';
 
 const countryOf = (iso: string) => ALL_WORLD_COUNTRIES.find((c) => c.isoCode === iso);
 // Country name only: flag emoji show as two letters on Windows
@@ -25,7 +26,7 @@ export const ShipsBadge: React.FC<{ product: Pick<Product, 'shipsFromCountry' | 
   const fee = visitor ? sellerFeeFor(product, visitor) : undefined;
   const days = product.shipping?.handlingDays;
   const extra = detailed
-    ? [fee !== undefined ? (fee === 0 ? 'free shipping' : `shipping ${formatPKR(fee)}`) : '', days ? `dispatched in ${days} day${days === 1 ? '' : 's'}` : '']
+    ? [fee !== undefined ? (fee === 0 ? 'free shipping' : `shipping ${formatMoney(fee)}`) : '', days ? `dispatched in ${days} day${days === 1 ? '' : 's'}` : '']
         .filter(Boolean)
         .join(' · ')
     : '';

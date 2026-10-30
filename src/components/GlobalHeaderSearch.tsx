@@ -3,6 +3,7 @@ import { Search, X, ArrowRight, Tag, Sparkles } from 'lucide-react';
 import { Product } from '../types/store';
 import { ProductImage } from './ProductImage';
 import { formatPKR } from '../services/abstractions';
+import { formatMoney } from '../services/currency';
 
 interface GlobalHeaderSearchProps {
   products: Product[];
@@ -273,7 +274,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
 
                   <div className="text-right shrink-0 font-mono">
                     <div className="text-xs font-semibold text-[#141413]">
-                      {formatPKR(product.price)}
+                      {formatMoney(product.price)}
                     </div>
                     {product.stock <= 5 && product.stock > 0 && (
                       <div className="text-[9px] text-[#991B1B] font-sans font-medium mt-0.5">

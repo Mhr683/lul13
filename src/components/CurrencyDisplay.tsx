@@ -25,14 +25,16 @@ export const CurrencySelector: React.FC<{ className?: string }> = ({ className =
   );
 };
 
-/** "≈ AED 32" under a PKR price; nothing when the shopper uses PKR */
+/**
+ * Under a price shown in the shopper's currency: the PKR amount actually charged ("PKR 2,430").
+ * Nothing when the shopper already sees PKR.
+ */
 export const LocalPrice: React.FC<{ pkr: number; className?: string }> = ({ pkr, className = '' }) => {
-  const { approx } = useCurrency();
-  const text = approx(pkr);
-  if (!text) return null;
+  const { currency, rates } = useCurrency();
+  if (currency === 'PKR' || !rates?.rates?.[currency]) return null;
   return (
-    <span className={`block text-[11px] font-medium text-[#575653] ${className}`} title="Approximate. You pay in PKR.">
-      {text}
+    <span className={`block text-[11px] font-medium text-[#575653] ${className}`} title="Prices are converted for you; orders are charged in PKR.">
+      PKR {Math.round(Number(pkr) || 0).toLocaleString('en-US')}
     </span>
   );
 };

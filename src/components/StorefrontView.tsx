@@ -66,7 +66,7 @@ import { NO_BRAND_LABEL } from '../services/brandRules';
 import { CardShareButton, ShareProductButton } from './ShareProductButton';
 import { callingCodeOf, postalRuleFor } from '../services/intlAddress';
 import { CurrencyNote, CurrencySelector, LocalPrice } from './CurrencyDisplay';
-import { setVisitorCountry, useVisitorCountry } from '../services/currency';
+import { setVisitorCountry, useCurrency, useVisitorCountry } from '../services/currency';
 import { routingScore } from '../services/productShipping';
 import { ShipsBadge } from './ShipsBadge';
 import { CardPaymentStatus } from './CardPaymentStatus';
@@ -114,6 +114,7 @@ import {
   detectCardBrand,
 } from '../services/addressAndPaymentVerification';
 import type { PolicyPageType } from './StorePolicyPages';
+import { formatMoney } from '../services/currency';
 
 // Loaded only when needed (checkout map, policy/tracking pages) to keep the first download small
 const GoogleMapsAddressDetector = lazy(() =>
@@ -185,6 +186,8 @@ export const StorefrontView: React.FC = () => {
   const campaignsLive = useMemo(() => liveCampaigns(settings), [settings, minuteTick]);
   const [openCampaign, setOpenCampaign] = useState<Campaign | null>(null);
 
+  // Prices are shown in the shopper's currency (formatMoney); re-render when it or the rates change
+  useCurrency();
   const [subView, setSubView] = useState<StoreSubView>('HOME');
   // The seller whose shop page is open (#shop/<sellerId>)
   const [shopSellerId, setShopSellerId] = useState<string | null>(null);
@@ -1945,12 +1948,12 @@ export const StorefrontView: React.FC = () => {
                       <div className="font-mono tabular-nums min-w-0">
                         <div className="flex flex-wrap items-baseline gap-x-1.5 sm:gap-x-2">
                           <span className="text-[11px] sm:text-base font-extrabold text-black">
-                            {formatPKR(product.price)}
+                            {formatMoney(product.price)}
                           </span>
                           {/* A Number() check: compareAtPrice 0 would otherwise print a stray "0" */}
                           {Number(product.compareAtPrice) > product.price && (
                             <span className="text-[9px] sm:text-xs text-stone-600 line-through font-semibold">
-                              {formatPKR(Number(product.compareAtPrice))}
+                              {formatMoney(Number(product.compareAtPrice))}
                             </span>
                           )}
                         </div>
@@ -2261,7 +2264,7 @@ export const StorefrontView: React.FC = () => {
                       Max Price
                     </span>
                     <span className="font-mono tabular-nums text-[#141413] text-right">
-                      {formatPKR(priceCeiling)}
+                      {formatMoney(priceCeiling)}
                     </span>
                   </div>
                   <input
@@ -2365,7 +2368,7 @@ export const StorefrontView: React.FC = () => {
                         <div className="px-1.5 pb-1.5 pt-1 sm:px-4 sm:pb-4 sm:pt-3 border-t border-black/10 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                           <div className="font-mono tabular-nums min-w-0">
                             <span className="text-[11px] sm:text-base font-extrabold text-black block">
-                              {formatPKR(product.price)}
+                              {formatMoney(product.price)}
                             </span>
                             <span className="hidden sm:block">
                               <LocalPrice pkr={product.price} />
@@ -2545,12 +2548,12 @@ export const StorefrontView: React.FC = () => {
                   <div className="space-y-1 font-mono tabular-nums">
                     <div className="flex items-baseline gap-3">
                       <span className="text-2xl font-semibold text-[#141413]">
-                        {formatPKR(selectedProduct.price)}
+                        {formatMoney(selectedProduct.price)}
                       </span>
                       {selectedProduct.compareAtPrice &&
                         selectedProduct.compareAtPrice > selectedProduct.price && (
                           <span className="text-sm text-[#787774] line-through">
-                            {formatPKR(selectedProduct.compareAtPrice)}
+                            {formatMoney(selectedProduct.compareAtPrice)}
                           </span>
                         )}
                     </div>
@@ -2851,12 +2854,12 @@ export const StorefrontView: React.FC = () => {
                           <li key={o.orderNumber} className="flex flex-wrap justify-between gap-2 font-mono">
                             <span className="font-bold text-[#141413]">{o.orderNumber}</span>
                             <span className="font-sans text-[#141413]">{o.sellerName || activeStoreName}</span>
-                            <span className="text-[#141413]">{formatPKR(o.total)}</span>
+                            <span className="text-[#141413]">{formatMoney(o.total)}</span>
                           </li>
                         ))}
                       </ul>
                       <span className="block text-sky-900">
-                        Total: <strong>{formatPKR(confirmedSplitOrders.reduce((s, o) => s + (Number(o.total) || 0), 0))}</strong> · each order has its own tracking.
+                        Total: <strong>{formatMoney(confirmedSplitOrders.reduce((s, o) => s + (Number(o.total) || 0), 0))}</strong> · each order has its own tracking.
                       </span>
                     </div>
                   )}
@@ -4332,7 +4335,7 @@ export const StorefrontView: React.FC = () => {
                           </div>
                         </div>
                         <div className="text-xs font-mono tabular-nums font-semibold text-right">
-                          <div>{formatPKR(item.price * item.quantity)}</div>
+                          <div>{formatMoney(item.price * item.quantity)}</div>
                         </div>
                       </div>
                     ))}
@@ -4341,21 +4344,21 @@ export const StorefrontView: React.FC = () => {
                   <div className="pt-4 border-t border-black/[0.07] space-y-2 text-xs">
                     <div className="flex justify-between text-[#575653]">
                       <span>Subtotal</span>
-                      <span className="font-mono tabular-nums">{formatDualPrice(cartSubtotal, true)}</span>
+                      <span className="font-mono tabular-nums">{formatMoney(cartSubtotal)}</span>
                     </div>
                     {couponAmount > 0 && (
                       <div className="flex justify-between text-[#166534]">
                         <span>Discount ({appliedCoupon?.code})</span>
-                        <span className="font-mono tabular-nums">-{formatDualPrice(couponAmount, true)}</span>
+                        <span className="font-mono tabular-nums">-{formatMoney(couponAmount)}</span>
                       </div>
                     )}
                     {referral?.enabled && referral.available > 0 && (
                       <label className="flex justify-between items-center gap-2 text-[#166534] cursor-pointer">
                         <span className="flex items-center gap-1.5">
                           <input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit(e.target.checked)} />
-                          Refer & Earn credit ({formatPKR(referral.available)} available)
+                          Refer & Earn credit ({formatMoney(referral.available)} available)
                         </span>
-                        <span className="font-mono tabular-nums">{creditAmount > 0 ? `-${formatDualPrice(creditAmount, true)}` : '—'}</span>
+                        <span className="font-mono tabular-nums">{creditAmount > 0 ? `-${formatMoney(creditAmount)}` : '—'}</span>
                       </label>
                     )}
                     <div className="flex justify-between items-start text-[#575653]">
@@ -4374,7 +4377,7 @@ export const StorefrontView: React.FC = () => {
                           <span className="text-emerald-700">COMPLIMENTARY</span>
                         ) : (
                           <>
-                            {formatPKR(shippingFee)}
+                            {formatMoney(shippingFee)}
                           </>
                         )}
                       </span>
@@ -4398,7 +4401,7 @@ export const StorefrontView: React.FC = () => {
                         </span>
                       </div>
                       <span className="font-mono tabular-nums">
-                        {taxAmount > 0 ? formatDualPrice(taxAmount, true) : 'PKR 0 (DAP)'}
+                        {taxAmount > 0 ? formatMoney(taxAmount) : 'PKR 0 (DAP)'}
                       </span>
                     </div>
 
@@ -4409,7 +4412,7 @@ export const StorefrontView: React.FC = () => {
                     <div className="flex justify-between text-base font-semibold text-[#141413] pt-3 border-t border-black/[0.07]">
                       <span>Total Due</span>
                       <span className="font-mono tabular-nums text-right">
-                        {formatPKR(grandTotal)}
+                        {formatMoney(grandTotal)}
                         <LocalPrice pkr={grandTotal} />
                       </span>
                     </div>
@@ -4580,7 +4583,7 @@ export const StorefrontView: React.FC = () => {
                         </div>
 
                         <div className="font-mono tabular-nums text-sm font-semibold text-[#141413] text-right">
-                          <span>{formatPKR(order.total)}</span>
+                          <span>{formatMoney(order.total)}</span>
                         </div>
                       </div>
 
@@ -4758,7 +4761,7 @@ export const StorefrontView: React.FC = () => {
                         </div>
                         <h3 className="text-sm font-semibold text-[#141413]">{product.name}</h3>
                         <p className="text-xs font-mono tabular-nums text-[#575653] mt-1">
-                          <span className="font-semibold text-[#141413]">{formatPKR(product.price)}</span> · {product.stock} in stock
+                          <span className="font-semibold text-[#141413]">{formatMoney(product.price)}</span> · {product.stock} in stock
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -4883,7 +4886,7 @@ export const StorefrontView: React.FC = () => {
                           </button>
                         </div>
                         <div className="text-xs font-mono tabular-nums font-semibold text-right">
-                          <div>{formatPKR(item.price * item.quantity)}</div>
+                          <div>{formatMoney(item.price * item.quantity)}</div>
                         </div>
                       </div>
                     </div>
@@ -4936,18 +4939,18 @@ export const StorefrontView: React.FC = () => {
                 <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between text-[#575653]">
                     <span>Subtotal</span>
-                    <span className="font-mono tabular-nums">{formatDualPrice(cartSubtotal, true)}</span>
+                    <span className="font-mono tabular-nums">{formatMoney(cartSubtotal)}</span>
                   </div>
                   {discountAmount > 0 && (
                     <div className="flex justify-between text-[#166534]">
                       <span>Discount{appliedCoupon ? ` (${appliedCoupon.code})` : ''}{creditAmount > 0 ? ' + referral credit' : ''}</span>
-                      <span className="font-mono tabular-nums">-{formatDualPrice(discountAmount, true)}</span>
+                      <span className="font-mono tabular-nums">-{formatMoney(discountAmount)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-sm font-semibold text-[#141413] pt-2 border-t border-black/[0.06]">
                     <span>Estimated Total</span>
                     <span className="font-mono tabular-nums text-right">
-                      {formatPKR(Math.max(0, cartSubtotal - discountAmount))}
+                      {formatMoney(Math.max(0, cartSubtotal - discountAmount))}
                       <LocalPrice pkr={Math.max(0, cartSubtotal - discountAmount)} />
                     </span>
                   </div>

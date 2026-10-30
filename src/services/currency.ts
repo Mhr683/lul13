@@ -100,13 +100,30 @@ export function setDisplayCurrency(code: string) {
   emit();
 }
 
-/** The shopper picked a delivery country (kept on this device) */
+/** The shopper picked a delivery country (kept on this device); unless they chose a currency
+ * themselves, prices switch to that country's currency too */
 export function setVisitorCountry(iso: string) {
   const next = String(iso || '').toUpperCase();
   if (!/^[A-Z]{2}$/.test(next) || next === country) return;
   country = next;
   write(COUNTRY_KEY, country);
+  if (!read<string>(CURRENCY_KEY)) {
+    currency = currencyOfCountry(next);
+    write(GUESS_KEY, currency);
+  }
   emit();
+}
+
+/**
+ * A PKR amount in the shopper's currency ("AED 32.50", "£8.40"); PKR when that is their currency
+ * or no rate is known yet. Display only: orders are charged in PKR (cards in USD).
+ */
+export function formatMoney(pkr: number): string {
+  if (currency !== 'PKR') {
+    const v = convertFromPkr(pkr, currency);
+    if (v !== null) return formatCurrency(v, currency);
+  }
+  return `PKR ${Math.round(Number(pkr) || 0).toLocaleString('en-US')}`;
 }
 
 /** The shopper's country ('' until known); re-renders when it changes */
