@@ -45,7 +45,9 @@ export const ProductInfoEditor: React.FC<{
     <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-4">
       <div>
         <div className="text-xs font-bold text-[#141413]">Specifications, how to use &amp; care (optional)</div>
-        <p className="text-[11px] text-[#575653]">Shown on the product page. Complete details answer buyers' questions and bring fewer returns.</p>
+        <p className="text-[11px] text-[#575653]">
+          Nothing here is required: leave empty what does not fit your product. Filled parts are shown on the product page.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -87,7 +89,7 @@ export const ProductInfoEditor: React.FC<{
       </div>
 
       <div>
-        <label className={labelCls}>How-to / unboxing video (YouTube, Vimeo or MP4)</label>
+        <label className={labelCls}>How-to / unboxing video (optional: YouTube, Vimeo or MP4)</label>
         <div className="flex flex-wrap gap-2">
           <input className={`${inputCls} flex-1 min-w-[200px]`} value={info.howToUseVideoUrl || ''} onChange={set('howToUseVideoUrl')} placeholder="https://youtu.be/... or https://vimeo.com/..." />
           <label className="px-3 py-2 border border-black/20 text-xs font-semibold cursor-pointer hover:border-black flex items-center gap-1.5 bg-white">
@@ -114,7 +116,7 @@ export const ProductInfoEditor: React.FC<{
       </div>
 
       <div>
-        <label className={labelCls}>User manual (PDF)</label>
+        <label className={labelCls}>User manual (optional, PDF)</label>
         <div className="flex flex-wrap items-center gap-2">
           {info.manualUrl ? (
             <>

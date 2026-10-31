@@ -12,6 +12,7 @@ import {
   User,
 } from 'firebase/auth';
 import { portalFromLocation } from '../portalBranding';
+import { findVariant, hasVariants, variantPrice } from '../services/productVariants';
 
 export interface AuthResult {
   ok: boolean;
@@ -885,8 +886,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Cart & Wishlist Actions
   const addToCart = (product: Product, quantity = 1, variantLabel = 'Standard Edition') => {
-    if (product.stock <= 0) {
-      showToast(`${product.name} is currently out of stock.`);
+    // A product with variants (colour, size, ...) is bought as one of them: its own price and stock
+    const variant = hasVariants(product) ? findVariant(product, variantLabel) : undefined;
+    if (hasVariants(product) && !variant) {
+      showToast(`Open the product and choose ${product.variantTitle ? `the ${product.variantTitle.toLowerCase()}` : 'an option'} first.`);
+      return;
+    }
+    const available = variant ? variant.stock : product.stock;
+    if (available <= 0) {
+      showToast(`${product.name}${variant ? ` (${variant.name})` : ''} is currently out of stock.`);
       return;
     }
     setCart((prev) => {
@@ -895,7 +903,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       );
       if (idx > -1) {
         const updated = [...prev];
-        const nextQty = Math.min(product.stock, updated[idx].quantity + quantity);
+        const nextQty = Math.min(available, updated[idx].quantity + quantity);
         updated[idx] = { ...updated[idx], quantity: nextQty };
         return updated;
       }
@@ -903,10 +911,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ...prev,
         {
           productId: product.id,
-          sku: product.sku,
+          sku: variant?.sku || product.sku,
           name: product.name,
-          price: product.price,
-          quantity: Math.min(product.stock, quantity),
+          price: variantPrice(product.price, variant),
+          quantity: Math.min(available, quantity),
           variantLabel,
           primaryImage: product.primaryImage,
           category: product.category,
@@ -1062,7 +1070,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
-        items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, variant: i.variantLabel })),
         couponCode: appliedCoupon?.code,
         referralCode: getReferralCode() || undefined,
         // which ad / channel brought this customer (Traffic & Conversion → ads and ROAS)

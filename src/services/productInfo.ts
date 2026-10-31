@@ -64,8 +64,14 @@ export function cleanProductInfo(raw: unknown): { info: ProductInfo } | { error:
   }
   if (info.barcode) info.barcode = info.barcode.replace(/[^0-9A-Za-z-]/g, '');
   if (info.brandType && info.brandType !== 'BRANDED' && info.brandType !== 'NONE') delete info.brandType;
-  if (info.howToUseVideoUrl && !isLink(info.howToUseVideoUrl)) return { error: 'The "How to use" video link must start with https://' };
-  if (info.manualUrl && !isLink(info.manualUrl)) return { error: 'The user manual link must start with https://' };
+  // The video and manual are optional: an http:// link is upgraded, anything that is not a link is left out
+  for (const key of ['howToUseVideoUrl', 'manualUrl'] as const) {
+    const v = info[key];
+    if (!v) continue;
+    const fixed = /^http:\/\//i.test(v) ? `https://${v.slice(7)}` : v;
+    if (isLink(fixed)) info[key] = fixed;
+    else delete info[key];
+  }
   return { info };
 }
 

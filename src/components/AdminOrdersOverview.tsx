@@ -180,6 +180,7 @@ export const AdminOrdersOverview: React.FC = () => {
                         {(o.items || []).map((it, i) => (
                           <div key={i}>
                             {it.quantity} × {it.name}
+                            {it.variant ? ` (${it.variant})` : ''}
                           </div>
                         ))}
                       </div>

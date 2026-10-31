@@ -37,6 +37,16 @@ async function shrinkImage(file: File): Promise<Blob> {
 
 export const isVideoFile = (url: string) => /\.(mp4|webm|mov)(\?|$)/i.test(url);
 
+/** A pasted link made usable: http:// becomes https://, and "youtu.be/..." gets https:// in front ('' if it is not a link) */
+export const fixLink = (raw: string) => {
+  const u = raw.trim();
+  if (!u) return '';
+  if (/^https:\/\//i.test(u)) return u;
+  if (/^http:\/\//i.test(u)) return `https://${u.slice(7)}`;
+  if (/^\/\//.test(u)) return `https:${u}`;
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$)/i.test(u) ? `https://${u}` : '';
+};
+
 export const ProductMediaEditor: React.FC<{
   images: string[];
   videoUrl: string;
@@ -86,8 +96,8 @@ export const ProductMediaEditor: React.FC<{
   };
 
   const addLink = () => {
-    const u = link.trim();
-    if (!/^https:\/\//i.test(u)) return onError('The picture link must start with https://');
+    const u = fixLink(link);
+    if (!u) return onError('This does not look like a picture link. Copy the full link, or upload the picture instead.');
     if (images.length >= MAX_IMAGES) return onError(`You can add up to ${MAX_IMAGES} pictures.`);
     if (!images.includes(u)) setImages([...images, u]);
     setLink('');
@@ -181,7 +191,7 @@ export const ProductMediaEditor: React.FC<{
         <input
           value={link}
           onChange={(e) => setLink(e.target.value)}
-          placeholder="or paste a picture link (https://...)"
+          placeholder="or paste a picture link (optional)"
           className="flex-1 min-w-0 px-3 py-1.5 bg-white border border-black/20 text-xs focus:border-black focus:outline-none"
         />
         <button type="button" onClick={addLink} disabled={!link.trim()} className={btn}>
@@ -212,15 +222,15 @@ export const ProductMediaEditor: React.FC<{
             <input
               value={videoLink}
               onChange={(e) => setVideoLink(e.target.value)}
-              placeholder="or paste a YouTube / video link"
+              placeholder="or paste a YouTube / video link (optional)"
               className="flex-1 min-w-[180px] px-3 py-1.5 bg-white border border-black/20 text-xs focus:border-black focus:outline-none"
             />
             <button
               type="button"
               disabled={!videoLink.trim()}
               onClick={() => {
-                const u = videoLink.trim();
-                if (!/^https:\/\//i.test(u)) return onError('The video link must start with https://');
+                const u = fixLink(videoLink);
+                if (!u) return onError('This does not look like a video link. Copy the full link, or upload the video instead.');
                 onChange({ images, videoUrl: u });
                 setVideoLink('');
               }}

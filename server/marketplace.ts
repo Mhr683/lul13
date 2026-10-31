@@ -6,6 +6,8 @@ import { buildCoach } from './coach';
 import { cleanProductInfo, type ProductInfo } from '../src/services/productInfo';
 import { famousBrandIn } from '../src/services/brandRules';
 import { cleanProductShipping, type ProductShipping } from '../src/services/productShipping';
+import { cleanVariants } from '../src/services/productVariants';
+import type { ProductVariant } from '../src/types/store';
 import { KYC_LABELS, KYC_MAX_BYTES, idDocTypeFor, requiredKyc, type KycKind } from '../src/services/sellerOnboarding';
 import { checkVendorApplication } from '../src/services/vendorRules';
 import { checkPhone } from '../src/services/intlAddress';
@@ -595,17 +597,20 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const category = str(b.category, 75);
     // Up to 8 pictures (the first is the main one) and one optional video
     const mediaOk = (u: string) => /^https:\/\//i.test(u) || /^\/media\/[a-zA-Z0-9_.-]+$/.test(u);
+    // Links are optional: http:// is upgraded to https://, anything that is not a usable link is left out
+    const mediaLink = (v: unknown) => {
+      const u = str(v, 980);
+      const fixed = /^http:\/\//i.test(u) ? `https://${u.slice(7)}` : u;
+      return mediaOk(fixed) ? fixed : '';
+    };
     const images: string[] | undefined = Array.isArray(b.images)
-      ? Array.from(new Set(b.images.map((u: unknown) => str(u, 980)).filter(Boolean) as string[])).slice(0, MAX_PRODUCT_IMAGES)
+      ? Array.from(new Set(b.images.map(mediaLink).filter(Boolean) as string[])).slice(0, MAX_PRODUCT_IMAGES)
       : undefined;
-    const primaryImage = images ? images[0] || '' : str(b.primaryImage, 980);
-    const videoUrl = b.videoUrl === undefined ? undefined : str(b.videoUrl, 980);
+    const primaryImage = images ? images[0] || '' : mediaLink(b.primaryImage);
+    const videoUrl = b.videoUrl === undefined ? undefined : mediaLink(b.videoUrl);
     if (name.length < 3) return { error: 'Enter a product name (at least 3 characters).' };
     if (!(price > 0)) return { error: 'Enter a price (PKR).' };
     if (category.length < 2) return { error: 'Choose a category.' };
-    if (primaryImage && !mediaOk(primaryImage)) return { error: 'The image link must start with https://' };
-    if (images && images.some((u) => !mediaOk(u))) return { error: 'Every picture link must start with https://' };
-    if (videoUrl && !mediaOk(videoUrl)) return { error: 'The video link must start with https://' };
     // Specifications / how to use / care / manual: only when the form sends them (a CSV row keeps them)
     let info: ProductInfo | undefined;
     if (b.info !== undefined) {
@@ -626,6 +631,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         }
       }
     }
+    // Colour / size choices: only when the form sends them (a CSV row keeps them); stock is then their sum
+    let variants: ProductVariant[] | undefined;
+    if (b.variants !== undefined) {
+      const checked = cleanVariants(b.variants, price);
+      if ('error' in checked) return { error: checked.error };
+      variants = checked.variants;
+    }
     // Where it ships and the seller's own fees: only when the form sends them (a CSV row keeps them)
     let shipping: ProductShipping | null | undefined;
     if (b.shipping !== undefined) {
@@ -639,7 +651,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         shipping,
         price,
         compareAtPrice: money(b.compareAtPrice),
-        stock: Math.max(0, Math.floor(Number(b.stock) || 0)),
+        stock: variants?.length ? variants.reduce((s, v) => s + v.stock, 0) : Math.max(0, Math.floor(Number(b.stock) || 0)),
+        variants,
+        variantTitle: variants === undefined ? undefined : variants.length ? str(b.variantTitle, 40) || 'Option' : '',
         category,
         status: b.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
         primaryImage,
@@ -735,6 +749,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     };
     // The seller cleared the shipping settings: the store's rates apply again
     if (f.shipping === null) delete product.shipping;
+    if (f.variants !== undefined) {
+      if (f.variants.length) {
+        product.variants = f.variants;
+        product.variantTitle = f.variantTitle;
+      } else {
+        delete product.variants;
+        delete product.variantTitle;
+      }
+    }
     return product;
   };
 

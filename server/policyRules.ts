@@ -81,7 +81,9 @@ export const returnDaysLeft = (o: any, now = Date.now()) => {
   return Math.max(0, Math.ceil((at + POLICY.RETURN_WINDOW_DAYS * DAY - now) / DAY));
 };
 
-// Listings that need a purchase invoice or brand approval (electronics and well-known brands)
+// Listings that need a purchase invoice or brand approval (branded electronics and well-known brands).
+// A "No brand" product needs none: its title may not use a brand's name (checked when it is saved).
 const ELECTRONICS = /electronic|gadget|airpod|earbud|headset|headphone|speaker|charger|power ?bank|smart ?watch|mobile|phone|camera|laptop|tablet|bluetooth|console/i;
-export const needsBrandProof = (p: { name?: string; category?: string; brand?: string }) =>
-  ELECTRONICS.test(`${p.category || ''} ${p.name || ''}`) || FAMOUS_BRANDS.test(`${p.name || ''} ${p.brand || ''}`);
+export const needsBrandProof = (p: { name?: string; category?: string; brand?: string; info?: { brandType?: string } }) =>
+  p.info?.brandType !== 'NONE' &&
+  (ELECTRONICS.test(`${p.category || ''} ${p.name || ''}`) || FAMOUS_BRANDS.test(`${p.name || ''} ${p.brand || ''}`));

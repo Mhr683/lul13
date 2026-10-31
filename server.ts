@@ -51,6 +51,7 @@ import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growt
 import { createAnalytics } from './server/analytics';
 import { createAds } from './server/ads';
 import { effectivePrice, isFlashActive, welcomeOf, referralOf, DEFAULT_NEW_SELLER_FREE_DAYS } from './src/services/promotions';
+import { findVariant, hasVariants, variantPrice } from './src/services/productVariants';
 import {
   PAYMENT_SECRET_FIELDS,
   PAYMENT_SECRETS_COLLECTION,
@@ -2973,6 +2974,15 @@ app.post('/api/orders/create', async (req, res) => {
         for (const item of items) {
           qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.quantity);
         }
+        // Cart lines per product + variant ("Red / Large"); products without variants have one line
+        const lines = new Map<string, { productId: string; variant: string; quantity: number }>();
+        for (const item of items) {
+          const variant = typeof item.variant === 'string' ? item.variant.trim().slice(0, 60) : '';
+          const key = `${item.productId}\n${variant.toLowerCase()}`;
+          const line = lines.get(key);
+          if (line) line.quantity += item.quantity;
+          else lines.set(key, { productId: item.productId, variant, quantity: item.quantity });
+        }
         const productDocs: Array<{ ref: FirebaseFirestore.DocumentReference; data: any; privateData: any; reqQty: number }> = [];
         for (const [productId, reqQty] of qtyByProduct) {
           const prodRef = adminDb.collection('products').doc(productId);
@@ -2991,6 +3001,22 @@ app.post('/api/orders/create', async (req, res) => {
           // Older products may still carry supplier fields on the public doc until migrated
           const privateData = { ...pData, ...(privateDoc.exists ? privateDoc.data() : {}) };
           productDocs.push({ ref: prodRef, data: pData, privateData, reqQty });
+        }
+        // A product with variants needs a choice that exists and has stock
+        const docById = new Map(productDocs.map((p) => [p.ref.id, p]));
+        for (const line of lines.values()) {
+          const p = docById.get(line.productId)!;
+          if (!hasVariants(p.data)) {
+            line.variant = '';
+            continue;
+          }
+          const v = findVariant(p.data, line.variant);
+          if (!v) throw new Error(`Please choose ${p.data.variantTitle ? `the ${String(p.data.variantTitle).toLowerCase()}` : 'an option'} for "${p.data.name}".`);
+          line.variant = v.name;
+          const wanted = Array.from(lines.values())
+            .filter((l) => l.productId === line.productId && l.variant.toLowerCase() === v.name.toLowerCase())
+            .reduce((s, l) => s + l.quantity, 0);
+          if (v.stock < wanted) throw new Error(`Insufficient stock for "${p.data.name} (${v.name})". Available: ${v.stock}, Requested: ${wanted}.`);
         }
         // Sellers choose where each product ships; one that does not ship to this country cannot be ordered
         const shipDest = isDomestic ? 'PK' : String(destCountryIso || 'PK').toUpperCase();
@@ -3078,16 +3104,20 @@ app.post('/api/orders/create', async (req, res) => {
         let merchandiseSubtotal = 0;
         const orderItems: OrderItem[] = [];
         const itemSeller = new Map<OrderItem, string>();
-        for (const p of productDocs) {
-          // A live flash deal is the price (src/services/promotions.ts, same as the store shows)
-          const price = effectivePrice(p.data);
-          merchandiseSubtotal += price * p.reqQty;
+        for (const line of lines.values()) {
+          const p = docById.get(line.productId)!;
+          // A live flash deal is the price (src/services/promotions.ts, same as the store shows); a
+          // variant with its own price costs that
+          const v = line.variant ? findVariant(p.data, line.variant) : undefined;
+          const price = variantPrice(effectivePrice(p.data), v);
+          merchandiseSubtotal += price * line.quantity;
           const item: OrderItem = {
             productId: p.data.id || p.ref.id,
             name: p.data.name,
-            sku: p.data.sku,
+            sku: v?.sku || p.data.sku,
             price,
-            quantity: p.reqQty,
+            quantity: line.quantity,
+            ...(v ? { variant: v.name } : {}),
             image: p.data.primaryImage,
             supplierName: p.privateData.supplierName || 'Own Stock',
             supplierSku: p.privateData.supplierSku || p.data.sku || '',
@@ -3198,10 +3228,16 @@ app.post('/api/orders/create', async (req, res) => {
         const now = new Date().toISOString();
         for (const p of productDocs) {
           const nextStock = Math.max(0, p.data.stock - p.reqQty);
-          transaction.update(p.ref, {
-            stock: nextStock,
-            updatedAt: now,
-          });
+          const update: Record<string, any> = { stock: nextStock, updatedAt: now };
+          if (hasVariants(p.data)) {
+            update.variants = p.data.variants.map((v: any) => {
+              const sold = Array.from(lines.values())
+                .filter((l) => l.productId === p.ref.id && l.variant.toLowerCase() === String(v.name).toLowerCase())
+                .reduce((s, l) => s + l.quantity, 0);
+              return sold ? { ...v, stock: Math.max(0, Number(v.stock) - sold) } : v;
+            });
+          }
+          transaction.update(p.ref, update);
         }
 
         if (couponRef && (discount > 0 || hasFreeShippingCoupon)) {
@@ -3920,13 +3956,24 @@ async function applyOrderStatusWithStock(
     }
 
     // All reads before any write (Firestore transaction rule)
-    const products: Array<{ ref: FirebaseFirestore.DocumentReference; qty: number; stock: number; name: string }> = [];
+    const products: Array<{ ref: FirebaseFirestore.DocumentReference; qty: number; stock: number; name: string; variants?: any[] }> = [];
     for (const [productId, qty] of qtyByProduct) {
       const ref = adminDb.collection('products').doc(productId);
       const snap = await tx.get(ref);
       if (!snap.exists) continue;
       const data = snap.data() as any;
-      products.push({ ref, qty, stock: Number(data.stock) || 0, name: String(data.name || productId) });
+      // The chosen variants get their pieces back (or lose them again) too
+      let variants: any[] | undefined;
+      if (hasVariants(data)) {
+        const sign = restore ? 1 : -1;
+        variants = data.variants.map((v: any) => {
+          const n = (order.items || [])
+            .filter((it) => it.productId === productId && String(it.variant || '').toLowerCase() === String(v.name).toLowerCase())
+            .reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+          return n ? { ...v, stock: Math.max(0, Number(v.stock) + sign * n) } : v;
+        });
+      }
+      products.push({ ref, qty, stock: Number(data.stock) || 0, name: String(data.name || productId), variants });
     }
 
     if (retake) {
@@ -3940,7 +3987,7 @@ async function applyOrderStatusWithStock(
 
     const now = new Date().toISOString();
     for (const p of products) {
-      tx.update(p.ref, { stock: FieldValue.increment(restore ? p.qty : -p.qty), updatedAt: now });
+      tx.update(p.ref, { stock: FieldValue.increment(restore ? p.qty : -p.qty), ...(p.variants ? { variants: p.variants } : {}), updatedAt: now });
     }
     const statusChanged = updates.status !== order.status;
     tx.update(orderRef, {

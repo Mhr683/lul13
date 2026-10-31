@@ -76,15 +76,14 @@ export interface SellerPayout {
   paidBy: string;
 }
 
+/** One choice of a product, e.g. "Red / Large" (src/services/productVariants.ts) */
 export interface ProductVariant {
   id: string;
-  sku: string;
-  name: string; // e.g., "Obsidian Black / Medium"
-  size?: string;
-  color?: string;
-  material?: string;
-  price: number;
+  name: string;
+  /** Its own price; absent = the product's price */
+  price?: number;
   stock: number;
+  sku?: string;
 }
 
 export interface ProductStudioShot {
@@ -153,6 +152,10 @@ export interface Product {
   dimensions?: string;
   /** Specifications, how to use, care and user manual (src/services/productInfo.ts) */
   info?: import('../services/productInfo').ProductInfo;
+  /** Choices the customer picks from (colour, size, ...); stock is then the sum of theirs */
+  variants?: ProductVariant[];
+  /** What the choices are, e.g. "Colour" or "Size" */
+  variantTitle?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -271,6 +274,8 @@ export interface OrderItem {
   price: number;
   quantity: number;
   image?: string;
+  /** The variant the customer chose, e.g. "Red / Large" */
+  variant?: string;
   // Dropshipping fields
   supplierName?: SupplierName | string;
   supplierSku?: string;

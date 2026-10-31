@@ -75,6 +75,7 @@ import { HeroSlider, TrendingTicker } from './HeroSlider';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
+import { findVariant, hasVariants, variantPrice } from '../services/productVariants';
 import { track } from '../services/analytics';
 import {
   WelcomeOfferPopup,
@@ -337,7 +338,12 @@ export const StorefrontView: React.FC = () => {
   const [sortBy, setSortBy] = useState<'RELEVANCE' | 'NEWEST' | 'PRICE_ASC' | 'PRICE_DESC' | 'RATING'>('RELEVANCE');
 
   // Product Detail state
-  const [selectedVariant, setSelectedVariant] = useState<string>('Obsidian / Standard');
+  const [selectedVariant, setSelectedVariant] = useState<string>('Standard Edition');
+  // The seller's colour / size choice on the product page decides the price and stock shown
+  const detailHasVariants = Boolean(selectedProduct && hasVariants(selectedProduct));
+  const detailVariant = selectedProduct && detailHasVariants ? findVariant(selectedProduct, selectedVariant) : undefined;
+  const detailPrice = selectedProduct ? variantPrice(selectedProduct.price, detailVariant) : 0;
+  const detailStock = selectedProduct ? (detailHasVariants ? detailVariant?.stock ?? 0 : selectedProduct.stock) : 0;
   const [detailQty, setDetailQty] = useState<number>(1);
   // Products this browser opened (saved on the device; shown on the home and product pages)
   const recentlyViewed = useRecentlyViewed();
@@ -1017,12 +1023,11 @@ export const StorefrontView: React.FC = () => {
   const handleSelectProduct = (product: Product) => {
     setSelectedProduct(product);
     setDetailQty(1);
+    // The first variant in stock is chosen; products without variants are bought as they are
     setSelectedVariant(
-      product.category === 'Horology'
-        ? '40mm Titanium / Sapphire'
-        : product.category === 'Fragrance'
-        ? '100ml Extrait Flacon'
-        : 'Obsidian / Brushed Brass'
+      hasVariants(product)
+        ? (product.variants!.find((v) => v.stock > 0) || product.variants![0]).name
+        : 'Standard Edition'
     );
     recentlyViewed.remember(product.id);
     setSubView('PRODUCT_DETAIL');
@@ -2552,17 +2557,47 @@ export const StorefrontView: React.FC = () => {
                   <div className="space-y-1 font-mono tabular-nums">
                     <div className="flex items-baseline gap-3">
                       <span className="text-2xl font-semibold text-[#141413]">
-                        {formatMoney(selectedProduct.price)}
+                        {formatMoney(detailPrice)}
                       </span>
                       {selectedProduct.compareAtPrice &&
-                        selectedProduct.compareAtPrice > selectedProduct.price && (
+                        selectedProduct.compareAtPrice > detailPrice && (
                           <span className="text-sm text-[#787774] line-through">
                             {formatMoney(selectedProduct.compareAtPrice)}
                           </span>
                         )}
                     </div>
-                    <LocalPrice pkr={selectedProduct.price} className="!text-sm" />
+                    <LocalPrice pkr={detailPrice} className="!text-sm" />
                   </div>
+
+                  {detailHasVariants && (
+                    <div className="space-y-2">
+                      <div className="text-xs text-[#575653]">
+                        {selectedProduct.variantTitle || 'Option'}:{' '}
+                        <strong className="text-[#141413]">{detailVariant?.name || 'choose one'}</strong>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedProduct.variants!.map((v) => (
+                          <button
+                            key={v.id || v.name}
+                            type="button"
+                            disabled={v.stock <= 0}
+                            onClick={() => {
+                              setSelectedVariant(v.name);
+                              setDetailQty(1);
+                            }}
+                            className={`px-3 py-2 border text-xs font-semibold cursor-pointer disabled:opacity-35 disabled:line-through disabled:cursor-not-allowed ${
+                              detailVariant?.name === v.name
+                                ? 'border-[#141413] bg-[#141413] text-[#FBFBF9]'
+                                : 'border-black/20 bg-white text-[#141413] hover:border-[#141413]'
+                            }`}
+                          >
+                            {v.name}
+                            {typeof v.price === 'number' && v.price !== selectedProduct.price ? ` · ${formatMoney(v.price)}` : ''}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <p className="text-sm text-[#575653] leading-relaxed">
                     {selectedProduct.shortDescription || selectedProduct.description}
@@ -2573,8 +2608,8 @@ export const StorefrontView: React.FC = () => {
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-[#575653]">Availability</span>
                       <span className="font-mono tabular-nums font-medium text-[#141413]">
-                        {selectedProduct.stock > 0
-                          ? `${selectedProduct.stock} pieces ready for dispatch`
+                        {detailStock > 0
+                          ? `${detailStock} pieces ready for dispatch`
                           : 'Out of Stock'}
                       </span>
                     </div>
@@ -2598,7 +2633,7 @@ export const StorefrontView: React.FC = () => {
                         <button
                           type="button"
                           onClick={() =>
-                            setDetailQty((q) => Math.min(selectedProduct.stock || 1, q + 1))
+                            setDetailQty((q) => Math.min(detailStock || 1, q + 1))
                           }
                           className="p-3 text-[#141413] hover:bg-black/5 cursor-pointer"
                         >
@@ -2611,7 +2646,7 @@ export const StorefrontView: React.FC = () => {
                         onClick={() =>
                           addToCart(selectedProduct, detailQty, selectedVariant)
                         }
-                        disabled={selectedProduct.stock <= 0}
+                        disabled={detailStock <= 0}
                         className="flex-1 py-3.5 px-6 bg-[#141413] text-[#FBFBF9] text-xs font-semibold uppercase tracking-widest hover:bg-[#2A2A28] disabled:opacity-40 transition-colors cursor-pointer"
                       >
                         Add to Shopping Bag

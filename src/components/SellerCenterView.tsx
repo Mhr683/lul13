@@ -28,6 +28,8 @@ import { SellerOnboardingWizard } from './SellerOnboardingWizard';
 import { ProductShippingEditor, emptyShipping, shippingFormOf, type ShippingForm } from './ProductShippingEditor';
 import type { ProductInfo } from '../services/productInfo';
 import { famousBrandIn } from '../services/brandRules';
+import { CategoryPicker, VariantsEditor, type VariantRow } from './SellerListingFields';
+import { groupOfCategory, suggestCategories } from '../data/productCategories';
 import { ShareProductButton, storeOrigin } from './ShareProductButton';
 import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services/vendorRules';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
@@ -1573,6 +1575,7 @@ const SellerOrderCard: React.FC<{
           {(o.items || []).map((it, i) => (
             <div key={i}>
               {it.quantity} × {it.name}
+              {it.variant ? <strong> ({it.variant})</strong> : null}
             </div>
           ))}
         </div>
@@ -1801,6 +1804,8 @@ const emptyProduct = {
   dimensions: '',
   info: {} as ProductInfo,
   shipping: emptyShipping as ShippingForm,
+  variants: [] as VariantRow[],
+  variantTitle: '',
   status: 'ACTIVE' as 'ACTIVE' | 'DRAFT',
   supplierName: '',
   supplierCostPrice: '',
@@ -1908,6 +1913,14 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           brandType: full.info?.brandType || (full.brand && full.brand !== full.sellerName ? 'BRANDED' : 'NONE'),
         },
         shipping: shippingFormOf(full.shipping),
+        variants: (Array.isArray(full.variants) ? full.variants : []).map((v: any) => ({
+          id: String(v.id || Math.random().toString(36).slice(2, 10)),
+          name: String(v.name || ''),
+          price: typeof v.price === 'number' ? String(v.price) : '',
+          stock: String(v.stock ?? 0),
+          sku: String(v.sku || ''),
+        })),
+        variantTitle: full.variantTitle || '',
         status: full.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
       });
     } catch (err: any) {
@@ -1928,24 +1941,32 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
   const save = async () => {
     if (!editing) return;
     if (!editing.info.brandType) return showToast('Choose "Branded" or "No brand" for this product.');
+    const variants = editing.variants.filter((v) => v.name.trim());
+    if (editing.variants.some((v) => !v.name.trim() && (v.price || v.sku))) return showToast('Give every variant a name, or remove the empty row.');
     setSaving(true);
     try {
+      // Not sent: supplier (dropshipping) fields, which the form no longer has; shipping is cleared, as
+      // every product is delivered in the customer's own country with the store's rates
+      const { supplierName, supplierCostPrice, supplierProductUrl, supplierSku, shipping, ...fields } = editing;
       const { product, heldForProof } = await api('/api/seller/products', {
         method: 'POST',
         body: JSON.stringify({
-          ...editing,
+          ...fields,
+          shipping: null,
+          subcategory: groupOfCategory(editing.category) || undefined,
           price: Number(editing.price),
           compareAtPrice: Number(editing.compareAtPrice) || 0,
           stock: Number(editing.stock),
           weightKg: Number(editing.weightKg),
-          supplierCostPrice: Number(editing.supplierCostPrice) || 0,
+          variants,
+          variantTitle: variants.length ? editing.variantTitle || 'Option' : '',
         }),
       });
       showToast(
         product.adminHidden
           ? 'Saved. The store has hidden this product, so it stays hidden until the store restores it.'
           : heldForProof
-          ? 'Saved as a draft: electronics and branded items need a purchase invoice or brand approval. Upload it to go live.'
+          ? 'Saved as a draft: branded items need a purchase invoice or brand approval. Upload it to go live.'
           : editing.status === 'ACTIVE'
           ? 'Product saved and live in the store.'
           : 'Draft saved.'
@@ -2026,8 +2047,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
   };
 
   if (editing) {
-    const cost = Number(editing.supplierCostPrice) || 0;
-    const price = Number(editing.price) || 0;
+    const nameSuggestions = suggestCategories(editing.name);
+    const withVariants = editing.variants.length > 0;
     return (
       <div className="bg-white border border-black/10 p-5 space-y-4">
         <h2 className="text-lg font-display">{editing.id ? 'Edit product' : 'New product'}</h2>
@@ -2040,7 +2061,21 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
             <label className={labelCls}>Name *</label>
-            <input className={inputCls} value={editing.name} onChange={set('name')} />
+            <input
+              className={inputCls}
+              value={editing.name}
+              onChange={(e) => {
+                const name = e.target.value;
+                // The category follows the name until the seller picks one themselves
+                setEditing((p) => {
+                  if (!p) return p;
+                  const auto = !p.category || p.category === suggestCategories(p.name, 1)[0];
+                  const next = suggestCategories(name, 1)[0];
+                  return { ...p, name, category: auto && next ? next : p.category };
+                });
+              }}
+              placeholder="e.g. Wireless Bluetooth Earbuds with Charging Case"
+            />
           </div>
           <div>
             <label className={labelCls}>Price (PKR) *</label>
@@ -2052,17 +2087,20 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           </div>
           <div>
             <label className={labelCls}>Stock *</label>
-            <input className={inputCls} value={editing.stock} onChange={set('stock')} inputMode="numeric" />
+            {withVariants ? (
+              <div className={`${inputCls} bg-[#F4F3EF] text-[#575653]`}>
+                {editing.variants.reduce((s, v) => s + Math.max(0, Math.floor(Number(v.stock) || 0)), 0)} (sum of the variants below)
+              </div>
+            ) : (
+              <input className={inputCls} value={editing.stock} onChange={set('stock')} inputMode="numeric" />
+            )}
           </div>
-          <div>
-            <label className={labelCls}>Category *</label>
-            <input className={inputCls} value={editing.category} onChange={set('category')} list="seller-categories" placeholder="Choose or type" />
-            <datalist id="seller-categories">
-              {categoryNames.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </div>
+          <CategoryPicker
+            value={editing.category}
+            onChange={(category) => setEditing((p) => (p ? { ...p, category } : p))}
+            storeCategories={categoryNames}
+            suggestions={nameSuggestions}
+          />
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
             <span className={labelCls}>Brand *</span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2112,12 +2150,20 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             />
           </div>
           {editing.id && <FlashDealBox productId={editing.id} price={Number(editing.price) || 0} current={editing.flashPrice ? { price: editing.flashPrice, endsAt: editing.flashEndsAt } : null} />}
+          <VariantsEditor
+            title={editing.variantTitle}
+            rows={editing.variants}
+            basePrice={editing.price}
+            onChange={({ title, rows }) => setEditing((p) => (p ? { ...p, variantTitle: title, variants: rows } : p))}
+          />
+          {/* Only branded products need the proof; "No brand" hides it */}
+          {editing.info.brandType === 'BRANDED' && (
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
             <span className="text-[11px] font-bold text-[#141413] block">
-              Purchase invoice or brand approval (required for electronics and branded items)
+              Purchase invoice or brand approval (needed for branded electronics and well-known brands)
             </span>
             <p className="text-[11px] text-[#575653]">
-              Only the store sees this file. Electronics and well-known brands without it are saved as drafts.
+              Only the store sees this file. Branded electronics and well-known brands without it are saved as drafts.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               {editing.brandProofUrl ? (
@@ -2157,8 +2203,9 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               )}
             </div>
           </div>
+          )}
           <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[11px] text-[#575653]">Let AI write the short and full description from the name and category.</span>
+            <span className="text-[11px] text-[#575653]">Let AI write the description and key features from the name and category.</span>
             <button
               type="button"
               disabled={aiBusy}
@@ -2169,12 +2216,26 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             </button>
           </div>
           <div className="sm:col-span-2">
-            <label className={labelCls}>Short description</label>
-            <input className={inputCls} value={editing.shortDescription} onChange={set('shortDescription')} />
+            <label className={labelCls}>Description</label>
+            <textarea
+              className={inputCls}
+              rows={2}
+              maxLength={480}
+              value={editing.shortDescription}
+              onChange={set('shortDescription')}
+              placeholder="2-3 lines about the product: what it is and why it is good"
+            />
           </div>
           <div className="sm:col-span-2">
-            <label className={labelCls}>Full description</label>
-            <textarea className={inputCls} rows={4} value={editing.description} onChange={set('description')} />
+            <label className={labelCls}>Key features (bullet points, one per line)</label>
+            <textarea
+              className={inputCls}
+              rows={5}
+              value={editing.description}
+              onChange={set('description')}
+              placeholder={'Bluetooth 5.3, connects in 1 second\n30 hours battery with the case\nWater resistant (IPX5)\nIncluded: earbuds, case, USB-C cable'}
+            />
+            <span className="block mt-1 text-[11px] text-[#575653]">Each line is shown as a bullet point on the product page.</span>
           </div>
           <div>
             <label className={labelCls}>Weight (kg)</label>
@@ -2195,36 +2256,6 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             upload={uploadMedia}
             onError={showToast}
           />
-          <ProductShippingEditor
-            value={editing.shipping}
-            onChange={(shipping) => setEditing((p) => (p ? { ...p, shipping } : p))}
-            fromCountry={shipsFrom}
-          />
-          <div className="sm:col-span-2 pt-2 border-t border-black/10">
-            <div className="text-xs font-bold text-[#141413]">Supplier (dropshipping, optional)</div>
-            <p className="text-[11px] text-[#575653]">Only you and the store team can see this. It is shown on your orders so you can forward them.</p>
-          </div>
-          <div>
-            <label className={labelCls}>Supplier name</label>
-            <input className={inputCls} value={editing.supplierName} onChange={set('supplierName')} placeholder="e.g. AliExpress, local wholesaler" />
-          </div>
-          <div>
-            <label className={labelCls}>Supplier cost per piece (PKR)</label>
-            <input className={inputCls} value={editing.supplierCostPrice} onChange={set('supplierCostPrice')} inputMode="decimal" />
-            {cost > 0 && price > 0 && (
-              <span className={`block mt-1 text-[11px] font-semibold ${price - cost >= 0 ? 'text-emerald-800' : 'text-rose-800'}`}>
-                Margin before commission: {formatPKR(price - cost)} ({Math.round(((price - cost) / price) * 100)}%)
-              </span>
-            )}
-          </div>
-          <div>
-            <label className={labelCls}>Supplier product link</label>
-            <input className={inputCls} value={editing.supplierProductUrl} onChange={set('supplierProductUrl')} placeholder="https://..." />
-          </div>
-          <div>
-            <label className={labelCls}>Supplier SKU / code</label>
-            <input className={inputCls} value={editing.supplierSku} onChange={set('supplierSku')} />
-          </div>
         </div>
         <div className="flex gap-2">
           <button type="button" disabled={saving} onClick={save} className="px-5 py-2 bg-[#141413] text-white text-xs font-bold disabled:opacity-50 cursor-pointer">

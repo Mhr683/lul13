@@ -186,7 +186,19 @@ export const ProductInfoTabs: React.FC<{
       ) : tab === 'DESCRIPTION' ? (
         <div className="space-y-4 text-sm text-[#454441] leading-relaxed">
           {shortDescription && shortDescription !== description && <p className="font-medium text-[#141413]">{shortDescription}</p>}
-          <p className="whitespace-pre-line">{description || shortDescription || 'No description yet.'}</p>
+          {/* Sellers write the key features one per line: shown as bullet points */}
+          {infoLines(description).length > 1 ? (
+            <div>
+              <h3 className="text-sm font-semibold text-[#141413] mb-2">Key features</h3>
+              <ul className="list-disc pl-5 space-y-1">
+                {infoLines(description).map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="whitespace-pre-line">{description || shortDescription || 'No description yet.'}</p>
+          )}
           <div>
             <h3 className="text-sm font-semibold text-[#141413] mb-2">Specifications</h3>
             <table className="w-full max-w-2xl text-xs border border-black/[0.08]">
