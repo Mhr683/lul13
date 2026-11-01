@@ -799,6 +799,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     if (!rows.length) return res.status(400).json({ error: 'No products found in the file.' });
     const fileHash = str(req.body?.fileHash, 80).replace(/[^a-f0-9]/gi, '');
     const firstChunk = Number(req.body?.chunk) === 0;
+    const defaultSource = str(req.body?.defaultSource, 80);
     const files: { hash: string; name: string; at: string; rows: number }[] = Array.isArray(seller.csvFiles) ? seller.csvFiles : [];
     if (fileHash && firstChunk) {
       const prev = files.find((f) => f.hash === fileHash);
@@ -856,20 +857,40 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         const link = String(rows[i]?.supplierProductUrl || '').trim().toLowerCase();
         const match = (skuKey && bySku.get(skuKey)) || byName.get(productNameKey(f.name)) || (link ? byLink.get(link) : undefined);
 
-        // Already in the shop: only the prices may change
+        // Already in the shop: only the prices may change, and the source when the file names one
         if (match) {
           const old = match.data;
           const compareAtPrice = f.compareAtPrice > f.price ? f.compareAtPrice : Number(old.compareAtPrice) > f.price ? Number(old.compareAtPrice) : 0;
           const changes: Record<string, any> = {};
           if (money(old.price) !== f.price) changes.price = f.price;
           if (money(old.compareAtPrice) !== compareAtPrice) changes.compareAtPrice = compareAtPrice;
-          if (!Object.keys(changes).length) {
+          const supplier = readSupplier(rows[i] || {});
+          const current = d.supplierOf(match.id) || {};
+          const supplierChanged =
+            supplier &&
+            (supplier.supplierName !== normalizeSource(current.supplierName) ||
+              (supplier.supplierProductUrl && supplier.supplierProductUrl !== current.supplierProductUrl) ||
+              (supplier.supplierCostPrice > 0 && supplier.supplierCostPrice !== Number(current.supplierCostPrice)));
+          if (!Object.keys(changes).length && !supplierChanged) {
             unchanged++;
             continue;
           }
-          changes.updatedAt = new Date().toISOString();
-          batch.update(adminDb.collection('products').doc(match.id), changes);
-          match.data = { ...old, ...changes };
+          if (Object.keys(changes).length) {
+            changes.updatedAt = new Date().toISOString();
+            batch.update(adminDb.collection('products').doc(match.id), changes);
+            match.data = { ...old, ...changes };
+          }
+          if (supplierChanged) {
+            // Empty link / price in the file keep the ones already saved
+            const keep = {
+              ...supplier,
+              supplierProductUrl: supplier.supplierProductUrl || current.supplierProductUrl || '',
+              supplierCostPrice: supplier.supplierCostPrice || Number(current.supplierCostPrice) || 0,
+              supplierSku: supplier.supplierSku || current.supplierSku || '',
+            };
+            batch.set(adminDb.collection('product_private').doc(match.id), supplierDoc(match.id, keep), { merge: true });
+            inBatch++;
+          }
           updated++;
           await flush();
           continue;
@@ -884,7 +905,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         }
         batch.set(adminDb.collection('products').doc(id), product);
         if (wentLive(product, null)) live.push(product);
-        const supplier = readSupplier(rows[i] || {});
+        // A new product without its own source takes the one chosen for the whole file
+        const row = rows[i] || {};
+        const supplier = readSupplier(String(row.supplierName || '').trim() || !defaultSource ? row : { ...row, supplierName: defaultSource });
         if (supplier) {
           batch.set(adminDb.collection('product_private').doc(id), supplierDoc(id, supplier), { merge: true });
           inBatch++;

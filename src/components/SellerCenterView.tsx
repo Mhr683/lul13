@@ -2503,6 +2503,10 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   const [fileHash, setFileHash] = useState('');
   const [sameFile, setSameFile] = useState('');
 
+  // Rows without their own source (Oshi, YourMart, ...) take the one chosen here; it must be chosen
+  // when the file has such rows, so no product is listed as own stock by mistake
+  const [defaultSource, setDefaultSource] = useState('');
+  const rowsWithoutSource = rows.filter((r) => !r.supplierName.trim()).length;
   // Rows without their own category take the one chosen here
   const prepared = useMemo(
     () =>
@@ -2551,6 +2555,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
 
   const upload = async () => {
     if (!ready.length) return;
+    if (rowsWithoutSource > 0 && !defaultSource) return showToast('Choose where these products come from (Direct seller, Oshi, YourMart, ...) first.');
     const total = ready.length;
     const sum = { created: 0, updated: 0, unchanged: 0, errors: [] as { row: number; error: string }[] };
     let held = 0;
@@ -2564,6 +2569,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
             products: chunk,
             fileHash,
             fileName,
+            defaultSource,
             totalRows: total,
             chunk: i / BULK_CHUNK,
             lastChunk: i + BULK_CHUNK >= total,
@@ -2659,6 +2665,31 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
               <input type="checkbox" checked={asDraft} onChange={(e) => setAsDraft(e.target.checked)} />
               Save all as Draft (I will review them and make them live later)
             </label>
+            {rowsWithoutSource > 0 && (
+              <div className={`sm:col-span-2 p-3 border-2 ${defaultSource ? 'border-violet-300 bg-violet-50/60' : 'border-amber-500 bg-amber-50'}`}>
+                <label className={labelCls}>
+                  Where do these products come from? ({rowsWithoutSource} of {rows.length} products have no source in the file) *
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[DIRECT_SOURCE, ...SOURCE_APPS].map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setDefaultSource(s)}
+                      className={`px-2.5 py-1.5 border text-xs font-semibold cursor-pointer ${
+                        defaultSource === s ? 'border-violet-700 bg-violet-700 text-white' : 'border-black/15 bg-white hover:border-black'
+                      }`}
+                    >
+                      {s === DIRECT_SOURCE ? 'Direct seller (own stock)' : s}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[#575653]">
+                  Used for the new products listed from this file. Lines with their own source keep it, and products already in your shop keep
+                  theirs. Only you and the store team see the source.
+                </p>
+              </div>
+            )}
           </div>
 
           <p className="text-[#141413]">
