@@ -7,6 +7,7 @@ import { cleanProductInfo, type ProductInfo } from '../src/services/productInfo'
 import { famousBrandIn } from '../src/services/brandRules';
 import { cleanProductShipping, type ProductShipping } from '../src/services/productShipping';
 import { cleanVariants } from '../src/services/productVariants';
+import { normalizeSource } from '../src/services/productSource';
 import type { ProductVariant } from '../src/types/store';
 import { KYC_LABELS, KYC_MAX_BYTES, idDocTypeFor, requiredKyc, type KycKind } from '../src/services/sellerOnboarding';
 import { checkVendorApplication } from '../src/services/vendorRules';
@@ -770,7 +771,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     if (!has) return null;
     const url = str(b.supplierProductUrl, 980);
     return {
-      supplierName: str(b.supplierName, 80),
+      // "oshi.pk" / "Your Mart" / empty -> Oshi / YourMart / Direct seller (src/services/productSource.ts)
+      supplierName: normalizeSource(b.supplierName),
       supplierCostPrice: money(b.supplierCostPrice),
       supplierProductUrl: /^https?:\/\//i.test(url) ? url : '',
       supplierSku: str(b.supplierSku, 80),
@@ -783,13 +785,32 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     updatedAt: new Date().toISOString(),
   });
 
-  // Bulk listing from a CSV the seller uploads (parsed in the browser). A row whose SKU matches one of
-  // the seller's existing products updates it, so re-uploading a sheet refreshes price and stock.
+  // Bulk listing from a CSV the seller uploads (parsed in the browser, sent in chunks).
+  //   - The same file twice: refused with SAME_FILE (fingerprint of the file, kept on the seller doc)
+  //   - A row for a product already in the shop (same SKU, same name, or the same source link) is not
+  //     listed again: only its price / old price change, and nothing is written when they are the same
+  //   - Other rows become new products
+  const MAX_CSV_FILES = 30;
+  const productNameKey = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   app.post('/api/seller/products/bulk', requireSeller, requireConduct, async (req, res) => {
     const uid = (req as any).user.uid as string;
     const seller = (req as any).seller;
     const rows = Array.isArray(req.body?.products) ? req.body.products.slice(0, 500) : [];
     if (!rows.length) return res.status(400).json({ error: 'No products found in the file.' });
+    const fileHash = str(req.body?.fileHash, 80).replace(/[^a-f0-9]/gi, '');
+    const firstChunk = Number(req.body?.chunk) === 0;
+    const files: { hash: string; name: string; at: string; rows: number }[] = Array.isArray(seller.csvFiles) ? seller.csvFiles : [];
+    if (fileHash && firstChunk) {
+      const prev = files.find((f) => f.hash === fileHash);
+      if (prev) {
+        const when = new Date(prev.at).toLocaleString('en-PK', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+        return res.status(409).json({
+          code: 'SAME_FILE',
+          uploadedAt: prev.at,
+          error: `This file is already on your store (uploaded on ${when}). Nothing was uploaded, so no product is listed twice. To change prices, edit the file and upload it again.`,
+        });
+      }
+    }
     try {
       const existing =
         d.allProductsOfSeller(uid) ||
@@ -798,51 +819,97 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           id: doc.id,
         }));
       const bySku = new Map<string, { id: string; data: any }>();
+      const byName = new Map<string, { id: string; data: any }>();
+      const byLink = new Map<string, { id: string; data: any }>();
       for (const data of existing) {
-        if (data.sku) bySku.set(String(data.sku).toLowerCase(), { id: data.id, data });
+        const entry = { id: data.id, data };
+        if (data.sku) bySku.set(String(data.sku).toLowerCase(), entry);
+        if (data.status === 'ARCHIVED') continue;
+        const nameKey = productNameKey(data.name);
+        if (nameKey && !byName.has(nameKey)) byName.set(nameKey, entry);
+        const link = String(d.supplierOf(data.id)?.supplierProductUrl || '').toLowerCase();
+        if (link) byLink.set(link, entry);
       }
       const errors: { row: number; error: string }[] = [];
       let created = 0;
       let updated = 0;
+      let unchanged = 0;
       let heldForProof = 0;
       const live: any[] = [];
       let batch = adminDb.batch();
       let inBatch = 0;
+      const flush = async () => {
+        if (++inBatch >= 400) {
+          await batch.commit();
+          batch = adminDb.batch();
+          inBatch = 0;
+        }
+      };
       for (let i = 0; i < rows.length; i++) {
         const checked = readSellerProduct(rows[i] || {});
         if ('error' in checked) {
           errors.push({ row: Number(rows[i]?.row) || i + 2, error: checked.error as string });
           continue;
         }
-        const skuKey = checked.fields.sellerSku ? sellerSkuFor(uid, checked.fields.sellerSku).toLowerCase() : '';
-        const match = skuKey ? bySku.get(skuKey) : undefined;
-        const id = match?.id || `prod-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}`;
-        const product = buildSellerProduct(uid, seller, id, { ...rows[i], fromCsv: true }, checked.fields, match?.data || null);
-        // Electronics / branded items without an invoice on file wait as drafts (add it in the product form)
+        const f = checked.fields;
+        const skuKey = f.sellerSku ? sellerSkuFor(uid, f.sellerSku).toLowerCase() : '';
+        const link = String(rows[i]?.supplierProductUrl || '').trim().toLowerCase();
+        const match = (skuKey && bySku.get(skuKey)) || byName.get(productNameKey(f.name)) || (link ? byLink.get(link) : undefined);
+
+        // Already in the shop: only the prices may change
+        if (match) {
+          const old = match.data;
+          const compareAtPrice = f.compareAtPrice > f.price ? f.compareAtPrice : Number(old.compareAtPrice) > f.price ? Number(old.compareAtPrice) : 0;
+          const changes: Record<string, any> = {};
+          if (money(old.price) !== f.price) changes.price = f.price;
+          if (money(old.compareAtPrice) !== compareAtPrice) changes.compareAtPrice = compareAtPrice;
+          if (!Object.keys(changes).length) {
+            unchanged++;
+            continue;
+          }
+          changes.updatedAt = new Date().toISOString();
+          batch.update(adminDb.collection('products').doc(match.id), changes);
+          match.data = { ...old, ...changes };
+          updated++;
+          await flush();
+          continue;
+        }
+
+        const id = `prod-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}`;
+        const product = buildSellerProduct(uid, seller, id, { ...rows[i], fromCsv: true }, f, null);
+        // Branded electronics / famous brands without an invoice on file wait as drafts (add it in the product form)
         if (product.status === 'ACTIVE' && needsBrandProof(product) && !d.supplierOf(id)?.brandProofUrl) {
           product.status = 'DRAFT';
           heldForProof++;
         }
         batch.set(adminDb.collection('products').doc(id), product);
-        if (wentLive(product, match?.data || null)) live.push(product);
+        if (wentLive(product, null)) live.push(product);
         const supplier = readSupplier(rows[i] || {});
         if (supplier) {
           batch.set(adminDb.collection('product_private').doc(id), supplierDoc(id, supplier), { merge: true });
           inBatch++;
         }
-        if (match) updated++;
-        else created++;
-        if (skuKey) bySku.set(skuKey, { id, data: product });
-        if (++inBatch >= 400) {
-          await batch.commit();
-          batch = adminDb.batch();
-          inBatch = 0;
-        }
+        created++;
+        // A second row for the same product in this file is a duplicate too
+        const entry = { id, data: product };
+        if (skuKey) bySku.set(skuKey, entry);
+        byName.set(productNameKey(product.name), entry);
+        if (link) byLink.set(link, entry);
+        await flush();
+      }
+      // Remember the file once all of it is in, so the same file cannot be uploaded again (an upload
+      // that stopped halfway may be repeated: its rows are found as existing products)
+      if (fileHash && req.body?.lastChunk === true) {
+        const name = str(req.body?.fileName, 120);
+        const next = [{ hash: fileHash, name, at: new Date().toISOString(), rows: Number(req.body?.totalRows) || rows.length }, ...files.filter((x) => x.hash !== fileHash)].slice(0, MAX_CSV_FILES);
+        batch.set(sellersCol().doc(uid), { csvFiles: next }, { merge: true });
+        inBatch++;
+        forgetSeller(uid);
       }
       if (inBatch) await batch.commit();
       forgetCoach(uid);
       announceLive(uid, seller, live);
-      res.json({ success: true, created, updated, errors, heldForProof });
+      res.json({ success: true, created, updated, unchanged, errors, heldForProof });
     } catch (err) {
       console.error('[seller/products bulk] failed:', err);
       res.status(503).json({ error: 'Could not save the products. Please try again.' });

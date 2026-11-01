@@ -30,8 +30,8 @@ export interface SellerCsvRow {
 }
 
 export const SELLER_CSV_TEMPLATE =
-  'sku,name,price,old_price,stock,category,image_url,short_description,description,weight_kg,supplier,supplier_cost,supplier_link,supplier_sku\n' +
-  'TSHIRT-01,Cotton T-Shirt Black,1499,1999,25,Men Clothing,https://example.com/tshirt.jpg,Soft cotton t-shirt,"100% cotton, sizes M L XL",0.3,Local wholesaler,900,https://example.com/supplier/tshirt,WS-TS-01\n';
+  'sku,name,price,old_price,stock,category,image_url,short_description,description,weight_kg,source,source_price,source_link,source_sku\n' +
+  'TSHIRT-01,Cotton T-Shirt Black,1499,1999,25,Men\'s Clothing,https://example.com/tshirt.jpg,Soft cotton t-shirt,"100% cotton, sizes M L XL",0.3,Oshi,900,https://example.com/oshi/tshirt,OS-TS-01\n';
 
 const norm = (h: string) => h.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 
@@ -49,7 +49,8 @@ export function parseSellerCsv(raw: string, usdToPkrRate: number): { rows: Selle
 
   const headers = all[0].map(norm);
   // Supplier columns (supplier_cost, supplier_sku, ...) never count as the product's own price / SKU / name
-  const isSupplierHeader = (h: string) => h.startsWith('supplier') || h.includes('cost') || h.includes('wholesale');
+  // (source_price / source_link: where the product is sourced from, e.g. Oshi)
+  const isSupplierHeader = (h: string) => h.startsWith('supplier') || h.startsWith('source') || h.includes('cost') || h.includes('wholesale');
   const col = (...names: string[]) => {
     const wantSupplier = names.some((n) => isSupplierHeader(norm(n)));
     const usable = (h: string) => wantSupplier || !isSupplierHeader(h);
@@ -78,10 +79,10 @@ export function parseSellerCsv(raw: string, usdToPkrRate: number): { rows: Selle
     weight: col('weightkg', 'weight', 'packageweight'),
     brand: col('brand', 'vendor', 'manufacturer'),
     status: col('status', 'published'),
-    supplier: headers.findIndex((h) => ['supplier', 'suppliername', 'suppliercompany', 'source'].includes(h)),
-    supplierCost: col('suppliercost', 'supplierprice', 'costprice', 'cost', 'wholesaleprice'),
-    supplierLink: col('supplierlink', 'supplierurl', 'supplierproducturl'),
-    supplierSku: col('suppliersku', 'suppliercode'),
+    supplier: headers.findIndex((h) => ['supplier', 'suppliername', 'suppliercompany', 'source', 'platform', 'sourceplatform', 'productsource'].includes(h)),
+    supplierCost: col('suppliercost', 'supplierprice', 'sourceprice', 'sourcecost', 'costprice', 'cost', 'wholesaleprice'),
+    supplierLink: col('supplierlink', 'supplierurl', 'supplierproducturl', 'sourcelink', 'sourceurl'),
+    supplierSku: col('suppliersku', 'suppliercode', 'sourcesku'),
   };
   if (c.name === -1) return { rows: [], error: 'No product name column found (name / title).' };
   if (c.price === -1 && c.sale === -1) return { rows: [], error: 'No price column found (price).' };

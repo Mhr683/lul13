@@ -30,6 +30,8 @@ import type { ProductInfo } from '../services/productInfo';
 import { famousBrandIn } from '../services/brandRules';
 import { CategoryPicker, VariantsEditor, type VariantRow } from './SellerListingFields';
 import { groupOfCategory, suggestCategories } from '../data/productCategories';
+import { DIRECT_SOURCE, SOURCE_APPS, isDirectSource, normalizeSource } from '../services/productSource';
+import { fixLink } from './ProductMediaEditor';
 import { ShareProductButton, storeOrigin } from './ShareProductButton';
 import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services/vendorRules';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
@@ -1517,9 +1519,10 @@ const SellerOrderCard: React.FC<{
   const btn = 'px-2.5 py-1.5 text-[11px] font-semibold border cursor-pointer disabled:opacity-50';
   const storeName = settings.storeName || 'our store';
   const supplierFor = (productId: string) => (o.supplierItems || []).find((s) => s.productId === productId);
+  // Items sourced from another app (Oshi, YourMart, ...): the seller orders them there
   const hasSupplier = (o.items || []).some((it) => {
     const s = supplierFor(it.productId);
-    return s && (s.supplierName || s.supplierProductUrl || s.supplierSku);
+    return s && !isDirectSource(s.supplierName);
   });
   const profit = (Number(o.sellerEarning) || 0) - (Number(o.supplierCost) || 0);
 
@@ -1572,12 +1575,23 @@ const SellerOrderCard: React.FC<{
         </div>
         <div>
           <div className="font-bold text-[#141413]">Items</div>
-          {(o.items || []).map((it, i) => (
-            <div key={i}>
-              {it.quantity} × {it.name}
-              {it.variant ? <strong> ({it.variant})</strong> : null}
-            </div>
-          ))}
+          {(o.items || []).map((it, i) => {
+            // Where this product comes from (private: the customer's order never shows it)
+            const source = normalizeSource(supplierFor(it.productId)?.supplierName);
+            return (
+              <div key={i} className="mb-1">
+                {it.quantity} × {it.name}
+                {it.variant ? <strong> ({it.variant})</strong> : null}{' '}
+                <span
+                  className={`inline-block px-1.5 py-0.5 border text-[10px] font-bold ${
+                    source === DIRECT_SOURCE ? 'bg-emerald-50 border-emerald-400 text-emerald-900' : 'bg-violet-100 border-violet-400 text-violet-950'
+                  }`}
+                >
+                  {source === DIRECT_SOURCE ? 'Direct seller' : `From ${source}`}
+                </span>
+              </div>
+            );
+          })}
         </div>
         <div>
           <div className="font-bold text-[#141413]">Amount</div>
@@ -1600,18 +1614,19 @@ const SellerOrderCard: React.FC<{
 
       {hasSupplier && !closed && !shipped && (
         <div className="p-3 bg-violet-50 border border-violet-300 space-y-2">
-          <div className="font-bold text-violet-950">Supplier (dropshipping)</div>
+          <div className="font-bold text-violet-950">Order these items on the source app</div>
           {(o.items || []).map((it, i) => {
             const s = supplierFor(it.productId);
-            if (!s) return null;
+            if (!s || isDirectSource(s.supplierName)) return null;
             return (
               <div key={i} className="text-[#141413]">
-                {it.quantity} × {it.name} — {s.supplierName || 'Supplier'}
+                {it.quantity} × {it.name}
+                {it.variant ? ` (${it.variant})` : ''} — <strong>{normalizeSource(s.supplierName)}</strong>
                 {s.supplierSku ? ` · SKU ${s.supplierSku}` : ''}
                 {Number(s.supplierCostPrice) > 0 ? ` · cost ${formatPKR(Number(s.supplierCostPrice))}` : ''}
                 {s.supplierProductUrl && (
                   <a href={s.supplierProductUrl} target="_blank" rel="noopener noreferrer" className="ml-2 underline text-violet-900">
-                    Open supplier page
+                    Open on {normalizeSource(s.supplierName)}
                   </a>
                 )}
               </div>
@@ -1945,14 +1960,20 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
     if (editing.variants.some((v) => !v.name.trim() && (v.price || v.sku))) return showToast('Give every variant a name, or remove the empty row.');
     setSaving(true);
     try {
-      // Not sent: supplier (dropshipping) fields, which the form no longer has; shipping is cleared, as
-      // every product is delivered in the customer's own country with the store's rates
-      const { supplierName, supplierCostPrice, supplierProductUrl, supplierSku, shipping, ...fields } = editing;
+      // Shipping is cleared, as every product is delivered in the customer's own country with the
+      // store's rates. The source (direct seller / Oshi / YourMart / ...) is private: only the seller
+      // and the store team see it, on the product and on its orders.
+      const { shipping, ...fields } = editing;
+      const direct = isDirectSource(editing.supplierName);
       const { product, heldForProof } = await api('/api/seller/products', {
         method: 'POST',
         body: JSON.stringify({
           ...fields,
           shipping: null,
+          supplierName: normalizeSource(editing.supplierName),
+          supplierProductUrl: direct ? '' : fixLink(editing.supplierProductUrl),
+          supplierCostPrice: direct ? 0 : Number(editing.supplierCostPrice) || 0,
+          supplierSku: direct ? '' : editing.supplierSku,
           subcategory: groupOfCategory(editing.category) || undefined,
           price: Number(editing.price),
           compareAtPrice: Number(editing.compareAtPrice) || 0,
@@ -2256,6 +2277,50 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             upload={uploadMedia}
             onError={showToast}
           />
+          {/* Private: customers never see where the product comes from */}
+          <div className="sm:col-span-2 p-3 border border-violet-300 bg-violet-50/60 space-y-2">
+            <div>
+              <div className="text-xs font-bold text-[#141413]">Product source (only you and the store team see this)</div>
+              <p className="text-[11px] text-[#575653]">
+                Where you get this product. It is shown on every order of this product, so you know where to order it. Customers never see it.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[DIRECT_SOURCE, ...SOURCE_APPS].map((s) => {
+                const on = normalizeSource(editing.supplierName) === s;
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setEditing((p) => (p ? { ...p, supplierName: s } : p))}
+                    className={`px-2.5 py-1.5 border text-xs font-semibold cursor-pointer ${
+                      on ? 'border-violet-700 bg-violet-700 text-white' : 'border-black/15 bg-white hover:border-black'
+                    }`}
+                  >
+                    {s === DIRECT_SOURCE ? 'Direct seller (own stock)' : s}
+                  </button>
+                );
+              })}
+              <input
+                value={[DIRECT_SOURCE, ...SOURCE_APPS].includes(normalizeSource(editing.supplierName)) ? '' : editing.supplierName}
+                onChange={set('supplierName')}
+                placeholder="other app..."
+                className="w-32 px-2 py-1.5 border border-black/15 bg-white text-xs focus:border-black focus:outline-none"
+              />
+            </div>
+            {!isDirectSource(editing.supplierName) && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="sm:col-span-2">
+                  <label className={labelCls}>Product link on {normalizeSource(editing.supplierName)} (optional)</label>
+                  <input className={inputCls} value={editing.supplierProductUrl} onChange={set('supplierProductUrl')} placeholder="https://..." />
+                </div>
+                <div>
+                  <label className={labelCls}>Their price per piece (optional)</label>
+                  <input className={inputCls} value={editing.supplierCostPrice} onChange={set('supplierCostPrice')} inputMode="decimal" />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex gap-2">
           <button type="button" disabled={saving} onClick={save} className="px-5 py-2 bg-[#141413] text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
@@ -2433,7 +2498,10 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   const [defaultCategory, setDefaultCategory] = useState('');
   const [asDraft, setAsDraft] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [result, setResult] = useState<{ created: number; updated: number; errors: { row: number; error: string }[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; updated: number; unchanged: number; errors: { row: number; error: string }[] } | null>(null);
+  // Fingerprint of the chosen file: the server refuses a file that is already on the store
+  const [fileHash, setFileHash] = useState('');
+  const [sameFile, setSameFile] = useState('');
 
   // Rows without their own category take the one chosen here
   const prepared = useMemo(
@@ -2461,6 +2529,13 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
       setRows([]);
       return;
     }
+    setSameFile('');
+    try {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text.replace(/\r\n/g, '\n').trim()));
+      setFileHash(Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join(''));
+    } catch {
+      setFileHash('');
+    }
     setFileName(file.name);
     setRows(parsed.rows);
   };
@@ -2477,25 +2552,41 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   const upload = async () => {
     if (!ready.length) return;
     const total = ready.length;
-    const sum = { created: 0, updated: 0, errors: [] as { row: number; error: string }[] };
+    const sum = { created: 0, updated: 0, unchanged: 0, errors: [] as { row: number; error: string }[] };
     let held = 0;
     setProgress({ done: 0, total });
     try {
       for (let i = 0; i < total; i += BULK_CHUNK) {
         const chunk = ready.slice(i, i + BULK_CHUNK).map(({ problem, ...r }) => r);
-        const d = await api('/api/seller/products/bulk', { method: 'POST', body: JSON.stringify({ products: chunk }) });
+        const d = await api('/api/seller/products/bulk', {
+          method: 'POST',
+          body: JSON.stringify({
+            products: chunk,
+            fileHash,
+            fileName,
+            totalRows: total,
+            chunk: i / BULK_CHUNK,
+            lastChunk: i + BULK_CHUNK >= total,
+          }),
+        });
         sum.created += d.created || 0;
         sum.updated += d.updated || 0;
+        sum.unchanged += d.unchanged || 0;
         held += d.heldForProof || 0;
         sum.errors.push(...(d.errors || []));
         setProgress({ done: Math.min(total, i + BULK_CHUNK), total });
       }
       setResult(sum);
       showToast(
-        `${sum.created} new products, ${sum.updated} updated.` +
-          (held ? ` ${held} electronics / branded items were saved as drafts: open each one and upload its invoice to go live.` : '')
+        `${sum.created} new · ${sum.updated} prices updated · ${sum.unchanged} already listed, no change.` +
+          (held ? ` ${held} branded items were saved as drafts: open each one and upload its invoice to go live.` : '')
       );
     } catch (err: any) {
+      // The same file was uploaded before: nothing was saved
+      if (err.code === 'SAME_FILE') {
+        setSameFile(err.message);
+        return;
+      }
       setResult(sum);
       showToast(err.message);
     } finally {
@@ -2519,12 +2610,12 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
         </p>
         <p>
           Required columns: <strong>name, price, category</strong>. Optional: sku, old_price, stock, image_url,
-          short_description, description, weight_kg. For dropshipping: supplier, supplier_cost, supplier_link, supplier_sku
-          (only you and the store team see these).
+          short_description, description, weight_kg. Product source: <strong>source</strong> (Oshi, YourMart, HHC, Markaz, or
+          empty for your own stock), source_link, source_price. Only you and the store team see the source.
         </p>
         <p>
-          Uploading a file again with the same <strong>sku</strong> does not create duplicates: it updates the price and stock
-          of the existing products.
+          <strong>No double listings:</strong> the same file cannot be uploaded twice. In a new file, a product that is already in
+          your shop (same sku, same name, or same source link) is not listed again: only its price is updated when it changed.
         </p>
         <button type="button" onClick={downloadTemplate} className="mt-1 px-3 py-1.5 bg-white border border-black/30 font-semibold flex items-center gap-1 cursor-pointer">
           <Download className="w-3.5 h-3.5" /> Download a sample (template) file
@@ -2622,10 +2713,15 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
         </>
       )}
 
+      {sameFile && (
+        <div className="p-3 border-2 border-amber-500 bg-amber-50 text-amber-950 font-semibold">⚠ {sameFile}</div>
+      )}
+
       {result && (
         <div className="p-3 border border-emerald-400 bg-emerald-50 text-emerald-950 space-y-1">
           <p>
-            ✓ {result.created} new products created, {result.updated} existing products updated.
+            ✓ {result.created} new products listed · {result.updated} already in your shop, price updated · {result.unchanged} already in
+            your shop, no change (not listed again)
           </p>
           {result.errors.length > 0 && (
             <p className="text-rose-800">

@@ -4,6 +4,7 @@ import { useStore } from '../context/StoreContext';
 import { formatPKR } from '../services/abstractions';
 import { OrderTimeline } from './OrderTimeline';
 import type { Order } from '../types/store';
+import { isDirectSource, normalizeSource } from '../services/productSource';
 
 // Admin: every order of every seller, read-only. Sellers confirm, pack and ship their own orders in
 // Seller Center; the store only steps in to stop an order (cancel before shipping), or to record a
@@ -180,7 +181,15 @@ export const AdminOrdersOverview: React.FC = () => {
                         {(o.items || []).map((it, i) => (
                           <div key={i}>
                             {it.quantity} × {it.name}
-                            {it.variant ? ` (${it.variant})` : ''}
+                            {it.variant ? ` (${it.variant})` : ''}{' '}
+                            {/* Source of the product (admin-only data merged from order_private) */}
+                            <span
+                              className={`inline-block px-1.5 py-0.5 border text-[10px] font-bold ${
+                                isDirectSource(it.supplierName) ? 'bg-emerald-50 border-emerald-400 text-emerald-900' : 'bg-violet-100 border-violet-400 text-violet-950'
+                              }`}
+                            >
+                              {isDirectSource(it.supplierName) ? 'Direct seller' : `From ${normalizeSource(it.supplierName)}`}
+                            </span>
                           </div>
                         ))}
                       </div>
