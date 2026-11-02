@@ -124,11 +124,17 @@
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Anokha Shopping Hub — Online Shopping in Pakistan</title>
+    <title>Anokha Shopping Hub | Online Shopping Store in Pakistan</title>
     <meta
       name="description"
-      content="Anokha Shopping Hub: unique products from trusted sellers, delivered across Pakistan. Cash on Delivery, easy returns and live order tracking."
+      content="Anokha Shopping Hub (anokhashopinghub.shop) — the Anokha online shopping store in Pakistan. Unique products from trusted sellers, Cash on Delivery, easy returns and live order tracking."
     />
+    <!-- Other ways people write the store's name, for search engines -->
+    <meta
+      name="keywords"
+      content="Anokha Shopping Hub, Anokha Shoping Hub, Anokha Shopping Center, Anokha Shopping Centre, Anokha Shop, Anokha Store, Anokha Online Shopping, anokhashopinghub, online shopping Pakistan"
+    />
+    <link rel="canonical" href="https://anokhashopinghub.shop/" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Anokha Shopping Hub" />
     <meta
@@ -154,14 +160,40 @@
       href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Montserrat:wght@700;800&display=swap"
       rel="stylesheet"
     />
+    <!-- Tells Google the site's name and the other names people search for, so they all find it -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "Store",
-        "name": "Anokha Shopping Hub",
-        "description": "Online marketplace in Pakistan: unique products from trusted sellers.",
-        "currenciesAccepted": "PKR, USD",
-        "paymentAccepted": "Cash on Delivery, Bank Transfer, Raast, NayaPay"
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://anokhashopinghub.shop/#website",
+            "name": "Anokha Shopping Hub",
+            "alternateName": [
+              "Anokha Shoping Hub",
+              "Anokha Shopping Center",
+              "Anokha Shopping Centre",
+              "Anokha Shop",
+              "Anokha Store",
+              "Anokha Online Shopping",
+              "AnokhaShopingHub"
+            ],
+            "url": "https://anokhashopinghub.shop/",
+            "inLanguage": "en-PK"
+          },
+          {
+            "@type": "OnlineStore",
+            "@id": "https://anokhashopinghub.shop/#store",
+            "name": "Anokha Shopping Hub",
+            "alternateName": ["Anokha Shoping Hub", "Anokha Shopping Center"],
+            "url": "https://anokhashopinghub.shop/",
+            "logo": "https://anokhashopinghub.shop/pwa-512x512.png",
+            "description": "Online marketplace in Pakistan: unique products from trusted sellers.",
+            "areaServed": "PK",
+            "currenciesAccepted": "PKR, USD",
+            "paymentAccepted": "Cash on Delivery, Bank Transfer, Raast, NayaPay"
+          }
+        ]
       }
     </script>
   </head>

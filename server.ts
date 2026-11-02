@@ -5966,6 +5966,29 @@ async function startServer() {
       return res.end(encoding === 'br' ? packed.br : packed.gzip);
     });
 
+    // Search engines: the store is indexed; Seller Center and the admin panel are kept out of results
+    const privatePortal = (req: express.Request) =>
+      /^(seller|admin)\./i.test(String(req.hostname || '')) || /^\/(seller|admin)(\/|$)/i.test(req.path);
+    app.get('/robots.txt', (req, res) => {
+      res.type('text/plain').setHeader('Cache-Control', 'public, max-age=3600');
+      if (/^(seller|admin)\./i.test(String(req.hostname || ''))) return res.send('User-agent: *\nDisallow: /\n');
+      const origin = STORE_HOST ? `https://${STORE_HOST}` : `${req.protocol}://${req.get('host')}`;
+      res.send(`User-agent: *\nAllow: /\nDisallow: /seller\nDisallow: /admin\nDisallow: /api/\n\nSitemap: ${origin}/sitemap.xml\n`);
+    });
+    app.get('/sitemap.xml', (req, res) => {
+      const origin = STORE_HOST ? `https://${STORE_HOST}` : `${req.protocol}://${req.get('host')}`;
+      res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
+      res.send(
+        `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+          `  <url><loc>${origin}/</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>\n` +
+          `</urlset>\n`
+      );
+    });
+    app.use((req, res, next) => {
+      if (privatePortal(req)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      next();
+    });
+
     // index.html must always be fresh so a new deploy is picked up immediately
     app.use(
       express.static(distPath, {
