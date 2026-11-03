@@ -13,7 +13,14 @@ export const sellerCenterUrl = () => {
 };
 
 export const BecomeSellerBanner: React.FC<{ settings: StoreSettings }> = ({ settings }) => {
+  // Admin → Settings → Home page & store texts can hide it or change its texts
+  if (settings.sellerBannerHidden) return null;
   const storeName = settings.storeName || 'our store';
+  const title = settings.sellerBannerTitle?.trim() || `Open your own shop on ${storeName}`;
+  const text =
+    settings.sellerBannerText?.trim() ||
+    'Apna kaam shuru karein — ghar baithe apne products bechein aur har order par kamaayein. Customers across Pakistan, one free account.';
+  const button = settings.sellerBannerButton?.trim() || "Start selling — it's free";
   // The same offer the server applies to new sellers' orders (server.ts, newSellerFreeDays)
   const freeDays = Math.max(0, Number(settings.newSellerFreeDays ?? DEFAULT_NEW_SELLER_FREE_DAYS));
   const perks = [
@@ -37,14 +44,11 @@ export const BecomeSellerBanner: React.FC<{ settings: StoreSettings }> = ({ sett
               <Store className="w-3.5 h-3.5" /> Become a seller
             </span>
             <h2 className="text-2xl sm:text-3xl lg:text-4xl font-display font-semibold leading-tight">
-              Open your own shop on {storeName}
+              {title}
             </h2>
-            <p className="text-sm sm:text-base text-white/85">
-              Apna kaam shuru karein — ghar baithe apne products bechein aur har order par kamaayein. Customers across Pakistan, one free
-              account.
-            </p>
+            <p className="text-sm sm:text-base text-white/85 whitespace-pre-line">{text}</p>
             <span className="inline-flex items-center gap-2 mt-1 px-5 py-3 rounded-full bg-white text-[#0B3D2A] text-sm font-bold shadow-md group-hover:bg-[#F4E6C3] transition-colors">
-              Start selling — it's free <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+              {button} <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2.5 sm:gap-3">

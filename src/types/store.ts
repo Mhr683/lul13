@@ -499,6 +499,11 @@ export interface StoreSettings {
   heroSubtitle?: string;
   heroImageUrl?: string;
   heroHighlights?: string;
+  /** "Become a seller" ad on the home page (src/components/BecomeSellerBanner.tsx); empty = default text */
+  sellerBannerHidden?: boolean;
+  sellerBannerTitle?: string;
+  sellerBannerText?: string;
+  sellerBannerButton?: string;
   deliveryPromiseText?: string;
   aboutText?: string;
   logoUrl?: string;

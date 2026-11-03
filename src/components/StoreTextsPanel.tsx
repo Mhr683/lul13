@@ -10,6 +10,9 @@ type TextKey =
   | 'heroSubtitle'
   | 'heroImageUrl'
   | 'heroHighlights'
+  | 'sellerBannerTitle'
+  | 'sellerBannerText'
+  | 'sellerBannerButton'
   | 'deliveryPromiseText'
   | 'aboutText';
 
@@ -39,6 +42,22 @@ const FIELDS: Array<{ key: TextKey; label: string; placeholder: string; multilin
     placeholder: 'Cash on Delivery|Nationwide Delivery|Easy Returns',
   },
   {
+    key: 'sellerBannerTitle',
+    label: '"Become a seller" ad: heading (empty = default)',
+    placeholder: 'Open your own shop on Anokha Shopping Hub',
+  },
+  {
+    key: 'sellerBannerButton',
+    label: '"Become a seller" ad: button text',
+    placeholder: "Start selling — it's free",
+  },
+  {
+    key: 'sellerBannerText',
+    label: '"Become a seller" ad: description',
+    placeholder: 'Apna kaam shuru karein — ghar baithe apne products bechein aur har order par kamaayein.',
+    multiline: true,
+  },
+  {
     key: 'deliveryPromiseText',
     label: 'Delivery line on the product page (keep it accurate)',
     placeholder: 'Delivery across Pakistan by courier, usually in 3–6 working days.',
@@ -62,6 +81,7 @@ export const StoreTextsPanel: React.FC = () => {
     FIELDS.forEach((f) => {
       (next as any)[f.key] = (settings as any)[f.key] || '';
     });
+    next.sellerBannerHidden = settings.sellerBannerHidden === true;
     setDraft(next);
   }, [settings]);
 
@@ -75,6 +95,7 @@ export const StoreTextsPanel: React.FC = () => {
     FIELDS.forEach((f) => {
       (cleaned as any)[f.key] = String((draft as any)[f.key] || '').trim();
     });
+    cleaned.sellerBannerHidden = draft.sellerBannerHidden === true;
     await updateStoreSettings(cleaned);
     setSaving(false);
     showToast('Store texts saved.');
@@ -118,6 +139,14 @@ export const StoreTextsPanel: React.FC = () => {
             )}
           </div>
         ))}
+        <label className="sm:col-span-2 flex items-center gap-2 font-bold cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!draft.sellerBannerHidden}
+            onChange={(e) => setDraft({ ...draft, sellerBannerHidden: !e.target.checked })}
+          />
+          Show the "Become a seller" ad on the home page
+        </label>
       </div>
       <div className="flex justify-end">
         <button
