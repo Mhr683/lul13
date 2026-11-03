@@ -72,6 +72,7 @@ import { ShipsBadge } from './ShipsBadge';
 import { CardPaymentStatus } from './CardPaymentStatus';
 import { OrderCancelBox } from './OrderCancelBox';
 import { HeroSlider, TrendingTicker } from './HeroSlider';
+import { BecomeSellerBanner, sellerCenterUrl } from './BecomeSellerBanner';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -1468,6 +1469,12 @@ export const StorefrontView: React.FC = () => {
             >
               Track an order
             </button>
+            <a
+              href={sellerCenterUrl()}
+              className="hidden md:inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#0E7A43] hover:bg-[#0B5E34] text-white text-xs font-bold transition-colors"
+            >
+              Become a seller
+            </a>
             <PWAInstallButton variant="header" />
           </div>
           </div>
@@ -1514,6 +1521,17 @@ export const StorefrontView: React.FC = () => {
               </button>
             </div>
             <div className="p-4 space-y-2">
+              {/* Open your own shop: first in the menu */}
+              <a
+                href={sellerCenterUrl()}
+                className="flex items-center justify-between gap-2 py-2.5 px-3 rounded-lg bg-gradient-to-r from-[#0B3D2A] to-[#0E7A43] text-white text-sm font-bold"
+              >
+                <span>
+                  Become a seller
+                  <span className="block text-[11px] font-medium text-white/80">Open your shop — free account</span>
+                </span>
+                <span className="px-2 py-1 rounded-full bg-[#C5A059] text-[#0B0F17] text-[11px]">Start →</span>
+              </a>
               <button
                 type="button"
                 onClick={() => {
@@ -1675,12 +1693,6 @@ export const StorefrontView: React.FC = () => {
                 <span className="text-[10px] uppercase tracking-wider font-bold text-neutral-400 px-3 block">
                   Customer Care &amp; Policies
                 </span>
-                <a
-                  href="/seller"
-                  className="block w-full text-left py-1.5 px-3 text-xs font-semibold text-[#86672A] hover:text-black rounded"
-                >
-                  Sell on {settings.storeName || 'My Store'} → Seller Center
-                </a>
                 <button
                   type="button"
                   onClick={() => {
@@ -1807,6 +1819,8 @@ export const StorefrontView: React.FC = () => {
                   ))}
               </div>
             </div>
+            {/* Every customer is invited to open their own shop */}
+            <BecomeSellerBanner settings={settings} />
             <TrendingTicker products={products} onOpen={handleSelectProduct} renderImage={(src, alt, className) => <ProductImage src={src} alt={alt} className={className} />} />
             <DailyDeals
               products={products}
@@ -5067,7 +5081,7 @@ export const StorefrontView: React.FC = () => {
             </div>
             <ul className="space-y-2 text-white/70">
               <li>
-                <a href="/seller" className="font-semibold text-[#E5C98A] hover:text-white transition-colors">
+                <a href={sellerCenterUrl()} className="font-semibold text-[#E5C98A] hover:text-white transition-colors">
                   Sell on {settings.storeName || 'My Store'} → Seller Center
                 </a>
               </li>
