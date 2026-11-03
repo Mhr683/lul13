@@ -499,6 +499,8 @@ export interface StoreSettings {
   heroSubtitle?: string;
   heroImageUrl?: string;
   heroHighlights?: string;
+  /** The uploaded logo already contains the store name (the text next to it is then left out) */
+  logoHasName?: boolean;
   /** "Become a seller" ad on the home page (src/components/BecomeSellerBanner.tsx); empty = default text */
   sellerBannerHidden?: boolean;
   sellerBannerTitle?: string;

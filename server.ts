@@ -1220,15 +1220,17 @@ async function downloadAndStoreImage(url: string): Promise<{ success: boolean; l
 app.use('/api/media', requireAdmin);
 
 // 0. API Endpoint: Download and store a single external image in Firebase Storage
-app.post('/api/media/download-and-store', async (req, res) => {
+// Admin-only: otherwise anyone could make the server fetch arbitrary URLs
+app.post('/api/media/download-and-store', requireAdmin, async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'url is required' });
   const result = await downloadAndStoreImage(url);
   res.json(result);
 });
 
-// 0. API Endpoint: Upload image directly to Firebase Storage
-app.post('/api/media/upload', async (req, res) => {
+// 0. API Endpoint: an admin uploads a picture (e.g. the store logo). Saved like sellers' pictures:
+// Firebase Storage when it exists, otherwise on this server's disk (/media/...)
+app.post('/api/media/upload', requireAdmin, async (req, res) => {
   try {
     const { dataUrl, filename } = req.body;
     if (!dataUrl) {
@@ -1247,10 +1249,8 @@ app.post('/api/media/upload', async (req, res) => {
       return res.status(400).json({ error: 'Only JPG, PNG, WebP, GIF or AVIF pictures can be uploaded.' });
     }
     const buffer = Buffer.from(match[2], 'base64');
-    const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 16);
-    const baseName = filename ? path.basename(String(filename)).replace(/\.[^.]*$/, '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60) : '';
-    const resolvedFileName = baseName ? `${hash}_${baseName}.${ext}` : `${hash}.${ext}`;
-    const publicUrl = await uploadBufferToFirebaseStorage(buffer, resolvedFileName, `image/${ext === 'jpg' ? 'jpeg' : ext}`);
+    if (buffer.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'The picture can be at most 5 MB.' });
+    const publicUrl = await storeMedia(buffer, ext, `image/${ext === 'jpg' ? 'jpeg' : ext}`);
     return res.json({ success: true, publicUrl, url: publicUrl, localUrl: publicUrl });
   } catch (err: any) {
     console.error('Media upload error:', err);

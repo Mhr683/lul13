@@ -2391,3 +2391,8 @@ export function useStore() {
   if (!ctx) throw new Error('useStore must be used inside StoreProvider');
   return ctx;
 }
+
+/** The store settings, or null outside StoreProvider (for small shared parts such as the logo) */
+export function useOptionalSettings(): StoreSettings | null {
+  return useContext(StoreContext)?.settings ?? null;
+}

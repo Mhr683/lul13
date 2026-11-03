@@ -60,6 +60,7 @@ import { AdminSellerInbox } from './AdminSellerInbox';
 import { BrandLogo } from './BrandLogo';
 import { AdminOrdersOverview } from './AdminOrdersOverview';
 import { StoreTextsPanel } from './StoreTextsPanel';
+import { StoreLogoUploader } from './StoreLogoUploader';
 import { BackupRestorePanel } from './BackupRestorePanel';
 import { AdminSellersPanel } from './AdminSellersPanel';
 import { AdminReturnsPanel } from './AdminReturnsPanel';
@@ -4104,15 +4105,8 @@ export const AdminDashboardView: React.FC<{
                       className="w-full px-3.5 py-2.5 bg-white border-2 border-black/30 text-[#141413] font-semibold focus:border-black focus:outline-none"
                     />
                   </div>
-                  <div>
-                    <label className="block text-[#141413] font-bold text-xs mb-1.5">Store Logo URL</label>
-                    <input
-                      type="text"
-                      value={settings.logoUrl || ''}
-                      onChange={(e) => updateStoreSettings({ logoUrl: e.target.value })}
-                      placeholder="https://.../logo.png"
-                      className="w-full px-3.5 py-2.5 bg-white border-2 border-black/30 text-[#141413] font-mono focus:border-black focus:outline-none"
-                    />
+                  <div className="md:col-span-2">
+                    <StoreLogoUploader />
                   </div>
                   <div>
                     <label className="block text-[#141413] font-bold text-xs mb-1.5">Store Base Currency</label>
