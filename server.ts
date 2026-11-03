@@ -52,6 +52,7 @@ import { createAnalytics } from './server/analytics';
 import { createAds } from './server/ads';
 import { effectivePrice, isFlashActive, welcomeOf, referralOf, DEFAULT_NEW_SELLER_FREE_DAYS } from './src/services/promotions';
 import { findVariant, hasVariants, variantPrice } from './src/services/productVariants';
+import { withModelFallback } from './server/aiFallback';
 import {
   PAYMENT_SECRET_FIELDS,
   PAYMENT_SECRETS_COLLECTION,
@@ -717,14 +718,20 @@ function getGenAIClient() {
   if (!String(process.env.GEMINI_API_KEY || '').trim()) {
     throw new Error('The AI is not set up on this server: add GEMINI_API_KEY to the .env file (free key from aistudio.google.com/apikey) and restart the server.');
   }
-  return new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
+  // A busy model (503 high demand) is retried on the next one (server/aiFallback.ts)
+  return withModelFallback(
+    new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+        // One try per model: a busy model moves on to the next one at once instead of waiting
+        // through the library's own retries
+        retryOptions: { attempts: 1 },
       },
-    },
-  });
+    })
+  );
 }
 
 // Comprehensive Controlled Tool Declarations for AI Store Operator
