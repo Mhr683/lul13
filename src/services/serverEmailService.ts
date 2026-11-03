@@ -131,12 +131,15 @@ async function sendViaResend(
 
   try {
     const resend = new Resend(apiKey);
+    // Emails come from no-reply@<domain>; a customer's reply goes to the store's own inbox
+    const replyTo = process.env.EMAIL_REPLY_TO?.trim();
     const result = await resend.emails.send({
       from: sender,
       to: [to],
       subject,
       html,
       text,
+      ...(replyTo && replyTo.includes('@') ? { replyTo } : {}),
     });
 
     if (result.error) {
@@ -796,7 +799,7 @@ export async function sendOrderPlacedOwnerEmail(
     process.env.ADMIN_EMAIL?.trim() ||
     settings.supportEmail?.trim() ||
     settings.contactEmail?.trim() ||
-    'aatech683@gmail.com';
+    'anokhashoppinghub@gmail.com';
 
   const orderNumber = order.orderNumber;
   const subject = `🔔 [New Order #${orderNumber}] ${currency} ${Number(order.total).toLocaleString()} - ${order.customerName || 'Customer'}`;
