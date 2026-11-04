@@ -124,7 +124,17 @@ async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data?.error || 'Something went wrong. Please try again.'), { code: data?.code });
+  if (!res.ok) {
+    // No answer from the store itself (e.g. the connection dropped): say so instead of a vague error
+    const message =
+      data?.error ||
+      (res.status >= 500 || res.status === 0
+        ? 'Could not reach the store right now (connection problem). Wait a minute and try again.'
+        : res.status === 413
+        ? 'The file is too large.'
+        : 'Something went wrong. Please try again.');
+    throw Object.assign(new Error(message), { code: data?.code });
+  }
   return data as T;
 }
 
