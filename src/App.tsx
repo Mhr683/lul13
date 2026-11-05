@@ -15,6 +15,7 @@ const SellerCenterView = lazy(() =>
   import('./components/SellerCenterView').then((m) => ({ default: m.SellerCenterView }))
 );
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { ExitGuard } from './components/ExitGuard';
 import { AuthPanel } from './components/AuthPanel';
 import { storeOrigin } from './components/ShareProductButton';
 import { LoginStepUp } from './components/LoginStepUp';
@@ -189,6 +190,10 @@ const MainRouter: React.FC = () => {
       )}
 
       <OfflineIndicator />
+      {/* The store asks before leaving inside StorefrontView; Seller Center and admin ask here */}
+      {mode !== 'STOREFRONT' && (
+        <ExitGuard key={mode} appName={mode === 'SELLER' ? 'Seller Center' : 'the admin panel'} />
+      )}
     </div>
   );
 };
