@@ -1,10 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { formatPKR } from '../services/abstractions';
 import { OrderTimeline } from './OrderTimeline';
 import type { Order } from '../types/store';
 import { isDirectSource, normalizeSource } from '../services/productSource';
+import { CourierBookBox } from './CourierBookBox';
+import { courierApi } from '../services/courierClient';
+import { COURIER_CATALOG } from '../services/courierCatalog';
 
 // Admin: every order of every seller, read-only. Sellers confirm, pack and ship their own orders in
 // Seller Center; the store only steps in to stop an order (cancel before shipping), or to record a
@@ -34,6 +37,18 @@ export const AdminOrdersOverview: React.FC = () => {
   const [shown, setShown] = useState(PAGE);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Connected courier accounts ("Book & ship" on orders that are not shipped yet)
+  const [couriers, setCouriers] = useState<{ list: Array<{ id: string; label: string }>; def: string | null }>({ list: [], def: null });
+  useEffect(() => {
+    courierApi<any>('/api/couriers/settings')
+      .then((s) =>
+        setCouriers({
+          list: (s.couriers || []).filter((c: any) => c.enabled).map((c: any) => ({ id: c.id, label: COURIER_CATALOG.find((x) => x.id === c.id)?.label || c.id })),
+          def: s.defaultCourier || null,
+        })
+      )
+      .catch(() => {});
+  }, []);
 
   const sellers = useMemo(
     () => Array.from(new Set(orders.map((o) => o.sellerName || 'Store'))).sort((a, b) => a.localeCompare(b)),
@@ -212,6 +227,17 @@ export const AdminOrdersOverview: React.FC = () => {
                         )}
                       </div>
                     </div>
+                    {!CLOSED.includes(o.status) && (o.courierBooking?.trackingNumber || (!shipped && o.status !== 'PENDING_CONFIRMATION')) && (
+                      <CourierBookBox
+                        orderId={o.id}
+                        couriers={couriers.list}
+                        defaultCourier={couriers.def}
+                        apiBase="/api/couriers"
+                        defaultWeightKg={o.shippingCalculationSnapshot?.billableWeightKg}
+                        booking={o.courierBooking}
+                        onBooked={(p) => updateOrderState(o.id, 'SHIPPED', p.trackingNumber, p.courierName)}
+                      />
+                    )}
                     <OrderTimeline order={o} compact />
                     <div className="flex flex-wrap gap-2 pt-2 border-t border-black/10">
                       {!shipped && !CLOSED.includes(o.status) && (

@@ -59,6 +59,7 @@ import { AdminCatalogPanel } from './AdminCatalogPanel';
 import { AdminSellerInbox } from './AdminSellerInbox';
 import { BrandLogo } from './BrandLogo';
 import { AdminOrdersOverview } from './AdminOrdersOverview';
+import { AdminCouriersPanel } from './AdminCouriersPanel';
 import { StoreTextsPanel } from './StoreTextsPanel';
 import { StoreLogoUploader } from './StoreLogoUploader';
 import { BackupRestorePanel } from './BackupRestorePanel';
@@ -3076,7 +3077,12 @@ export const AdminDashboardView: React.FC<{
 
           {/* Products and orders of every seller: review and stop only (sellers work in Seller Center) */}
           {activeTab === 'CATALOG' && <AdminCatalogPanel />}
-          {activeTab === 'ORDERS' && <AdminOrdersOverview />}
+          {activeTab === 'ORDERS' && (
+            <div className="space-y-4">
+              <AdminCouriersPanel />
+              <AdminOrdersOverview />
+            </div>
+          )}
 
           {/* ======================== TAB 7: COUPONS & DISCOUNTS ======================== */}
           {activeTab === 'COUPONS' && (

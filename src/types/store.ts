@@ -370,6 +370,18 @@ export interface Order {
   trackingNumber?: string;
   courierName?: string;
   shipments?: OrderShipment[];
+  /** Parcel booked through a connected courier account (server/couriers.ts) */
+  courierBooking?: {
+    courier: string;
+    courierId: string;
+    trackingNumber: string;
+    labelUrl?: string;
+    bookedAt: string;
+    bookedBy: string;
+    active: boolean;
+    lastStatus?: string;
+    lastCheckedAt?: string;
+  };
   quoteAmount?: number;
   quoteCourier?: string;
   quoteEstimatedDays?: string;

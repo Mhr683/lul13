@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTabHistory } from '../hooks/useTabHistory';
+import { CourierBookBox } from './CourierBookBox';
+import { courierApi } from '../services/courierClient';
 import {
   Store,
   Package,
@@ -1519,6 +1521,25 @@ const OrdersTab: React.FC = () => {
   );
 };
 
+// The store's connected courier accounts (asked once per visit; [] when none or not open for sellers)
+let sellerCouriersPromise: Promise<{ couriers: Array<{ id: string; label: string }>; defaultCourier: string | null }> | null = null;
+function useSellerCouriers() {
+  const [v, setV] = useState<{ couriers: Array<{ id: string; label: string }>; defaultCourier: string | null }>({ couriers: [], defaultCourier: null });
+  useEffect(() => {
+    if (!sellerCouriersPromise) {
+      sellerCouriersPromise = courierApi('/api/seller/couriers').catch(() => {
+        sellerCouriersPromise = null;
+        return { couriers: [], defaultCourier: null };
+      });
+    }
+    let live = true;
+    sellerCouriersPromise.then((r) => live && setV(r));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return v;
+}
 const SellerOrderCard: React.FC<{
   order: SellerOrder;
   busy: boolean;
@@ -1528,6 +1549,7 @@ const SellerOrderCard: React.FC<{
   const [courier, setCourier] = useState(o.courierName || 'TCS');
   const [tracking, setTracking] = useState(o.trackingNumber || '');
   const [declineReply, setDeclineReply] = useState('');
+  const apiCouriers = useSellerCouriers();
   const closed = ['CANCELLED', 'RETURNED', 'REFUNDED', 'DELIVERED'].includes(o.status);
   const shipped = ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status);
   const btn = 'px-2.5 py-1.5 text-[11px] font-semibold border cursor-pointer disabled:opacity-50';
@@ -1714,7 +1736,19 @@ const SellerOrderCard: React.FC<{
               📦 Packed
             </button>
           )}
-          {!shipped && (
+          {!closed && (o.courierBooking?.trackingNumber || (!shipped && o.status !== 'PENDING_CONFIRMATION' && apiCouriers.couriers.length > 0)) && (
+            <div className="w-full">
+              <CourierBookBox
+                orderId={o.id}
+                couriers={apiCouriers.couriers}
+                defaultCourier={apiCouriers.defaultCourier}
+                apiBase="/api/seller/couriers"
+                defaultWeightKg={o.shippingCalculationSnapshot?.billableWeightKg}
+                booking={o.courierBooking}
+                onBooked={(p) => act(o, { status: 'SHIPPED', courierName: p.courierName, trackingNumber: p.trackingNumber })}
+              />
+            </div>
+          )}          {!shipped && (
             <span className="flex flex-wrap items-center gap-1">
               <select value={courier} onChange={(e) => setCourier(e.target.value)} className="px-2 py-1.5 border border-black/20 bg-white">
                 {COURIERS.map((c) => (

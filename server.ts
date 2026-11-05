@@ -35,6 +35,7 @@ import { ROLE_LABELS, adminAreaOfPath, roleCanUseTab } from './src/services/admi
 import { CANCEL_POLICY, CANCEL_REASONS, cancelOptionFor, codPausedUntil, recentStrikes, type CancelOption, type CancelRequest } from './src/services/cancelPolicy';
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
+import { registerCourierRoutes } from './server/couriers';
 import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/stepUp';
 import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
@@ -4180,6 +4181,15 @@ registerSellerAiRoutes(app, {
   setCoachViewedHook: marketplace.setCoachViewedHook,
 });
 
+// Courier accounts (PostEx, Leopards, Trax): booking, labels and automatic delivery tracking
+registerCourierRoutes(app, {
+  adminDb,
+  requireAdmin,
+  requireSeller: marketplace.requireSeller,
+  applyOrderStatusWithStock: (ref, updates) => applyOrderStatusWithStock(ref, updates as any),
+  appendTrackingEvent,
+  forgetOrders: marketplace.forgetOrders,
+});
 // Customer Protection Policy (returns within 7 days) and the Supplier Code of Conduct rules
 registerPolicyRoutes(app, {
   adminDb,
