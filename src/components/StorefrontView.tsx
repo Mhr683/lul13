@@ -239,12 +239,33 @@ export const StorefrontView: React.FC = () => {
   // Prices are shown in the shopper's currency (formatMoney); re-render when it or the rates change
   useCurrency();
   const [subView, setSubView] = useState<StoreSubView>('HOME');
+  const subViewRef = useRef<StoreSubView>('HOME');
+  subViewRef.current = subView;
+
+  // "Leave the store?" question shown when the back button would close the site
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
+  const exitAskedRef = useRef(false);
+  exitAskedRef.current = exitConfirmOpen;
+  const leavingRef = useRef(false);
+  const leaveStore = () => {
+    leavingRef.current = true;
+    setExitConfirmOpen(false);
+    // Past the "leave" marker to the page before the store; an installed app closes
+    window.history.go(-2);
+    setTimeout(() => {
+      // Nothing before the store in this tab: the window is closed where the browser allows it
+      window.close();
+      leavingRef.current = false;
+    }, 600);
+  };
+  const leaveStoreRef = useRef(leaveStore);
+  leaveStoreRef.current = leaveStore;
   // The seller whose shop page is open (#shop/<sellerId>)
   const [shopSellerId, setShopSellerId] = useState<string | null>(null);
   const openShop = (sellerId: string) => {
     setShopSellerId(sellerId);
     setSubView('SHOP');
-    window.history.pushState(null, '', `#shop/${encodeURIComponent(sellerId)}`);
+    window.history.pushState({ inSite: true, y: 0 }, '', `#shop/${encodeURIComponent(sellerId)}`);
     window.scrollTo({ top: 0 });
   };
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -278,7 +299,7 @@ export const StorefrontView: React.FC = () => {
     setOpenCampaign(c);
     campaignSlugRef.current = c.slug.toLowerCase();
     setSubView('CAMPAIGN');
-    window.history.pushState(null, '', `#campaign/${encodeURIComponent(c.slug)}`);
+    window.history.pushState({ inSite: true, y: 0 }, '', `#campaign/${encodeURIComponent(c.slug)}`);
     window.scrollTo({ top: 0 });
   };
 
@@ -288,8 +309,32 @@ export const StorefrontView: React.FC = () => {
   // URL routing. Every screen has its own address, so the browser's and the phone's back button
   // return to the previous screen (product -> list -> home) instead of leaving the site.
   useEffect(() => {
+    // The first history entry of the visit is a "leave the store" marker with the real entry on top,
+    // so the back button on the home page asks before leaving instead of closing the site at once
+    if (!window.history.state?.inSite && !window.history.state?.exitMarker) {
+      window.history.replaceState({ exitMarker: true }, '', window.location.href);
+      window.history.pushState({ inSite: true, y: 0 }, '', window.location.href);
+    }
+
     const handleUrlRoute = (e?: Event) => {
       if (typeof window === 'undefined') return;
+      if (window.history.state?.exitMarker) {
+        if (e?.type !== 'popstate' || leavingRef.current) return;
+        // Back pressed on the first screen: the entry is put back and the customer is asked.
+        // A visitor who came in on a product link is taken to the home page first.
+        const onHome = subViewRef.current === 'HOME';
+        const y = window.scrollY;
+        window.history.pushState({ inSite: true, y: onHome ? y : 0 }, '', '/');
+        if (onHome) {
+          // Pressing back again while the question is open leaves
+          if (exitAskedRef.current) leaveStoreRef.current();
+          else setExitConfirmOpen(true);
+        } else {
+          setSubView('HOME');
+          setTimeout(() => window.scrollTo(0, 0), 80);
+        }
+        return;
+      }
       const route = parseStoreRoute();
       if (route.view === 'PRODUCT_DETAIL') {
         // Opened once the catalog is loaded (also for links such as a back-in-stock email)
@@ -533,7 +578,7 @@ export const StorefrontView: React.FC = () => {
     setTrackingOrderInput(orderNumber);
     setTrackingTokenInput(tokenForOrder(orderNumber) || '');
     setSubView('ORDER_TRACKING');
-    window.history.pushState(null, '', '#track');
+    window.history.pushState({ inSite: true, y: 0 }, '', '#track');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const [trackingTokenInput, setTrackingTokenInput] = useState('');
@@ -1106,7 +1151,7 @@ export const StorefrontView: React.FC = () => {
       if (products.length > 0) {
         pendingProductIdRef.current = '';
         setSubView('HOME');
-        window.history.replaceState(null, '', '/');
+        window.history.replaceState({ inSite: true, y: 0 }, '', '/');
       }
       return;
     }
@@ -1533,12 +1578,12 @@ export const StorefrontView: React.FC = () => {
               }}
               onOpenTrackOrder={() => {
                 setSubView('ORDER_TRACKING');
-                window.history.pushState(null, '', '#track');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#track');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onOpenContact={() => {
                 setSubView('CONTACT_US');
-                window.history.pushState(null, '', '#contact');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#contact');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onOpenAbout={() => setAboutModalOpen(true)}
@@ -1550,7 +1595,7 @@ export const StorefrontView: React.FC = () => {
               type="button"
               onClick={() => {
                 setSubView('ORDER_TRACKING');
-                window.history.pushState(null, '', '#track');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#track');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="inline-flex items-center px-3.5 py-1.5 border border-neutral-300 rounded-full text-xs font-medium text-neutral-800 hover:border-black hover:text-black transition-colors whitespace-nowrap cursor-pointer"
@@ -1742,7 +1787,7 @@ export const StorefrontView: React.FC = () => {
                 onClick={() => {
                   setMobileMenuOpen(false);
                   setSubView('ORDER_TRACKING');
-                  window.history.pushState(null, '', '#track');
+                  window.history.pushState({ inSite: true, y: 0 }, '', '#track');
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
@@ -1767,7 +1812,7 @@ export const StorefrontView: React.FC = () => {
                 onClick={() => {
                   setMobileMenuOpen(false);
                   setSubView('CONTACT_US');
-                  window.history.pushState(null, '', '#contact');
+                  window.history.pushState({ inSite: true, y: 0 }, '', '#contact');
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
@@ -1786,7 +1831,7 @@ export const StorefrontView: React.FC = () => {
                   onClick={() => {
                     setMobileMenuOpen(false);
                     setSubView('REFUND_POLICY');
-                    window.history.pushState(null, '', '#refund-policy');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#refund-policy');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="w-full text-left py-1.5 px-3 text-xs text-neutral-600 hover:text-black rounded"
@@ -1798,7 +1843,7 @@ export const StorefrontView: React.FC = () => {
                   onClick={() => {
                     setMobileMenuOpen(false);
                     setSubView('SHIPPING_POLICY');
-                    window.history.pushState(null, '', '#shipping-policy');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#shipping-policy');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="w-full text-left py-1.5 px-3 text-xs text-neutral-600 hover:text-black rounded"
@@ -1810,7 +1855,7 @@ export const StorefrontView: React.FC = () => {
                   onClick={() => {
                     setMobileMenuOpen(false);
                     setSubView('TERMS');
-                    window.history.pushState(null, '', '#terms');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#terms');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="w-full text-left py-1.5 px-3 text-xs text-neutral-600 hover:text-black rounded"
@@ -1822,7 +1867,7 @@ export const StorefrontView: React.FC = () => {
                   onClick={() => {
                     setMobileMenuOpen(false);
                     setSubView('PRIVACY_POLICY');
-                    window.history.pushState(null, '', '#privacy-policy');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#privacy-policy');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="w-full text-left py-1.5 px-3 text-xs text-neutral-600 hover:text-black rounded"
@@ -1830,6 +1875,41 @@ export const StorefrontView: React.FC = () => {
                   Privacy Policy
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Asked when the back button would leave the store */}
+      {exitConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setExitConfirmOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="bg-white max-w-sm w-full p-6 rounded-xl shadow-2xl text-center space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-lg font-semibold text-[#141413]">Leave {settings.storeName || 'the store'}?</p>
+            <p className="text-sm text-[#575653]">Kya aap waqai bahar jana chahte hain?</p>
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setExitConfirmOpen(false)}
+                className="flex-1 py-3 rounded-lg bg-[#1a7f4b] text-white text-sm font-semibold cursor-pointer"
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                onClick={leaveStore}
+                className="flex-1 py-3 rounded-lg border border-black/20 text-[#141413] text-sm font-semibold cursor-pointer"
+              >
+                Exit
+              </button>
             </div>
           </div>
         </div>
@@ -2528,7 +2608,7 @@ export const StorefrontView: React.FC = () => {
               onBack={() => {
                 setOpenCampaign(null);
                 setSubView('HOME');
-                window.history.pushState(null, '', '/');
+                window.history.pushState({ inSite: true, y: 0 }, '', '/');
               }}
               Image={({ src, alt }) => <ProductImage src={src} alt={alt} className="w-full h-full object-cover" />}
             />
@@ -2547,7 +2627,7 @@ export const StorefrontView: React.FC = () => {
             onBack={() => {
               if (selectedProduct) setSubView('PRODUCT_DETAIL');
               else setSubView('HOME');
-              window.history.pushState(null, '', '/');
+              window.history.pushState({ inSite: true, y: 0 }, '', '/');
             }}
             showToast={showToast}
           />
@@ -2801,7 +2881,7 @@ export const StorefrontView: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setSubView('REFUND_POLICY');
-                          window.history.pushState(null, '', '#refund-policy');
+                          window.history.pushState({ inSite: true, y: 0 }, '', '#refund-policy');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
                         className="underline hover:text-[#141413] cursor-pointer text-left"
@@ -5132,10 +5212,10 @@ export const StorefrontView: React.FC = () => {
           onNavigate={(dest) => {
             if (dest === 'HOME' || dest === 'CATALOG') {
               setSubView(dest);
-              window.history.pushState(null, '', dest === 'HOME' ? '/' : '#catalog');
+              window.history.pushState({ inSite: true, y: 0 }, '', dest === 'HOME' ? '/' : '#catalog');
             } else {
               setSubView(dest);
-              window.history.pushState(null, '', `#${dest.toLowerCase().replace('_', '-')}`);
+              window.history.pushState({ inSite: true, y: 0 }, '', `#${dest.toLowerCase().replace('_', '-')}`);
             }
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
@@ -5182,7 +5262,7 @@ export const StorefrontView: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setSubView('REFUND_POLICY');
-                    window.history.pushState(null, '', '#refund-policy');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#refund-policy');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="hover:text-white cursor-pointer transition-colors text-left"
@@ -5195,7 +5275,7 @@ export const StorefrontView: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setSubView('TERMS');
-                    window.history.pushState(null, '', '#terms');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#terms');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="hover:text-white cursor-pointer transition-colors text-left"
@@ -5208,7 +5288,7 @@ export const StorefrontView: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setSubView('PRIVACY_POLICY');
-                    window.history.pushState(null, '', '#privacy-policy');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#privacy-policy');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="hover:text-white cursor-pointer transition-colors text-left"
@@ -5221,7 +5301,7 @@ export const StorefrontView: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setSubView('SHIPPING_POLICY');
-                    window.history.pushState(null, '', '#shipping-policy');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#shipping-policy');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="hover:text-white cursor-pointer transition-colors text-left"
@@ -5234,7 +5314,7 @@ export const StorefrontView: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setSubView('ORDER_TRACKING');
-                    window.history.pushState(null, '', '#track');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#track');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="text-amber-400 hover:text-amber-300 font-semibold cursor-pointer transition-colors text-left flex items-center gap-1.5"
@@ -5248,7 +5328,7 @@ export const StorefrontView: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setSubView('CONTACT_US');
-                    window.history.pushState(null, '', '#contact');
+                    window.history.pushState({ inSite: true, y: 0 }, '', '#contact');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   className="hover:text-white cursor-pointer transition-colors text-left"
@@ -5335,7 +5415,7 @@ export const StorefrontView: React.FC = () => {
             <button
               onClick={() => {
                 setSubView('REFUND_POLICY');
-                window.history.pushState(null, '', '#refund-policy');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#refund-policy');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-white cursor-pointer"
@@ -5346,7 +5426,7 @@ export const StorefrontView: React.FC = () => {
             <button
               onClick={() => {
                 setSubView('TERMS');
-                window.history.pushState(null, '', '#terms');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#terms');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-white cursor-pointer"
@@ -5357,7 +5437,7 @@ export const StorefrontView: React.FC = () => {
             <button
               onClick={() => {
                 setSubView('PRIVACY_POLICY');
-                window.history.pushState(null, '', '#privacy-policy');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#privacy-policy');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-white cursor-pointer"
@@ -5368,7 +5448,7 @@ export const StorefrontView: React.FC = () => {
             <button
               onClick={() => {
                 setSubView('SHIPPING_POLICY');
-                window.history.pushState(null, '', '#shipping-policy');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#shipping-policy');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-white cursor-pointer"
@@ -5379,7 +5459,7 @@ export const StorefrontView: React.FC = () => {
             <button
               onClick={() => {
                 setSubView('CONTACT_US');
-                window.history.pushState(null, '', '#contact');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#contact');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-white cursor-pointer"
@@ -5390,7 +5470,7 @@ export const StorefrontView: React.FC = () => {
             <button
               onClick={() => {
                 setSubView('ORDER_TRACKING');
-                window.history.pushState(null, '', '#track');
+                window.history.pushState({ inSite: true, y: 0 }, '', '#track');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-amber-300 font-medium cursor-pointer"
