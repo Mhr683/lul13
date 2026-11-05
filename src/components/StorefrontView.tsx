@@ -144,6 +144,54 @@ type StoreSubView =
   | 'SHOP'
   | 'CAMPAIGN';
 
+// Reads the screen from the address bar (#product/<id>, #catalog, #track, /refund-policy, ...)
+function parseStoreRoute(): { view: StoreSubView; arg: string } {
+  const rawHash = window.location.hash;
+  const path = window.location.pathname.toLowerCase();
+  const hash = rawHash.toLowerCase().split('?')[0];
+  // Product, seller and campaign ids are case-sensitive, so they are read from the original hash
+  const withArg = /^#(product|shop|campaign)\/(.+)$/i.exec(rawHash);
+  if (withArg) {
+    const kind = withArg[1].toLowerCase();
+    const arg = decodeURIComponent(withArg[2]);
+    if (kind === 'product') return { view: 'PRODUCT_DETAIL', arg };
+    if (kind === 'shop') return { view: 'SHOP', arg };
+    return { view: 'CAMPAIGN', arg };
+  }
+  const is = (...names: string[]) => names.some((n) => path === `/${n}` || hash === `#${n}`);
+  if (is('catalog')) return { view: 'CATALOG', arg: '' };
+  if (is('checkout')) return { view: 'CHECKOUT', arg: '' };
+  if (is('account')) return { view: 'ACCOUNT', arg: '' };
+  if (is('wishlist')) return { view: 'WISHLIST', arg: '' };
+  if (is('refund-policy')) return { view: 'REFUND_POLICY', arg: '' };
+  if (is('terms', 'terms-and-conditions')) return { view: 'TERMS', arg: '' };
+  if (is('privacy-policy')) return { view: 'PRIVACY_POLICY', arg: '' };
+  if (is('shipping-policy')) return { view: 'SHIPPING_POLICY', arg: '' };
+  if (is('contact', 'contact-us')) return { view: 'CONTACT_US', arg: '' };
+  if (is('track', 'track-order', 'order-tracking')) return { view: 'ORDER_TRACKING', arg: '' };
+  return { view: 'HOME', arg: '' };
+}
+
+// The address of a screen (the opposite of parseStoreRoute)
+function storeRouteUrl(view: StoreSubView, arg: string): string {
+  const fixed: Partial<Record<StoreSubView, string>> = {
+    CATALOG: '#catalog',
+    CHECKOUT: '#checkout',
+    ACCOUNT: '#account',
+    WISHLIST: '#wishlist',
+    REFUND_POLICY: '#refund-policy',
+    TERMS: '#terms',
+    PRIVACY_POLICY: '#privacy-policy',
+    SHIPPING_POLICY: '#shipping-policy',
+    CONTACT_US: '#contact',
+    ORDER_TRACKING: '#track',
+  };
+  if (view === 'PRODUCT_DETAIL') return `/#product/${encodeURIComponent(arg)}`;
+  if (view === 'SHOP') return `/#shop/${encodeURIComponent(arg)}`;
+  if (view === 'CAMPAIGN') return `/#campaign/${encodeURIComponent(arg)}`;
+  return fixed[view] ? `/${fixed[view]}` : '/';
+}
+
 
 // The customer store. The admin console (/admin) and Seller Center (/seller) are separate apps with
 // their own links, so nothing here leads to the admin console.
@@ -237,42 +285,35 @@ export const StorefrontView: React.FC = () => {
   const pendingProductIdRef = useRef('');
   const [pendingProductTick, setPendingProductTick] = useState(0);
 
-  // URL Routing for Policy and Tracking Pages
+  // URL routing. Every screen has its own address, so the browser's and the phone's back button
+  // return to the previous screen (product -> list -> home) instead of leaving the site.
   useEffect(() => {
-    const handleUrlRoute = () => {
+    const handleUrlRoute = (e?: Event) => {
       if (typeof window === 'undefined') return;
-      const path = window.location.pathname.toLowerCase();
-      const hash = window.location.hash.toLowerCase();
-
-      // Seller ids are case-sensitive, so they are read from the original hash
-      const shopMatch = /^#shop\/(.+)$/i.exec(window.location.hash);
-      const campaignMatch = /^#campaign\/(.+)$/i.exec(window.location.hash);
-      // A product link (#product/<id>, e.g. from a back-in-stock email): opened once the catalog is loaded
-      const productMatch = /^#product\/(.+)$/i.exec(window.location.hash);
-      if (productMatch) {
-        pendingProductIdRef.current = decodeURIComponent(productMatch[1]);
+      const route = parseStoreRoute();
+      if (route.view === 'PRODUCT_DETAIL') {
+        // Opened once the catalog is loaded (also for links such as a back-in-stock email)
+        pendingProductIdRef.current = route.arg;
         setPendingProductTick((n) => n + 1);
-      } else if (shopMatch) {
-        setShopSellerId(decodeURIComponent(shopMatch[1]));
-        setSubView('SHOP');
-      } else if (campaignMatch) {
-        campaignSlugRef.current = decodeURIComponent(campaignMatch[1]).toLowerCase();
-        setSubView('CAMPAIGN');
-      } else if (path === '/refund-policy' || hash === '#refund-policy') {
-        setSubView('REFUND_POLICY');
-      } else if (path === '/terms' || path === '/terms-and-conditions' || hash === '#terms' || hash === '#terms-and-conditions') {
-        setSubView('TERMS');
-      } else if (path === '/privacy-policy' || hash === '#privacy-policy') {
-        setSubView('PRIVACY_POLICY');
-      } else if (path === '/shipping-policy' || hash === '#shipping-policy') {
-        setSubView('SHIPPING_POLICY');
-      } else if (path === '/contact' || path === '/contact-us' || hash === '#contact' || hash === '#contact-us') {
-        setSubView('CONTACT_US');
-      } else if (path === '/track' || path === '/track-order' || hash === '#track' || hash === '#track-order') {
-        setSubView('ORDER_TRACKING');
-        const params = new URLSearchParams(window.location.search);
-        const ord = params.get('order');
-        if (ord) setTrackingOrderInput(ord);
+      } else {
+        if (route.view === 'SHOP') setShopSellerId(route.arg);
+        if (route.view === 'CAMPAIGN') {
+          campaignSlugRef.current = route.arg.toLowerCase();
+          setOpenCampaign(null);
+        }
+        if (route.view === 'ORDER_TRACKING') {
+          const ord = new URLSearchParams(window.location.search).get('order');
+          if (ord) setTrackingOrderInput(ord);
+        }
+        setSubView(route.view);
+      }
+      if (e?.type === 'popstate') {
+        // Going back closes open panels and returns to where the customer was on that screen
+        setCartDrawerOpen(false);
+        setMobileMenuOpen(false);
+        const y = Number((e as PopStateEvent).state?.y) || 0;
+        setTimeout(() => window.scrollTo(0, y), 80);
+        setTimeout(() => window.scrollTo(0, y), 450);
       }
     };
 
@@ -282,6 +323,26 @@ export const StorefrontView: React.FC = () => {
     return () => {
       window.removeEventListener('popstate', handleUrlRoute);
       window.removeEventListener('hashchange', handleUrlRoute);
+    };
+  }, []);
+
+  // The scroll position is kept in the current history entry, so going back lands at the same place
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const onScroll = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        try {
+          window.history.replaceState({ ...(window.history.state || {}), y: window.scrollY }, '');
+        } catch {
+          /* some browsers limit how often this may be called */
+        }
+      }, 300);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('scroll', onScroll);
     };
   }, []);
 
@@ -1040,10 +1101,37 @@ export const StorefrontView: React.FC = () => {
     const id = pendingProductIdRef.current;
     if (!id) return;
     const p = products.find((x) => x.id === id);
-    if (!p) return;
+    if (!p) {
+      // The catalog is loaded but the product is gone (removed or sold out): the home page is shown
+      if (products.length > 0) {
+        pendingProductIdRef.current = '';
+        setSubView('HOME');
+        window.history.replaceState(null, '', '/');
+      }
+      return;
+    }
     pendingProductIdRef.current = '';
     handleSelectProduct(p);
   }, [pendingProductTick, products]);
+
+  // Each new screen gets its own history entry (the address follows the screen). Screens opened by
+  // the back button already match the address, so nothing is added for them.
+  const routeArg =
+    subView === 'PRODUCT_DETAIL'
+      ? selectedProduct?.id || ''
+      : subView === 'SHOP'
+        ? shopSellerId || ''
+        : subView === 'CAMPAIGN'
+          ? openCampaign?.slug || campaignSlugRef.current
+          : '';
+  useEffect(() => {
+    // A product from the address bar is still being opened
+    if (pendingProductIdRef.current) return;
+    const now = parseStoreRoute();
+    if (now.view === subView && (now.arg === routeArg || now.arg.toLowerCase() === routeArg.toLowerCase())) return;
+    if (subView === 'PRODUCT_DETAIL' && !routeArg) return;
+    window.history.pushState({ y: 0, inSite: true }, '', storeRouteUrl(subView, routeArg));
+  }, [subView, routeArg]);
 
   // Brings a missing checkout field into view and focuses it, so the customer sees what is missing
   const focusCheckoutField = (id: string) => {
@@ -1891,7 +1979,7 @@ export const StorefrontView: React.FC = () => {
               </div>
 
               {/* Product grid: 3 per row on phones, 4 on tablets, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
-              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1.5 sm:gap-2 lg:gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-2 sm:gap-3 lg:gap-6">
                 {/* Full rows on every screen: 21 on phones (7 × 3), 20 on tablets and laptops (5 × 4 / 4 × 5),
                     24 on very wide screens (4 × 6); the extra cards are hidden with CSS, nothing is loaded twice */}
                 {filteredProducts.slice(0, 24).map((product, i) => (
@@ -2337,7 +2425,7 @@ export const StorefrontView: React.FC = () => {
                 ) : (
                   <>
                   {/* 3 per row on phones, 4 on tablets, 5 on laptops, 6 on wide screens (compact cards below laptop width) */}
-                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-1.5 sm:gap-2 lg:gap-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-6 gap-2 sm:gap-3 lg:gap-6">
                     {visibleCatalogProducts.map((product) => (
                       <article
                         key={product.id}
@@ -2470,7 +2558,11 @@ export const StorefrontView: React.FC = () => {
           <div className="max-w-[1360px] mx-auto px-6 py-12 space-y-20">
             <div>
               <button
-                onClick={() => setSubView('CATALOG')}
+                onClick={() => {
+                  // Back to the list the product was opened from, at the same scroll position
+                  if (window.history.state?.inSite) window.history.back();
+                  else setSubView('CATALOG');
+                }}
                 className="text-xs text-[#575653] hover:text-[#141413] mb-6 inline-flex items-center gap-2 cursor-pointer"
               >
                 <span>← Back to {selectedProduct.category}</span>
