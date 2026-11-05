@@ -70,6 +70,7 @@ import { AdminTrafficPanel } from './AdminTrafficPanel';
 import { AdminPaymentKeysPanel } from './AdminPaymentKeysPanel';
 import { AdminShippingZonesEditor } from './AdminShippingZonesEditor';
 import { ADMIN_TABS, ROLE_LABELS, tabsForRole, type AdminTab } from '../services/adminRoles';
+import { useTabHistory } from '../hooks/useTabHistory';
 import {
   Product,
   Order,
@@ -203,6 +204,8 @@ export const AdminDashboardView: React.FC<{
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<AdminTab>(validTab(initialTab));
+  // The phone's back button goes to the previous section
+  useTabHistory(activeTab, setActiveTab, (t) => ADMIN_TABS.includes(t as AdminTab));
   // Only the sections of this person's role (the server enforces the same list); everything while
   // the profile is still loading
   const myRole = String(userProfile?.role || '').toUpperCase();

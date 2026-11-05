@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTabHistory } from '../hooks/useTabHistory';
 import {
   Store,
   Package,
@@ -57,7 +58,8 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 // It opens instantly: the shop and product list from the last visit are shown at once (Firebase can
 // take many seconds to restore a sign-in) and refreshed in the background.
 
-type Tab = 'DASHBOARD' | 'AI' | 'PRODUCTS' | 'ORDERS' | 'RETURNS' | 'EARNINGS' | 'REVIEWS' | 'QUESTIONS' | 'MESSAGES' | 'PROFILE' | 'RULES';
+const SELLER_TABS = ['DASHBOARD', 'AI', 'PRODUCTS', 'ORDERS', 'RETURNS', 'EARNINGS', 'REVIEWS', 'QUESTIONS', 'MESSAGES', 'PROFILE', 'RULES'] as const;
+type Tab = (typeof SELLER_TABS)[number];
 
 type ThreadMessage = { id: string; from: 'SELLER' | 'ADMIN'; author: string; text: string; at: string };
 type SellerThread = {
@@ -232,6 +234,8 @@ export const SellerCenterView: React.FC = () => {
   const [sellerPrivate, setSellerPrivate] = useState<SellerPrivate | null>(null);
   const [loadingMe, setLoadingMe] = useState(!cachedMe);
   const [tab, setTab] = useState<Tab>('DASHBOARD');
+  // The phone's back button goes to the previous tab
+  useTabHistory(tab, setTab, (t) => SELLER_TABS.includes(t as Tab));
 
   const loadMe = useCallback(async () => {
     if (!uid) {
