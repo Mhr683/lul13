@@ -244,22 +244,25 @@ export const StorefrontView: React.FC = () => {
 
   // "Leave the store?" question shown when the back button would close the site
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
-  const exitAskedRef = useRef(false);
-  exitAskedRef.current = exitConfirmOpen;
   const leavingRef = useRef(false);
+  const stayInStore = () => {
+    setExitConfirmOpen(false);
+    // Puts the entry back on top of the marker (done on a tap, so Chrome keeps it)
+    if (window.history.state?.exitMarker) {
+      window.history.pushState({ inSite: true, y: window.scrollY }, '', '/');
+    }
+  };
   const leaveStore = () => {
     leavingRef.current = true;
     setExitConfirmOpen(false);
-    // Past the "leave" marker to the page before the store; an installed app closes
-    window.history.go(-2);
+    // From the marker to the page before the store; an installed app closes
+    window.history.back();
     setTimeout(() => {
       // Nothing before the store in this tab: the window is closed where the browser allows it
       window.close();
       leavingRef.current = false;
     }, 600);
   };
-  const leaveStoreRef = useRef(leaveStore);
-  leaveStoreRef.current = leaveStore;
   // The seller whose shop page is open (#shop/<sellerId>)
   const [shopSellerId, setShopSellerId] = useState<string | null>(null);
   const openShop = (sellerId: string) => {
@@ -309,30 +312,30 @@ export const StorefrontView: React.FC = () => {
   // URL routing. Every screen has its own address, so the browser's and the phone's back button
   // return to the previous screen (product -> list -> home) instead of leaving the site.
   useEffect(() => {
-    // The first history entry of the visit is a "leave the store" marker with the real entry on top,
-    // so the back button on the home page asks before leaving instead of closing the site at once
-    if (!window.history.state?.inSite && !window.history.state?.exitMarker) {
-      window.history.replaceState({ exitMarker: true }, '', window.location.href);
-      window.history.pushState({ inSite: true, y: 0 }, '', window.location.href);
-    }
+    // The first history entry of the visit becomes a "leave the store" marker (the home page) with the
+    // real entry on top, so the back button asks before leaving. Chrome's back button skips entries a
+    // page adds before the visitor has touched it, so the marker is added on the first tap.
+    const armEvents = ['pointerup', 'touchend', 'keydown', 'click'] as const;
+    const armExitGuard = () => {
+      armEvents.forEach((n) => window.removeEventListener(n, armExitGuard, true));
+      const st = window.history.state;
+      if (st?.inSite || st?.exitMarker) return;
+      const href = window.location.href;
+      window.history.replaceState({ exitMarker: true }, '', '/');
+      window.history.pushState({ ...(st || {}), inSite: true }, '', href);
+    };
+    armEvents.forEach((n) => window.addEventListener(n, armExitGuard, true));
 
     const handleUrlRoute = (e?: Event) => {
       if (typeof window === 'undefined') return;
       if (window.history.state?.exitMarker) {
         if (e?.type !== 'popstate' || leavingRef.current) return;
-        // Back pressed on the first screen: the entry is put back and the customer is asked.
-        // A visitor who came in on a product link is taken to the home page first.
-        const onHome = subViewRef.current === 'HOME';
-        const y = window.scrollY;
-        window.history.pushState({ inSite: true, y: onHome ? y : 0 }, '', '/');
-        if (onHome) {
-          // Pressing back again while the question is open leaves
-          if (exitAskedRef.current) leaveStoreRef.current();
-          else setExitConfirmOpen(true);
-        } else {
-          setSubView('HOME');
-          setTimeout(() => window.scrollTo(0, 0), 80);
-        }
+        // Back pressed on the first screen: the home page is shown with the "Leave?" question.
+        // Pressing back again leaves; "Stay" puts the entry back.
+        setSubView('HOME');
+        setCartDrawerOpen(false);
+        setMobileMenuOpen(false);
+        setExitConfirmOpen(true);
         return;
       }
       const route = parseStoreRoute();
@@ -366,6 +369,7 @@ export const StorefrontView: React.FC = () => {
     window.addEventListener('popstate', handleUrlRoute);
     window.addEventListener('hashchange', handleUrlRoute);
     return () => {
+      armEvents.forEach((n) => window.removeEventListener(n, armExitGuard, true));
       window.removeEventListener('popstate', handleUrlRoute);
       window.removeEventListener('hashchange', handleUrlRoute);
     };
@@ -1884,7 +1888,7 @@ export const StorefrontView: React.FC = () => {
       {exitConfirmOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50"
-          onClick={() => setExitConfirmOpen(false)}
+          onClick={stayInStore}
         >
           <div
             role="dialog"
@@ -1898,7 +1902,7 @@ export const StorefrontView: React.FC = () => {
               <button
                 type="button"
                 autoFocus
-                onClick={() => setExitConfirmOpen(false)}
+                onClick={stayInStore}
                 className="flex-1 py-3 rounded-lg bg-[#1a7f4b] text-white text-sm font-semibold cursor-pointer"
               >
                 Stay
