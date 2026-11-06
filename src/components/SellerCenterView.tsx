@@ -53,6 +53,7 @@ import { BrandLogo } from './BrandLogo';
 import { ProductMediaEditor } from './ProductMediaEditor';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
+import { HelpDot } from './HelpDot';
 
 // Seller Center (/seller): marketplace sellers apply, then manage their own products, orders,
 // shipping/tracking and earnings. Everything goes through the /api/seller/* server routes.
@@ -512,7 +513,7 @@ export const SellerCenterView: React.FC = () => {
                 tab === t.id ? 'border-[#141413] text-[#141413]' : 'border-transparent text-[#575653] hover:text-[#141413]'
               }`}
             >
-              <Icon className="w-4 h-4" /> {t.label}
+              <Icon className="w-4 h-4" /> {t.label} <HelpDot id={`seller.tab.${t.id}`} />
               {!!t.badge && (
                 <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center">
                   {t.badge}
@@ -873,6 +874,7 @@ const FlashDealBox: React.FC<{ productId: string; price: number; current: { pric
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <input className={`${inputCls} w-32`} value={dealPrice} onChange={(e) => setDealPrice(e.target.value)} placeholder="Deal price" inputMode="numeric" />
+                    <HelpDot id="seller.deals" />
           <span>for</span>
           <select className={`${inputCls} w-32`} value={hours} onChange={(e) => setHours(e.target.value)}>
             {['6', '12', '24', '48', '72', '168'].map((h) => (
@@ -1374,7 +1376,7 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-[#0E7A43]" />
-            <strong className="text-sm">Shop Coach</strong>
+            <strong className="text-sm">Shop Coach</strong> <HelpDot id="seller.tab.DASHBOARD" />
             <span className="text-[11px] text-[#575653]">your shop's performance and what to improve</span>
           </div>
           <div className="flex gap-2">
@@ -1423,7 +1425,7 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
         )}
       </div>
       <div className="p-4 bg-white border border-black/10 text-xs text-[#454441] space-y-1">
-        <strong className="block text-[#141413]">When an order comes in</strong>
+        <strong className="block text-[#141413]">When an order comes in <HelpDot id="seller.order.flow" /></strong>
         <p>1. Call / WhatsApp the customer to confirm, then press <strong>Confirm</strong>.</p>
         <p>2. Pack the item, then press <strong>Packed</strong>.</p>
         <p>3. Hand the parcel to the courier, enter the courier and tracking number, then press <strong>Ship</strong>.</p>
@@ -1670,7 +1672,7 @@ const SellerOrderCard: React.FC<{
           })}
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={copySupplierText} className={`${btn} bg-white border-violet-500 text-violet-950`}>
-              Copy order for supplier
+              Copy order for supplier <HelpDot id="seller.order.supplier" />
             </button>
             {o.status === 'CONFIRMED' && (
               <button type="button" disabled={busy} onClick={() => act(o, { status: 'PROCESSING' })} className={`${btn} bg-violet-700 text-white border-violet-700`}>
@@ -1693,7 +1695,7 @@ const SellerOrderCard: React.FC<{
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" disabled={busy} onClick={() => act(o, { status: 'CANCELLED' })} className={`${btn} bg-rose-700 text-white border-rose-700`}>
-              Accept and cancel order
+              Accept and cancel order <HelpDot id="seller.order.cancelRequest" />
             </button>
             <input
               value={declineReply}
@@ -1767,7 +1769,7 @@ const SellerOrderCard: React.FC<{
                 onClick={() => act(o, { status: 'SHIPPED', courierName: courier, trackingNumber: tracking.trim() })}
                 className={`${btn} bg-sky-700 text-white border-sky-700`}
               >
-                <Truck className="w-3.5 h-3.5 inline mr-1" /> Ship
+                <Truck className="w-3.5 h-3.5 inline mr-1" /> Ship <HelpDot id="seller.order.ship" />
               </button>
             </span>
           )}
@@ -2133,7 +2135,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
-            <label className={labelCls}>Name *</label>
+            <label className={labelCls}>Name * <HelpDot id="seller.product.name" /></label>
             <input
               className={inputCls}
               value={editing.name}
@@ -2151,7 +2153,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             />
           </div>
           <div>
-            <label className={labelCls}>Price (PKR) *</label>
+            <label className={labelCls}>Price (PKR) * <HelpDot id="seller.product.price" /></label>
             <input className={inputCls} value={editing.price} onChange={set('price')} inputMode="decimal" />
           </div>
           <div>
@@ -2159,7 +2161,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             <input className={inputCls} value={editing.compareAtPrice} onChange={set('compareAtPrice')} inputMode="decimal" />
           </div>
           <div>
-            <label className={labelCls}>Stock *</label>
+            <label className={labelCls}>Stock * <HelpDot id="seller.product.stock" /></label>
             {withVariants ? (
               <div className={`${inputCls} bg-[#F4F3EF] text-[#575653]`}>
                 {editing.variants.reduce((s, v) => s + Math.max(0, Math.floor(Number(v.stock) || 0)), 0)} (sum of the variants below)
@@ -2175,7 +2177,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             suggestions={nameSuggestions}
           />
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
-            <span className={labelCls}>Brand *</span>
+            <span className={labelCls}>Brand * <HelpDot id="seller.product.brand" /></span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(
                 [
@@ -2278,7 +2280,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           </div>
           )}
           <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[11px] text-[#575653]">Let AI write the description and key features from the name and category.</span>
+            <span className="text-[11px] text-[#575653]">Let AI write the description and key features from the name and category. <HelpDot id="seller.product.ai" /></span>
             <button
               type="button"
               disabled={aiBusy}
@@ -2289,7 +2291,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             </button>
           </div>
           <div className="sm:col-span-2">
-            <label className={labelCls}>Description</label>
+            <label className={labelCls}>Description <HelpDot id="seller.product.description" /></label>
             <textarea
               className={inputCls}
               rows={2}
@@ -2311,7 +2313,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             <span className="block mt-1 text-[11px] text-[#575653]">Each line is shown as a bullet point on the product page.</span>
           </div>
           <div>
-            <label className={labelCls}>Weight (kg)</label>
+            <label className={labelCls}>Weight (kg) <HelpDot id="seller.product.weight" /></label>
             <input className={inputCls} value={editing.weightKg} onChange={set('weightKg')} inputMode="decimal" />
           </div>
           <div>
@@ -2332,7 +2334,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           {/* Private: customers never see where the product comes from */}
           <div className="sm:col-span-2 p-3 border border-violet-300 bg-violet-50/60 space-y-2">
             <div>
-              <div className="text-xs font-bold text-[#141413]">Product source (only you and the store team see this)</div>
+              <div className="text-xs font-bold text-[#141413]">Product source (only you and the store team see this) <HelpDot id="seller.product.source" /></div>
               <p className="text-[11px] text-[#575653]">
                 Where you get this product. It is shown on every order of this product, so you know where to order it. Customers never see it.
               </p>
@@ -2418,14 +2420,14 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             onClick={() => setBulkOpen(true)}
             className="px-4 py-2 bg-white border border-black/30 text-[#141413] text-xs font-bold flex items-center gap-1 cursor-pointer hover:bg-black/[0.04]"
           >
-            <Upload className="w-4 h-4" /> CSV / Bulk listing
+            <Upload className="w-4 h-4" /> CSV / Bulk listing <HelpDot id="seller.bulk" />
           </button>
           <button
             type="button"
             onClick={() => setEditing({ ...emptyProduct })}
             className="px-4 py-2 bg-[#141413] text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
           >
-            <Plus className="w-4 h-4" /> New product
+            <Plus className="w-4 h-4" /> New product <HelpDot id="seller.product.new" />
           </button>
         </div>
       </div>
@@ -2655,7 +2657,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   return (
     <div className="bg-white border border-black/10 p-5 space-y-4 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-display">Bulk listing from CSV</h2>
+        <h2 className="text-lg font-display">Bulk listing from CSV <HelpDot id="seller.bulk" /></h2>
         <button type="button" onClick={onClose} className="px-4 py-2 border border-black/20 cursor-pointer">
           Back
         </button>
@@ -3311,7 +3313,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
         <textarea className={inputCls} rows={2} value={form.address} onChange={set('address')} />
       </div>
       <div>
-        <label className={labelCls}>Bank / wallet</label>
+        <label className={labelCls}>Bank / wallet <HelpDot id="seller.tab.PROFILE" /></label>
         <input className={inputCls} value={form.bankName} onChange={set('bankName')} />
       </div>
       <div>

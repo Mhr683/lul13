@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Sparkles, Trash2 } from 'lucide-react';
 import { courierApi as api } from '../services/courierClient';
+import { HelpDot } from './HelpDot';
 
 // Admin → Settings → AI keys. Each free Gemini key (from a different Gmail / Google account) has its
 // own daily limit; when one is used up the next is used by itself (server/aiFallback.ts), so the
@@ -53,7 +54,7 @@ export const AdminAiKeysPanel: React.FC = () => {
   return (
     <div className="border border-black/15 p-4 space-y-3 text-xs text-[#141413]">
       <div className="font-bold text-sm inline-flex items-center gap-2">
-        <Sparkles className="w-4 h-4" /> AI keys (Gemini) — backup keys keep the AI working
+        <Sparkles className="w-4 h-4" /> AI keys (Gemini) — backup keys keep the AI working <HelpDot id="admin.aiKeys" />
       </div>
       <p className="text-[#575653]">
         Every free key has a daily limit. Add one key from <strong>each</strong> of your Gmail accounts: when one key's limit is used up, the

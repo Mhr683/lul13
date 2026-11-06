@@ -7,6 +7,7 @@ import { SellerAvatar } from './SellerAvatar';
 import { REINSTATEMENT_FEE } from '../data/policies';
 import { payoutSummary } from '../services/vendorRules';
 import { storeOrigin } from './ShareProductButton';
+import { HelpDot } from './HelpDot';
 
 // Admin: one seller's full profile and performance report: bio and payout details, orders by
 // stage, sales and earnings (today / 7 days / 30 days / all time), returns and cancellations,
@@ -350,7 +351,7 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
       {/* Sales & earnings by period */}
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-bold">Sales &amp; earnings</h2>
+          <h2 className="text-sm font-bold">Sales &amp; earnings <HelpDot id="admin.sellerDetail" /></h2>
           <div className="flex gap-1">
             {(
               [

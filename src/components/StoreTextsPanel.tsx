@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { StoreSettings } from '../types/store';
+import { HelpDot } from './HelpDot';
 
 type TextKey =
   | 'storeName'
@@ -107,7 +108,7 @@ export const StoreTextsPanel: React.FC = () => {
   return (
     <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-4 rounded-xs text-xs text-[#141413]">
       <div>
-        <h2 className="text-xs font-black uppercase tracking-wider">Home page &amp; store texts</h2>
+        <h2 className="text-xs font-black uppercase tracking-wider">Home page &amp; store texts <HelpDot id="admin.storeTexts" /></h2>
         <p className="font-semibold mt-1">
           Change the texts customers see on the home page, banner and About Us here.
         </p>

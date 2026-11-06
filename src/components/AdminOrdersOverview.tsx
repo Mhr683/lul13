@@ -8,6 +8,7 @@ import { isDirectSource, normalizeSource } from '../services/productSource';
 import { CourierBookBox } from './CourierBookBox';
 import { courierApi } from '../services/courierClient';
 import { COURIER_CATALOG } from '../services/courierCatalog';
+import { HelpDot } from './HelpDot';
 
 // Admin: every order of every seller, read-only. Sellers confirm, pack and ship their own orders in
 // Seller Center; the store only steps in to stop an order (cancel before shipping), or to record a
@@ -106,7 +107,7 @@ export const AdminOrdersOverview: React.FC = () => {
   return (
     <div className="space-y-4 text-[#141413]">
       <div>
-        <h1 className="text-2xl font-display">Orders (all sellers)</h1>
+        <h1 className="text-2xl font-display">Orders (all sellers) <HelpDot id="admin.tab.ORDERS" /></h1>
         <p className="text-xs text-[#575653]">
           Sellers confirm, pack and ship their own orders in Seller Center. Here you can follow every order, stop one before it is
           shipped, or record a return or a refund. Stock is restored automatically.
@@ -117,7 +118,7 @@ export const AdminOrdersOverview: React.FC = () => {
         <div className="p-3 bg-sky-50 border border-sky-300 text-xs text-sky-950 space-y-1">
           <p className="font-semibold">
             {queue.pending.length} order(s) came in while the database was full. They are saved on the store computer and will be placed
-            automatically (checked every 5 minutes).
+            automatically (checked every 5 minutes). <HelpDot id="admin.orderQueue" />
           </p>
           <p>{queue.pending.map((q) => `${q.orderNumbers.join(', ')} (${q.customerName})`).join(' · ')}</p>
           <button

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { Product, Category, Coupon, StoreSettings } from '../types/store';
+import { HelpDot } from './HelpDot';
 
 interface StoreBackup {
   format: 'store-backup';
@@ -120,7 +121,7 @@ export const BackupRestorePanel: React.FC = () => {
   return (
     <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-3 rounded-xs text-xs text-[#141413]">
       <div>
-        <h2 className="text-xs font-black uppercase tracking-wider">Backup &amp; Restore</h2>
+        <h2 className="text-xs font-black uppercase tracking-wider">Backup &amp; Restore <HelpDot id="admin.backup" /></h2>
         <p className="font-semibold mt-1">
           To move the store to another Gmail / AI Studio account, first download a backup here, then restore it from the
           same place in the new store. Products (with supplier data), categories, coupons and settings are included.

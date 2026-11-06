@@ -3,6 +3,7 @@ import { RefreshCw, RotateCcw } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
+import { HelpDot } from './HelpDot';
 
 // Admin: customers' return / replacement requests (Customer Protection Policy). Approving with
 // "seller's fault" applies the Seller Rules automatically: return charge off the payout, product
@@ -81,7 +82,7 @@ export const AdminReturnsPanel: React.FC<{ onOpenCount?: (n: number) => void }> 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-bold flex items-center gap-2">
-            <RotateCcw className="w-5 h-5" /> Returns & complaints
+            <RotateCcw className="w-5 h-5" /> Returns & complaints <HelpDot id="admin.tab.RETURNS" />
           </h2>
           <p className="text-[#575653]">
             Customers ask within 7 days of delivery. Decide within 24–48 hours. Seller's fault = PKR {charge} return charge + product strike.

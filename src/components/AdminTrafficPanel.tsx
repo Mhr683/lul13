@@ -3,6 +3,7 @@ import { RefreshCw, Download, FileSpreadsheet, Printer, Users, Eye, MousePointer
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
 import { AdminAdsSection } from './AdminAdsSection';
+import { HelpDot } from './HelpDot';
 
 // Admin → Traffic & Conversion: visitors, impressions, clicks, CTR, traffic sources, the conversion
 // funnel with drop-offs, most viewed vs most sold products, seller activity, cancellation / return
@@ -305,7 +306,7 @@ export const AdminTrafficPanel: React.FC = () => {
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold">Traffic & Conversion</h2>
+          <h2 className="text-lg font-bold">Traffic & Conversion <HelpDot id="admin.tab.TRAFFIC" /></h2>
           <p className="text-[#575653]">
             {report ? `${report.from} → ${report.to}` : '…'} · Pakistan time · revenue and profit are on the Executive Analytics tab
           </p>

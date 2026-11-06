@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Truck, Printer } from 'lucide-react';
 import { courierApi, openCourierLabel } from '../services/courierClient';
+import { HelpDot } from './HelpDot';
 
 export interface BookedParcel {
   courierName: string;
@@ -67,7 +68,7 @@ export const CourierBookBox: React.FC<{
   return (
     <div className="p-2.5 bg-sky-50 border border-sky-300 space-y-2 text-xs">
       <div className="font-semibold text-sky-950 flex items-center gap-1">
-        <Truck className="w-3.5 h-3.5" /> Book with courier (tracking number comes automatically)
+        <Truck className="w-3.5 h-3.5" /> Book with courier (tracking number comes automatically) <HelpDot id="seller.order.courier" />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <select value={courier} onChange={(e) => setCourier(e.target.value)} className="px-2 py-1.5 border border-black/20 bg-white">

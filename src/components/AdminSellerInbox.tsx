@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Send, Trash2, Megaphone, MessageSquare, Plus } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
+import { HelpDot } from './HelpDot';
 
 // Admin: the sellers' complaint box (kept apart from the customer inbox) and notices / alerts the
 // store sends to all sellers or to one seller. Everything goes through /api/admin/seller-*.
@@ -121,7 +122,7 @@ export const AdminSellerInbox: React.FC<{ onUnreadChange?: (n: number) => void }
     <div className="space-y-4 text-[#141413] text-xs">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-display">Seller Messages</h1>
+          <h1 className="text-2xl font-display">Seller Messages <HelpDot id="admin.tab.SELLER_INBOX" /></h1>
           <p className="text-[#575653]">
             Complaints and questions from sellers, and notices you send them. Customer inquiries stay in the Customer Inbox.
           </p>

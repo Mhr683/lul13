@@ -3,6 +3,7 @@ import { Globe2, Plus, Trash2, Save } from 'lucide-react';
 import type { CustomsMode, ShippingZoneConfig } from '../types/store';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { formatPKR } from '../services/abstractions';
+import { HelpDot } from './HelpDot';
 
 // Admin → Settings: shipping rates for customers outside Pakistan, one zone per group of
 // countries (base fee for the first kg + fee per extra kg, in PKR). A country in no zone gets a
@@ -122,7 +123,7 @@ export const AdminShippingZonesEditor: React.FC<{
       </p>
       <label className="flex items-center gap-2 text-xs">
         <input type="checkbox" checked={quotes} onChange={(e) => setQuotes(e.target.checked)} />
-        Countries without a zone may request a manual shipping quote
+        Countries without a zone may request a manual shipping quote <HelpDot id="admin.shipping" />
       </label>
 
       {/* One click: every recommended zone with its rate, ready to check and save */}

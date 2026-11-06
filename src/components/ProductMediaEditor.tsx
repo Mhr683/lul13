@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { ImagePlus, Video, X, Star, ArrowLeft, ArrowRight, Link2 } from 'lucide-react';
+import { HelpDot } from './HelpDot';
 
 // Pictures (up to 8, the first is the main one shown on product cards) and one optional video for a
 // product in Seller Center. Files are uploaded through `upload`; links (https://...) can be pasted too.
@@ -200,7 +201,7 @@ export const ProductMediaEditor: React.FC<{
       </div>
 
       <div className="pt-2 border-t border-black/10 space-y-2">
-        <span className="text-[11px] font-bold text-[#141413]">Video (optional, 1 video, up to 50 MB)</span>
+        <span className="text-[11px] font-bold text-[#141413]">Video (optional, 1 video, up to 50 MB) <HelpDot id="seller.product.media" /></span>
         {videoUrl ? (
           <div className="flex flex-wrap items-center gap-3">
             {isVideoFile(videoUrl) ? (

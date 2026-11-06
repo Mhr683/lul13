@@ -8,6 +8,7 @@ import { SellerAvatar } from './SellerAvatar';
 import { AdminSellerDetail, HEALTH_STYLE } from './AdminSellerDetail';
 import { payoutSummary } from '../services/vendorRules';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
+import { HelpDot } from './HelpDot';
 
 // Admin: marketplace sellers from any country (applications, approval, suspension, commission) and payouts.
 
@@ -185,7 +186,7 @@ export const AdminSellersPanel: React.FC = () => {
     <div className="space-y-5 text-[#141413]">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-display">Sellers &amp; Payouts</h1>
+          <h1 className="text-2xl font-display">Sellers &amp; Payouts <HelpDot id="admin.tab.SELLERS" /></h1>
           <p className="text-xs text-[#575653]">
             Seller Center link: <a href="/seller" className="underline font-mono">{window.location.origin}/seller</a> — sellers
             apply here.

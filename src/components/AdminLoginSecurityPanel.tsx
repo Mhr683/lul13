@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { getAuthHeaders } from '../lib/firebase';
+import { HelpDot } from './HelpDot';
 
 interface SecurityInfo {
   captcha: boolean;
@@ -87,7 +88,7 @@ export const AdminLoginSecurityPanel: React.FC = () => {
   return (
     <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-4 rounded-xs text-xs text-[#141413]">
       <div>
-        <h2 className="text-xs font-black uppercase tracking-wider">Login security</h2>
+        <h2 className="text-xs font-black uppercase tracking-wider">Login security <HelpDot id="admin.loginSecurity" /></h2>
         <p className="font-semibold mt-1">
           Extra checks after signing in. You stay signed in on a device until you press Logout.
         </p>

@@ -91,6 +91,7 @@ import {
 import { SAMPLE_CSV_TEMPLATE } from '../data/seedData';
 import { formatDualPrice, formatPKR, USD_TO_PKR_RATE, EmailNotificationService, sanitizeDocId, sanitizeSku, sanitizeSlug } from '../services/abstractions';
 import { canExecuteAITool } from '../ai/permissions';
+import { HelpDot } from './HelpDot';
 import {
   validateCsvFileUpload,
   validateProductPayload,
@@ -2611,6 +2612,7 @@ export const AdminDashboardView: React.FC<{
                   <div className="flex items-center gap-2.5 truncate">
                     <Icon className="w-4 h-4 shrink-0 text-[#141413]" />
                     <span className="truncate">{item.label}</span>
+                    <HelpDot id={`admin.tab.${item.id}`} />
                   </div>
                   {isInbox && totalUnread > 0 && (
                     <span
@@ -2774,7 +2776,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="p-4 border-b border-black/[0.08] flex items-center justify-between">
                   <div>
                     <h1 className="text-base font-semibold text-[#141413]">
-                      Autonomous Store Operator (Gemini Function Calling)
+                      Autonomous Store Operator (Gemini Function Calling) <HelpDot id="admin.tab.AI_COMMAND_CENTER" />
                     </h1>
                     <p className="text-xs text-[#575653]">
                       Executes real database mutations, SEO generation, pricing updates, and order workflows.
@@ -2903,7 +2905,7 @@ export const AdminDashboardView: React.FC<{
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h1 className="text-2xl font-display font-medium text-[#141413]">
-                    Store Telemetry & Financial Overview
+                    Store Telemetry & Financial Overview <HelpDot id="admin.tab.DASHBOARD" />
                   </h1>
                   <p className="text-xs text-[#575653]">
                     Real-time metrics computed directly from active orders and inventory records.
@@ -3113,7 +3115,7 @@ export const AdminDashboardView: React.FC<{
                 className="lg:col-span-4 bg-white border border-black/[0.08] p-6 space-y-4 h-fit"
               >
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-[#141413]">
-                  Create Promotional Code
+                  Create Promotional Code <HelpDot id="admin.tab.COUPONS" />
                 </h2>
                 <div className="space-y-3 text-xs">
                   <div>
@@ -3329,7 +3331,7 @@ export const AdminDashboardView: React.FC<{
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-black/10 pb-5">
                 <div>
                   <div className="flex items-center gap-2.5">
-                    <h1 className="text-2xl font-display text-[#141413]">Client Communications Inbox</h1>
+                    <h1 className="text-2xl font-display text-[#141413]">Client Communications Inbox <HelpDot id="admin.tab.NOTIFICATIONS" /></h1>
                     <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                       AI Auto-Reply Active 24/7
@@ -4067,7 +4069,7 @@ export const AdminDashboardView: React.FC<{
             <div className="max-w-4xl bg-white border border-black/15 p-6 sm:p-8 space-y-8">
               <div>
                 <h1 className="text-2xl font-display font-bold text-[#141413]">
-                  Merchant, Payment, Shipping &amp; Currency Configuration
+                  Merchant, Payment, Shipping &amp; Currency Configuration <HelpDot id="admin.tab.SETTINGS" />
                 </h1>
                 <p className="text-xs font-semibold text-[#141413] mt-1.5">
                   Centrally configure store operations operated from Pakistan (PK) with dual-currency display and worldwide shipping zones.
@@ -4329,7 +4331,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-3 rounded-xs">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#141413]">Cash on Delivery (COD)</span>
+                      <span className="text-xs font-bold text-[#141413]">Cash on Delivery (COD) <HelpDot id="admin.payments" /></span>
                       <p className="text-xs text-[#141413] font-semibold mt-0.5">Available for Pakistan domestic shipping with courier reconciliation.</p>
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
@@ -4522,7 +4524,7 @@ export const AdminDashboardView: React.FC<{
                     05. 24/7 Client Helpline &amp; WhatsApp Concierge Configuration
                   </h2>
                   <span className="text-[11px] font-mono font-bold text-emerald-900 bg-emerald-100 px-2.5 py-0.5 border border-emerald-300 rounded">
-                    Active Multi-Channel Helpline
+                    Active Multi-Channel Helpline <HelpDot id="admin.helpline" />
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
@@ -4594,7 +4596,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-black/[0.1] pb-4">
                   <div>
                     <h3 className="text-base font-bold text-[#141413]">
-                      Store Policies & Legal Pages Content
+                      Store Policies & Legal Pages Content <HelpDot id="admin.policies" />
                     </h3>
                     <p className="text-xs text-[#575653] mt-0.5">
                       Configure and edit the customer-facing Refund Policy, Terms & Conditions, Privacy Policy, Shipping Policy, Contact Us details, and WhatsApp Click-to-Chat numbers.

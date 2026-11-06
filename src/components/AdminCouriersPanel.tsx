@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Truck, CheckCircle2, RefreshCw } from 'lucide-react';
 import { COURIER_CATALOG, MANUAL_COURIERS, type CourierId } from '../services/courierCatalog';
 import { courierApi } from '../services/courierClient';
+import { HelpDot } from './HelpDot';
 
 // Admin → Orders → Courier accounts. Paste a courier's API key once; from then on the store and all
 // sellers book parcels with one button, labels print from the order, and delivered / returned
@@ -104,7 +105,7 @@ export const AdminCouriersPanel: React.FC = () => {
     <div className="bg-white border border-black/10">
       <button type="button" onClick={() => setOpen(!open)} className="w-full px-4 py-3 flex items-center justify-between text-left cursor-pointer">
         <span className="font-semibold text-sm inline-flex items-center gap-2">
-          <Truck className="w-4 h-4" /> Courier accounts (PostEx, Leopards, Trax)
+          <Truck className="w-4 h-4" /> Courier accounts (PostEx, Leopards, Trax) <HelpDot id="admin.couriers" />
         </span>
         <span className="text-xs text-[#575653]">{open ? 'Close' : 'Open'}</span>
       </button>

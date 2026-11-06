@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { getAuthHeaders } from '../lib/firebase';
+import { HelpDot } from './HelpDot';
 
 interface TeamData {
   ownerEmail: string;
@@ -128,7 +129,7 @@ export const AdminTeamPanel: React.FC = () => {
   return (
     <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-5 rounded-xs text-xs text-[#141413]">
       <div>
-        <h2 className="text-xs font-black uppercase tracking-wider">Admins &amp; Owner Login</h2>
+        <h2 className="text-xs font-black uppercase tracking-wider">Admins &amp; Owner Login <HelpDot id="admin.team" /></h2>
         <p className="font-semibold mt-1">
           The store owner always has full access. Below you can make other people admins or remove them.
           Admin access is only given to verified emails (Google, or an account with a verified email).

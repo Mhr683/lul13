@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { PRODUCT_CATEGORY_GROUPS } from '../data/productCategories';
 import { MAX_VARIANTS } from '../services/productVariants';
+import { HelpDot } from './HelpDot';
 
 // Seller Center product form: the category chooser (ready-made list, grouped and searchable, plus
 // the store's own categories) and the variants editor (colour / size with their own price and stock).
@@ -45,7 +46,7 @@ export const CategoryPicker: React.FC<{
 
   return (
     <div>
-      <label className={labelCls}>Category *</label>
+      <label className={labelCls}>Category * <HelpDot id="seller.product.category" /></label>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -158,7 +159,7 @@ export const VariantsEditor: React.FC<{
   return (
     <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-3">
       <div>
-        <div className="text-xs font-bold text-[#141413]">Variants (optional): colour, size, ...</div>
+        <div className="text-xs font-bold text-[#141413]">Variants (optional): colour, size, ... <HelpDot id="seller.product.variants" /></div>
         <p className="text-[11px] text-[#575653]">
           Add them when the customer must choose one (e.g. Red / Blue, Small / Large). Each one has its own stock, and a different price if you
           want. Leave empty for a single product.

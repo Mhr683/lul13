@@ -4,6 +4,7 @@ import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
+import { HelpDot } from './HelpDot';
 
 // Admin: every seller's products, read-only. Sellers list and edit their products in Seller Center;
 // the store can take a product off the store (with a reason the seller sees) and put it back.
@@ -89,7 +90,7 @@ export const AdminCatalogPanel: React.FC = () => {
   return (
     <div className="space-y-4 text-[#141413]">
       <div>
-        <h1 className="text-2xl font-display">Products (all sellers)</h1>
+        <h1 className="text-2xl font-display">Products (all sellers) <HelpDot id="admin.tab.CATALOG" /></h1>
         <p className="text-xs text-[#575653]">
           Sellers add and edit their products in{' '}
           <a href="/seller" className="underline font-semibold">

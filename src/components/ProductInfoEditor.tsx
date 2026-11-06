@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Upload, Video } from 'lucide-react';
 import { CARE_PRESETS, type ProductInfo } from '../services/productInfo';
+import { HelpDot } from './HelpDot';
 
 // Seller Center product form: specifications, "How to use", care instructions and user manual.
 // Everything is optional; filled parts appear on the product page (Specifications / Usage & care).
@@ -44,7 +45,7 @@ export const ProductInfoEditor: React.FC<{
   return (
     <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-4">
       <div>
-        <div className="text-xs font-bold text-[#141413]">Specifications, how to use &amp; care (optional)</div>
+        <div className="text-xs font-bold text-[#141413]">Specifications, how to use &amp; care (optional) <HelpDot id="seller.product.specs" /></div>
         <p className="text-[11px] text-[#575653]">
           Nothing here is required: leave empty what does not fit your product. Filled parts are shown on the product page.
         </p>

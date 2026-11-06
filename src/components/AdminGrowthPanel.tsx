@@ -3,6 +3,7 @@ import { Gift, Users, Zap, CalendarHeart, ShoppingCart, Eye, Store, MessageCircl
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
+import { HelpDot } from './HelpDot';
 import {
   welcomeOf,
   referralOf,
@@ -129,7 +130,7 @@ export const AdminGrowthPanel: React.FC = () => {
   return (
     <div className="space-y-5 text-xs text-[#141413]">
       <div>
-        <h2 className="text-lg font-bold">Marketing & Growth</h2>
+        <h2 className="text-lg font-bold">Marketing & Growth <HelpDot id="admin.tab.GROWTH" /></h2>
         <p className="text-[#575653]">Bring more customers and sellers. Every discount here is checked again by the server at checkout.</p>
       </div>
 
