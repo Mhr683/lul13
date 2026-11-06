@@ -557,6 +557,10 @@ export const SellerCenterView: React.FC = () => {
       {tab === 'RETURNS' && <ReturnsTab />}
       {tab === 'AI' && (
         <div className="space-y-4">
+          {/* The seller's own free Gemini keys (shown first): their AI work uses these first */}
+          <div className="bg-white">
+            <AdminAiKeysPanel apiBase="/api/seller/ai-keys" forSeller />
+          </div>
           <SellerAiAssistant
             shopName={seller.shopName}
             call={api}
@@ -568,10 +572,6 @@ export const SellerCenterView: React.FC = () => {
               delete memo.earnings;
             }}
           />
-          {/* The seller's own free Gemini keys: their AI work uses these first */}
-          <div className="bg-white">
-            <AdminAiKeysPanel apiBase="/api/seller/ai-keys" forSeller />
-          </div>
         </div>
       )}
       {tab === 'RULES' && (

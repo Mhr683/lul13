@@ -329,7 +329,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     title: 'Meri AI keys (apna muft AI)',
     what: 'Apni Gmail ki muft Gemini key lagayein: aap ka AI Assistant, "Write with AI" aur Shop Coach pehle aap ki key se chalenge, kabhi intezar nahi.',
     steps: [
-      'Seller Center mein "AI Assistant" tab kholein; neeche "My AI keys" ka hissa hai.',
+      'Seller Center mein "AI Assistant" tab kholein; sab se upar "My AI keys" ka hissa hai.',
       'Rangeen button "Create Gemini API key" dabayein; Google AI Studio khul jata hai.',
       'Apni Gmail se login karein.',
       '"Create API key" dabayein; poochhe to "Create API key in new project" chunein.',
@@ -353,7 +353,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Enter ya bhejne ka button dabayein. AI jawab dega.',
       'Agar AI koi tabdeeli (jaise description) tajweez kare to woh tab tak lagu nahi hoti jab tak aap "Apply" na dabayein.',
       'Nayi baat shuru karni ho to "New chat" dabayein.',
-      'Behtar aur tez AI ke liye neeche "My AI keys" mein apni muft Gemini key lagayein (us ka apna ? dekhein).',
+      'Behtar aur tez AI ke liye isi tab mein upar "My AI keys" mein apni muft Gemini key lagayein (us ka apna ? dekhein).',
     ],
     tips: ['AI sirf aap ki apni dukaan par kaam karta hai.', 'Qeemat aur account settings AI kabhi khud nahi badalta.'],
   },
