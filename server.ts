@@ -760,7 +760,53 @@ const newGeminiClient = (apiKey: string) =>
   });
 let aiPool: { sig: string; client: GoogleGenAI } | null = null;
 
-function getGenAIClient() {
+// Sellers' own Gemini keys (Seller Center → AI Assistant → My AI keys): that seller's AI work uses
+// them first, then the store's keys as a backup. seller_ai_private/{uid} is read by the server only,
+// once per seller and kept in memory.
+const sellerAiKeys = new Map<string, { keys: string[]; at: number }>();
+const SELLER_AI_DOC = (uid: string) => adminDb.collection('seller_ai_private').doc(uid);
+async function loadSellerAiKeys(uid: string): Promise<string[]> {
+  const hit = sellerAiKeys.get(uid);
+  if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.keys;
+  try {
+    const snap = await SELLER_AI_DOC(uid).get();
+    const keys = (Array.isArray(snap.data()?.keys) ? snap.data()!.keys : []).map((k: any) => String(k?.key || '')).filter(Boolean);
+    sellerAiKeys.set(uid, { keys, at: Date.now() });
+    return keys;
+  } catch {
+    return hit?.keys || [];
+  }
+}
+const sellerPools = new Map<string, { sig: string; client: GoogleGenAI }>();
+// All sellers' keys are read once at start (one small query; only sellers who added a key)
+(async () => {
+  try {
+    const snap = await adminDb.collection('seller_ai_private').get();
+    for (const d of snap.docs) {
+      const keys = (Array.isArray(d.data()?.keys) ? d.data().keys : []).map((k: any) => String(k?.key || '')).filter(Boolean);
+      if (keys.length) sellerAiKeys.set(d.id, { keys, at: Date.now() });
+    }
+  } catch (err: any) {
+    console.warn('[ai] seller keys not loaded:', err?.message);
+  }
+})();
+
+/**
+ * The Gemini client. With a seller's uid, that seller's own keys come first (then the store's).
+ * Seller keys are known after loadSellerAiKeys(uid) has run once (the seller routes call it).
+ */
+function getGenAIClient(uid?: string) {
+  const own = uid ? sellerAiKeys.get(uid)?.keys || [] : [];
+  if (uid && own.length) {
+    const keys = Array.from(new Set([...own, ...allAiKeys()]));
+    const sig = keys.join('|');
+    const hit = sellerPools.get(uid);
+    if (hit?.sig === sig) return hit.client;
+    const client = withKeyPool(keys.map((key) => ({ key, client: newGeminiClient(key) })));
+    sellerPools.set(uid, { sig, client });
+    if (sellerPools.size > 5000) sellerPools.clear();
+    return client;
+  }
   const keys = allAiKeys();
   // Without a key the library falls back to Google Cloud credentials and fails with a confusing
   // "Could not load the default credentials" message
@@ -1881,7 +1927,8 @@ app.post('/api/ai/generate-product-content', requireAdminOrSeller, async (req, r
     if (!name || typeof name !== 'string') {
       return res.status(400).json({ error: 'Product name is required.' });
     }
-    const ai = getGenAIClient();
+    // A seller's own AI keys are used first (Seller Center → AI Assistant → My AI keys)
+    const ai = getGenAIClient((req as any).user?.uid);
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
@@ -1960,7 +2007,8 @@ app.post('/api/ai/enrich-csv-rows', requireAdminOrSeller, async (req, res) => {
       return res.status(400).json({ error: 'No CSV rows provided for enrichment.' });
     }
 
-    const ai = getGenAIClient();
+    // A seller's own AI keys are used first (Seller Center → AI Assistant → My AI keys)
+    const ai = getGenAIClient((req as any).user?.uid);
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: `Enrich these imported e-commerce product rows with missing shortDescription, description, seoTitle, seoDescription, and seoKeywords in a ${tone} tone. Keep existing valid fields intact:\n${JSON.stringify(rows.slice(0, 25))}`,
@@ -6062,14 +6110,31 @@ app.get('/api/admin/ai-keys', requireAdmin, (req, res) => {
 });
 app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
   if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) return res.status(403).json({ error: 'Only the store owner or an admin can change AI keys.' });
+  const { added, notes } = await vetNewAiKeys(String(req.body?.key || ''), allAiKeys());
+  if (!added.length) return res.status(400).json({ error: notes.join(' ') || 'Paste a key first.' });
+  try {
+    const now = new Date().toISOString();
+    await AI_KEYS_DOC().set({ keys: [...adminAiKeys.map((k) => ({ key: k })), ...added.map((key) => ({ key, addedAt: now }))] }, { merge: true });
+    adminAiKeys = [...adminAiKeys, ...added];
+    res.json({ ...aiKeysView(), note: `${added.length} key(s) added. ${notes.join(' ')}` });
+  } catch (err) {
+    console.error('[ai-keys] save failed:', err);
+    res.status(503).json({ error: 'The key was not saved. Please try again.' });
+  }
+});
+
+/**
+ * Checks pasted keys (one or many): full key, not already used, accepted by Google, and not in the
+ * same Google project as one of `existing` (same project = same free limit). Returns the good keys.
+ */
+async function vetNewAiKeys(raw: string, existing: string[]): Promise<{ added: string[]; notes: string[] }> {
   // One key, or many pasted together (one per line, or separated by spaces / commas)
-  const pasted = String(req.body?.key || '')
+  const pasted = raw
     .split(/[\s,;]+/)
     // quotes / brackets copied along with the key are dropped
     .map((k) => k.trim().replace(/^["'`([{<]+|["'`)\]}>.,]+$/g, ''))
     .filter(Boolean)
     .slice(0, 50);
-  if (!pasted.length) return res.status(400).json({ error: 'Paste a key first.' });
   const added: string[] = [];
   const notes: string[] = [];
   for (const key of Array.from(new Set(pasted))) {
@@ -6083,7 +6148,7 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
       notes.push(`${label}: this does not look like a full Gemini key (${key.length} characters). Copy it again with the copy button in AI Studio.`);
       continue;
     }
-    if (allAiKeys().includes(key) || added.includes(key)) {
+    if (existing.includes(key) || added.includes(key)) {
       notes.push(`${label}: already added.`);
       continue;
     }
@@ -6111,7 +6176,7 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
     }
     if (!usable) continue;
     // One key per Google project: keys of the same project share one free limit
-    const twin = await sameProjectKey(key, [...allAiKeys(), ...added]);
+    const twin = await sameProjectKey(key, [...existing, ...added]);
     if (twin) {
       notes.push(
         `${label}: NOT added — it belongs to the same Google project as key ••••${twin.slice(-4)}, so it would share that key's limit. Create the key with "Create API key in new project".`
@@ -6121,16 +6186,68 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
     notes.push(okNote);
     added.push(key);
   }
-  if (!added.length) return res.status(400).json({ error: notes.join(' ') });
+  return { added, notes };
+}
+
+// ---------------------------------------------------------------- sellers' own AI keys
+// Seller Center → AI Assistant → "My AI keys": the seller's AI work (assistant, descriptions, Shop
+// Coach) uses these first, so the store's keys are saved for everyone else.
+const sellerKeysView = (uid: string) => {
+  const own = sellerAiKeys.get(uid)?.keys || [];
+  return { fromEnv: 0, keys: aiKeyStatus(own).map((s, i) => ({ ...s, index: i, saved: true })) };
+};
+const saveSellerKeys = async (uid: string, keys: string[]) => {
+  await SELLER_AI_DOC(uid).set({ keys: keys.map((key) => ({ key })), updatedAt: new Date().toISOString() });
+  sellerAiKeys.set(uid, { keys, at: Date.now() });
+  sellerPools.delete(uid);
+};
+app.get('/api/seller/ai-keys', marketplace.requireSeller, async (req, res) => {
+  const uid = (req as any).user.uid as string;
+  await loadSellerAiKeys(uid);
+  res.json(sellerKeysView(uid));
+});
+app.post('/api/seller/ai-keys', marketplace.requireSeller, limitPerIp('seller-ai-keys', 10), async (req, res) => {
+  const uid = (req as any).user.uid as string;
+  const own = await loadSellerAiKeys(uid);
+  if (own.length >= 20) return res.status(400).json({ error: 'You can add up to 20 keys.' });
+  // A key already used by the store or another seller is not accepted twice
+  const usedElsewhere = new Set([...allAiKeys(), ...Array.from(sellerAiKeys.values()).flatMap((v) => v.keys)]);
+  const { added, notes } = await vetNewAiKeys(String(req.body?.key || ''), Array.from(new Set([...own, ...usedElsewhere])));
+  const fresh = added.slice(0, 20 - own.length);
+  if (!fresh.length) return res.status(400).json({ error: notes.join(' ') || 'Paste a key first.' });
   try {
-    const now = new Date().toISOString();
-    await AI_KEYS_DOC().set({ keys: [...adminAiKeys.map((k) => ({ key: k })), ...added.map((key) => ({ key, addedAt: now }))] }, { merge: true });
-    adminAiKeys = [...adminAiKeys, ...added];
-    res.json({ ...aiKeysView(), note: `${added.length} key(s) added. ${notes.join(' ')}` });
+    await saveSellerKeys(uid, [...own, ...fresh]);
+    res.json({ ...sellerKeysView(uid), note: `${fresh.length} key(s) added. ${notes.join(' ')}` });
   } catch (err) {
-    console.error('[ai-keys] save failed:', err);
+    console.error('[seller-ai-keys] save failed:', err);
     res.status(503).json({ error: 'The key was not saved. Please try again.' });
   }
+});
+app.post('/api/seller/ai-keys/remove', marketplace.requireSeller, async (req, res) => {
+  const uid = (req as any).user.uid as string;
+  const own = await loadSellerAiKeys(uid);
+  const last4 = String(req.body?.key || '').replace(/\W/g, '').slice(-4);
+  const keep = own.filter((k) => k.slice(-4) !== last4);
+  if (keep.length === own.length) return res.status(404).json({ error: 'Key not found.' });
+  try {
+    await saveSellerKeys(uid, keep);
+    res.json(sellerKeysView(uid));
+  } catch (err) {
+    console.error('[seller-ai-keys] remove failed:', err);
+    res.status(503).json({ error: 'The key was not removed. Please try again.' });
+  }
+});
+app.post('/api/seller/ai-keys/check-projects', marketplace.requireSeller, async (req, res) => {
+  const uid = (req as any).user.uid as string;
+  const remaining = [...(await loadSellerAiKeys(uid))];
+  const groups: Array<Array<{ key: string; saved: boolean }>> = [];
+  while (remaining.length) {
+    const k = remaining.shift()!;
+    const twins = await projectTwins(k, remaining);
+    for (const t of twins) remaining.splice(remaining.indexOf(t), 1);
+    groups.push([k, ...twins].map((x) => ({ key: `••••${x.slice(-4)}`, saved: true })));
+  }
+  res.json({ projects: groups.length, keys: groups.flat().length, groups });
 });
 // Groups the added keys by Google project, so keys that share one limit can be removed
 app.post('/api/admin/ai-keys/check-projects', requireAdmin, async (req, res) => {

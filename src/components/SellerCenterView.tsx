@@ -54,6 +54,7 @@ import { ProductMediaEditor } from './ProductMediaEditor';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 import { HelpDot } from './HelpDot';
+import { AdminAiKeysPanel } from './AdminAiKeysPanel';
 
 // Seller Center (/seller): marketplace sellers apply, then manage their own products, orders,
 // shipping/tracking and earnings. Everything goes through the /api/seller/* server routes.
@@ -555,17 +556,23 @@ export const SellerCenterView: React.FC = () => {
       {tab === 'EARNINGS' && <EarningsTab />}
       {tab === 'RETURNS' && <ReturnsTab />}
       {tab === 'AI' && (
-        <SellerAiAssistant
-          shopName={seller.shopName}
-          call={api}
-          onGo={(t) => setTab(t as Tab)}
-          onChanged={() => {
-            delete memo.coach;
-            // product list and orders are re-read next time those tabs open
-            delete memo.orders;
-            delete memo.earnings;
-          }}
-        />
+        <div className="space-y-4">
+          <SellerAiAssistant
+            shopName={seller.shopName}
+            call={api}
+            onGo={(t) => setTab(t as Tab)}
+            onChanged={() => {
+              delete memo.coach;
+              // product list and orders are re-read next time those tabs open
+              delete memo.orders;
+              delete memo.earnings;
+            }}
+          />
+          {/* The seller's own free Gemini keys: their AI work uses these first */}
+          <div className="bg-white">
+            <AdminAiKeysPanel apiBase="/api/seller/ai-keys" forSeller />
+          </div>
+        </div>
       )}
       {tab === 'RULES' && (
         <div className="bg-white border border-black/10 p-5 space-y-3">

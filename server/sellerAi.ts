@@ -15,7 +15,8 @@ type Handler = (req: express.Request, res: express.Response, next: express.NextF
 
 export interface SellerAiDeps {
   requireSeller: Handler;
-  getAI: () => GoogleGenAI;
+  /** The Gemini client; with a seller's uid, that seller's own keys are used first */
+  getAI: (uid?: string) => GoogleGenAI;
   sellerData: {
     productsOf: (uid: string) => Promise<any[]>;
     ordersOf: (uid: string) => Promise<any[]>;
@@ -173,7 +174,7 @@ export function registerSellerAiRoutes(app: express.Express, d: SellerAiDeps) {
 
   // New short + full description and SEO for one product (honest copy, no invented claims)
   const writeCopy = async (p: any, tone = '', extra = ''): Promise<Record<string, string> | null> => {
-    const r = await d.getAI().models.generateContent({
+    const r = await d.getAI(String(p.sellerId || p.ownerUid || '') || undefined).models.generateContent({
       model: MODEL,
       contents: `Write product copy for a Pakistani online shop. Product: "${p.name}". Category: ${p.category}. Price: PKR ${p.price}.
 Current description: ${String(p.description || '').slice(0, 1500)}
@@ -403,7 +404,7 @@ Brand names: a product that is not a proven branded item (Branded + invoice) mus
 You can never change the health score itself (it comes from real performance). If the seller asks you to fix or protect their account health, prepare the safe fixes with the tools (hide out-of-stock live products with setMyProductStatus DRAFT, rewrite short descriptions with rewriteMyDescriptions), mention the Dashboard's Auto-fix ("Fix now" / daily) and list what only the seller can do (ship within 48 hours, add tracking, good packing, real photos). Never change prices unless the seller asks.
 Be the seller's coach and partner: when they ask about performance, details or advice, call myShopReport and explain like a mentor — first the most urgent problem, what it is costing them (lost sales, lower scores customers see, payout deductions, risk of suspension), and exactly what to do today; then the next ones; end with one encouraging line about what is going well. The app shows the charts and the full list below your answer, so keep your text focused (max ~12 lines). Offer to make the fixes you can do (prices, stock, descriptions, drafts).`;
 
-    const ai = d.getAI();
+    const ai = d.getAI(uid);
     const call = async (model: string, contents: any[]) =>
       ai.models.generateContent({ model, contents, config: { systemInstruction, tools: [{ functionDeclarations: TOOLS }], temperature: 0.3 } });
     const generate = async (contents: any[]) => {
@@ -612,7 +613,7 @@ Be the seller's coach and partner: when they ask about performance, details or a
     const room = PER_DAY_REWRITES - used;
     if (room <= 0) return res.status(429).json({ error: `Today's limit of ${PER_DAY_REWRITES} descriptions is reached. Please continue tomorrow.` });
     try {
-      d.getAI(); // fails early with a clear message when the AI is not set up
+      d.getAI(uid); // fails early with a clear message when the AI is not set up
       const products = await d.sellerData.productsOf(uid);
       const list = products
         .filter((p) => p.status === 'ACTIVE' && !p.adminHidden && String(p.description || '').length < THIN)
@@ -649,7 +650,7 @@ Be the seller's coach and partner: when they ask about performance, details or a
       if (!list.length) return res.json({ success: true, updated: 0, skipped: [], usedAi: false, message: 'No product uses a brand name.' });
       let aiOk = true;
       try {
-        d.getAI();
+        d.getAI(uid);
       } catch {
         aiOk = false;
       }

@@ -324,6 +324,40 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     steps: ['Neeche se Copilot kholein.', 'Is page ke baare mein hukm ya sawal likhein, jaise "is hafte ke orders ka khulasa".', '"Run" dabayein. Bari tabdeeli se pehle tasdeeq maangi jati hai.'],
   },
 
+  // =============================================================== SELLER: apni AI key
+  'seller.aiKeys': {
+    title: 'Meri AI keys (apna muft AI)',
+    what: 'Apni Gmail ki muft Gemini key lagayein: aap ka AI Assistant, "Write with AI" aur Shop Coach pehle aap ki key se chalenge, kabhi intezar nahi.',
+    steps: [
+      'Seller Center mein "AI Assistant" tab kholein; neeche "My AI keys" ka hissa hai.',
+      'Rangeen button "Create Gemini API key" dabayein; Google AI Studio khul jata hai.',
+      'Apni Gmail se login karein.',
+      '"Create API key" dabayein; poochhe to "Create API key in new project" chunein.',
+      'Nayi key ke saath wala COPY button dabayein (list mein chhupi / chhoti key copy na karein).',
+      'Wapis aa kar box mein paste karein aur "Add key(s)" dabayein. Key check ho kar list mein "ready" (hara) aa jati hai.',
+      'Zyada AI chahiye to doosre project / Gmail ki aur keys bhi daal sakte hain (20 tak).',
+    ],
+    tips: [
+      'Aap ki key sirf aap ki dukaan ke kaam aati hai; kisi ko nazar nahi aati, store bhi poori key nahi dekh sakta.',
+      'Ek hi project ki doosri key nahi lagti (ek project = ek had). "Check projects" se pehle wali keys check karein.',
+      'Key na ho ya aap ki had khatam ho jaye to store ka AI chalta hai, jo kabhi busy ho sakta hai.',
+      'Key hatani ho to list mein laal "Remove" dabayein.',
+    ],
+  },
+  'seller.tab.AI': {
+    title: 'AI Assistant (aap ka madadgar)',
+    what: 'Apni dukaan ke baare mein AI se baat karein: orders, sales, descriptions, stock.',
+    steps: [
+      'AI Assistant tab kholein.',
+      'Neeche box mein apna sawal likhein, jaise "kal ke orders dikhao" ya "kam stock wale products batao".',
+      'Enter ya bhejne ka button dabayein. AI jawab dega.',
+      'Agar AI koi tabdeeli (jaise description) tajweez kare to woh tab tak lagu nahi hoti jab tak aap "Apply" na dabayein.',
+      'Nayi baat shuru karni ho to "New chat" dabayein.',
+      'Behtar aur tez AI ke liye neeche "My AI keys" mein apni muft Gemini key lagayein (us ka apna ? dekhein).',
+    ],
+    tips: ['AI sirf aap ki apni dukaan par kaam karta hai.', 'Qeemat aur account settings AI kabhi khud nahi badalta.'],
+  },
+
   // =============================================================== SELLER: registration aur baqi
   'seller.signup': {
     title: 'Seller banna (registration ke 4 qadam)',

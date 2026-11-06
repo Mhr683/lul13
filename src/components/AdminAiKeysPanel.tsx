@@ -17,21 +17,25 @@ interface KeyRow {
   lastError: string;
 }
 
-export const AdminAiKeysPanel: React.FC = () => {
+export const AdminAiKeysPanel: React.FC<{
+  /** '/api/admin/ai-keys' (store keys) or '/api/seller/ai-keys' (a seller's own keys) */
+  apiBase?: string;
+  forSeller?: boolean;
+}> = ({ apiBase = '/api/admin/ai-keys', forSeller = false }) => {
   const [data, setData] = useState<{ fromEnv: number; keys: KeyRow[] } | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
-    api('/api/admin/ai-keys').then(setData, (e) => setMsg({ ok: false, text: e.message }));
+    api(apiBase).then(setData, (e) => setMsg({ ok: false, text: e.message }));
   }, []);
 
   const add = async () => {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await api<any>('/api/admin/ai-keys', { method: 'POST', body: JSON.stringify({ key: draft.trim() }) });
+      const r = await api<any>(apiBase, { method: 'POST', body: JSON.stringify({ key: draft.trim() }) });
       setData(r);
       setDraft('');
       setMsg({ ok: true, text: r.note || 'Key added.' });
@@ -49,7 +53,7 @@ export const AdminAiKeysPanel: React.FC = () => {
     setChecking(true);
     setMsg(null);
     try {
-      setProjects(await api('/api/admin/ai-keys/check-projects', { method: 'POST' }));
+      setProjects(await api(`${apiBase}/check-projects`, { method: 'POST' }));
     } catch (e: any) {
       setMsg({ ok: false, text: e.message });
     } finally {
@@ -60,7 +64,7 @@ export const AdminAiKeysPanel: React.FC = () => {
   const remove = async (k: KeyRow) => {
     if (!window.confirm(`Remove the AI key ${k.key}?`)) return;
     try {
-      setData(await api('/api/admin/ai-keys/remove', { method: 'POST', body: JSON.stringify({ key: k.key }) }));
+      setData(await api(`${apiBase}/remove`, { method: 'POST', body: JSON.stringify({ key: k.key }) }));
     } catch (e: any) {
       setMsg({ ok: false, text: e.message });
     }
@@ -69,8 +73,16 @@ export const AdminAiKeysPanel: React.FC = () => {
   return (
     <div className="border border-black/15 p-4 space-y-3 text-xs text-[#141413]">
       <div className="font-bold text-sm inline-flex items-center gap-2">
-        <Sparkles className="w-4 h-4" /> AI keys (Gemini) — backup keys keep the AI working <HelpDot id="admin.aiKeys" />
+        <Sparkles className="w-4 h-4" /> {forSeller ? 'My AI keys (Gemini) — your own free AI' : 'AI keys (Gemini) — backup keys keep the AI working'}{' '}
+        <HelpDot id={forSeller ? 'seller.aiKeys' : 'admin.aiKeys'} />
       </div>
+      {forSeller && (
+        <p className="p-2.5 bg-violet-50 border border-violet-200 text-violet-950">
+          Your AI Assistant, "Write with AI" descriptions and Shop Coach use <strong>your own</strong> free Gemini key first, so your AI
+          never waits for others. Without a key (or when your keys' daily limit is used) the store's shared AI is used, which can be
+          busy. Your key is used only for your shop and is never shown to anyone.
+        </p>
+      )}
       <p className="text-[#575653]">
         Every free key has a daily limit. Add several keys: when one key's limit is used up, the
         next key is used by itself. The free limit belongs to each Google Cloud <strong>project</strong>, so create every key with "Create API key in new project" (one Gmail can have about 10 projects).
@@ -89,7 +101,10 @@ export const AdminAiKeysPanel: React.FC = () => {
           Press "Create API key" (choose "Create API key in new project" if asked). Then press the <strong>copy</strong> button next to the
           new key. Do not copy the shortened key shown in the list.
         </li>
-        <li>Paste it below and press Add. You can paste many keys at once, one per line. There is no limit on the number of keys.</li>
+        <li>
+          Paste it below and press Add. You can paste many keys at once, one per line.{' '}
+          {forSeller ? 'Up to 20 keys.' : 'There is no limit on the number of keys.'}
+        </li>
       </ol>
       {data && (
         <div className="space-y-1">
