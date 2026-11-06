@@ -6025,7 +6025,8 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
   // One key, or many pasted together (one per line, or separated by spaces / commas)
   const pasted = String(req.body?.key || '')
     .split(/[\s,;]+/)
-    .map((k) => k.trim())
+    // quotes / brackets copied along with the key are dropped
+    .map((k) => k.trim().replace(/^["'`([{<]+|["'`)\]}>.,]+$/g, ''))
     .filter(Boolean)
     .slice(0, 50);
   if (!pasted.length) return res.status(400).json({ error: 'Paste a key first.' });
@@ -6033,8 +6034,13 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
   const notes: string[] = [];
   for (const key of Array.from(new Set(pasted))) {
     const label = `••••${key.slice(-4)}`;
-    if (!/^[A-Za-z0-9_\-]{30,60}$/.test(key)) {
-      notes.push(`${label}: not a Gemini key (it starts with "AIza" and has about 39 letters).`);
+    // Older keys: "AIza" + 35 characters; newer ones can be longer and contain dots
+    if (key.includes('...') || key.includes('•') || key.includes('*')) {
+      notes.push(`${label}: this is the hidden (shortened) key from the list. In AI Studio press the copy button next to the key and paste again.`);
+      continue;
+    }
+    if (!/^[A-Za-z0-9_.\-]{30,200}$/.test(key)) {
+      notes.push(`${label}: this does not look like a full Gemini key (${key.length} characters). Copy it again with the copy button in AI Studio.`);
       continue;
     }
     if (allAiKeys().includes(key) || added.includes(key)) {
@@ -6048,10 +6054,18 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
       added.push(key);
     } catch (err: any) {
       const msg = String(err?.message || err);
-      if (/quota|RESOURCE_EXHAUSTED|429/i.test(msg)) {
-        notes.push(`${label}: saved; today's free limit is already used, it works after the daily reset.`);
+      console.warn(`[ai-keys] test of key ${label} (${key.length} chars) failed:`, msg.slice(0, 300));
+      if (/quota|RESOURCE_EXHAUSTED|429|high demand|UNAVAILABLE|503|500/i.test(msg)) {
+        // The key itself works; only the limit or Google's load stopped the test
+        notes.push(`${label}: saved (Google is busy or today's free limit is used; it will work by itself).`);
         added.push(key);
-      } else notes.push(`${label}: Google did not accept it (${msg.slice(0, 100)}).`);
+      } else if (/API key not valid|API_KEY_INVALID|invalid api key/i.test(msg)) {
+        notes.push(`${label}: Google says this key is not valid. Copy it again with the copy button (a brand-new key can take 1-2 minutes to start working).`);
+      } else if (/has not been used|is disabled|SERVICE_DISABLED|PERMISSION_DENIED|403/i.test(msg)) {
+        notes.push(`${label}: the Gemini API is switched off for this key's project. Create the key in AI Studio (aistudio.google.com/apikey) with "Create API key in new project".`);
+      } else if (/location|region|not supported/i.test(msg)) {
+        notes.push(`${label}: Google does not allow this key from this country / account.`);
+      } else notes.push(`${label}: Google did not accept it (${msg.slice(0, 140)}).`);
     }
   }
   if (!added.length) return res.status(400).json({ error: notes.join(' ') });
