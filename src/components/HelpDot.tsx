@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import { HELP_GUIDES } from '../data/helpGuides';
+import { HELP_GUIDES as BASE_GUIDES } from '../data/helpGuides';
+import { HELP_GUIDES_MORE } from '../data/helpGuidesMore';
+
+// The detailed second-round guides replace the shorter ones with the same id
+const HELP_GUIDES = { ...BASE_GUIDES, ...HELP_GUIDES_MORE };
 
 // A small colourful "?" circle next to a function in Admin and Seller Center. Clicking it opens that
 // function's guide: what it does and how to do it, step by step (src/data/helpGuides.ts). It works

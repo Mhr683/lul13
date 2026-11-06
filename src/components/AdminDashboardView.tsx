@@ -3351,7 +3351,7 @@ export const AdminDashboardView: React.FC<{
                     className="px-3 py-1.5 bg-[#C5A059] text-black text-xs font-bold flex items-center gap-1.5 hover:bg-[#B38F48] transition-colors cursor-pointer shadow-sm rounded-sm"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-black" />
-                    <span>Test Customer Message &amp; AI Reply</span>
+                    <span>Test Customer Message &amp; AI Reply</span> <HelpDot id="admin.inboxTest" />
                   </button>
                   <button
                     onClick={fetchInboxTickets}
@@ -4093,7 +4093,7 @@ export const AdminDashboardView: React.FC<{
               <div className="space-y-4">
                 <div className="border-b-2 border-black pb-2 flex items-center justify-between">
                   <h2 className="text-xs font-black uppercase tracking-wider text-[#141413]">
-                    01. Central Merchant &amp; Dual-Currency Settings
+                    01. Central Merchant &amp; Dual-Currency Settings <HelpDot id="admin.settings.identity" />
                   </h2>
                   <span className="text-[11px] font-mono font-bold text-[#141413] bg-[#EFEFEA] px-2.5 py-0.5 border border-black/20 rounded">
                     PKR Base Currency
@@ -4200,7 +4200,7 @@ export const AdminDashboardView: React.FC<{
               <div className="space-y-4">
                 <div className="border-b-2 border-black pb-2 flex items-center justify-between">
                   <h2 className="text-xs font-black uppercase tracking-wider text-[#141413]">
-                    02. Pakistan Domestic Shipping Calculator
+                    02. Pakistan Domestic Shipping Calculator <HelpDot id="admin.settings.domesticShipping" />
                   </h2>
                   <span className="text-[11px] font-mono font-bold text-emerald-900 bg-emerald-100 px-2.5 py-0.5 border border-emerald-300 rounded">
                     TCS / Leopards Active
@@ -4255,7 +4255,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="flex flex-wrap items-center justify-between border-b-2 border-black pb-3 gap-2">
                   <div>
                     <h2 className="text-xs font-black uppercase tracking-wider text-[#141413]">
-                      03. Payment Gateways &amp; API Credentials
+                      03. Payment Gateways &amp; API Credentials <HelpDot id="admin.settings.gateways" />
                     </h2>
                     <p className="text-xs text-[#141413] font-semibold mt-1">
                       Configure your official JazzCash, Easypaisa, Google Maps, and banking credentials. You can update these anytime when ready.
@@ -4270,7 +4270,7 @@ export const AdminDashboardView: React.FC<{
                 {/* Online gateway credentials are never stored in the public settings document; the panel
                     below sends them to the server, which keeps them in settings_private/payment. */}
                 <div className="p-4 sm:p-5 bg-amber-50 border-2 border-amber-300 space-y-2 rounded-xs text-xs text-[#141413]">
-                  <div className="font-bold">Online payments (JazzCash / Easypaisa / cards)</div>
+                  <div className="font-bold">Online payments (JazzCash / Easypaisa / cards) <HelpDot id="admin.payments" /></div>
                   <p className="font-semibold">
                     The store currently accepts Cash on Delivery and bank / NayaPay / Raast transfers (with TID).
                     To add an online gateway, first open a merchant account (Safepay, PayFast, JazzCash or Easypaisa).
@@ -4291,7 +4291,7 @@ export const AdminDashboardView: React.FC<{
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-[#141413]">Google Maps Platform API Key</span>
+                          <span className="text-xs font-bold text-[#141413]">Google Maps Platform API Key <HelpDot id="admin.settings.maps" /></span>
                           <span className={`text-[11px] px-2 py-0.5 rounded font-mono font-bold ${settings.googleMapsApiKey ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-blue-100 text-blue-900 border border-blue-300'}`}>
                             {settings.googleMapsApiKey ? 'Custom Key Active' : 'Default Prototype Key Active'}
                           </span>
@@ -4331,7 +4331,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-3 rounded-xs">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#141413]">Cash on Delivery (COD) <HelpDot id="admin.payments" /></span>
+                      <span className="text-xs font-bold text-[#141413]">Cash on Delivery (COD) <HelpDot id="admin.settings.cod" /></span>
                       <p className="text-xs text-[#141413] font-semibold mt-0.5">Available for Pakistan domestic shipping with courier reconciliation.</p>
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
@@ -4374,7 +4374,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-3 rounded-xs">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#141413]">NayaPay Merchant Wallet</span>
+                      <span className="text-xs font-bold text-[#141413]">NayaPay Merchant Wallet <HelpDot id="admin.settings.nayapay" /></span>
                       <p className="text-xs text-[#141413] font-semibold mt-0.5">Manual TID verification. Displays at checkout only when enabled and details configured.</p>
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
@@ -4427,7 +4427,7 @@ export const AdminDashboardView: React.FC<{
                 <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-3 rounded-xs">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#141413]">RAAST Instant &amp; Bank Transfer (Domestic &amp; International)</span>
+                      <span className="text-xs font-bold text-[#141413]">RAAST Instant &amp; Bank Transfer (Domestic &amp; International) <HelpDot id="admin.settings.raast" /></span>
                       <p className="text-xs text-[#141413] font-semibold mt-0.5">Manual ledger reconciliation. Displays at checkout only when enabled and account details exist.</p>
                     </div>
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
@@ -4489,7 +4489,7 @@ export const AdminDashboardView: React.FC<{
                 {/* Save Credentials Notification Bar */}
                 <div className="flex items-center justify-between p-4 sm:p-5 bg-[#141413] text-[#FBFBF9] border-2 border-black rounded-xs shadow-md">
                   <div>
-                    <div className="text-xs font-bold uppercase tracking-wider text-[#FBFBF9]">Store Treasury Settings Active</div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-[#FBFBF9]">Store Treasury Settings Active <HelpDot id="admin.settings.saveAll" /></div>
                     <p className="text-xs text-[#EFEFEA] font-semibold mt-0.5">
                       All changes are automatically saved to your store configuration and live at checkout.
                     </p>
@@ -4521,10 +4521,10 @@ export const AdminDashboardView: React.FC<{
               <div className="space-y-4">
                 <div className="border-b-2 border-black pb-2 flex items-center justify-between">
                   <h2 className="text-xs font-black uppercase tracking-wider text-[#141413]">
-                    05. 24/7 Client Helpline &amp; WhatsApp Concierge Configuration
+                    05. 24/7 Client Helpline &amp; WhatsApp Concierge Configuration <HelpDot id="admin.helpline" />
                   </h2>
                   <span className="text-[11px] font-mono font-bold text-emerald-900 bg-emerald-100 px-2.5 py-0.5 border border-emerald-300 rounded">
-                    Active Multi-Channel Helpline <HelpDot id="admin.helpline" />
+                    Active Multi-Channel Helpline
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
@@ -4745,7 +4745,7 @@ export const AdminDashboardView: React.FC<{
         <div className="w-96 border-l border-black/[0.08] bg-white flex flex-col h-screen sticky top-0">
           <div className="p-4 border-b border-black/[0.08] flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#86672A]">
-              AI Store Copilot
+              AI Store Copilot <HelpDot id="admin.copilot" />
             </span>
             <button
               onClick={() => setCopilotDrawerOpen(false)}

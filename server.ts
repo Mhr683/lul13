@@ -6333,10 +6333,22 @@ async function startServer() {
       admin: { manifest: '/manifest-admin.webmanifest', icon: '/admin-apple-touch-icon.png', title: 'Admin', theme: '#1E3A8A', name: 'Store Admin' },
     };
     const portalHtml = new Map<string, string>();
+    let portalHtmlBuiltAt = 0;
     app.get('*', (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       const portal = /^\/(seller|admin)(\/|$)/i.exec(req.path)?.[1]?.toLowerCase();
       if (!portal) return res.sendFile(path.join(distPath, 'index.html'));
+      // A new build replaces index.html: the kept copies are made again, so a new version of Seller
+      // Center / admin goes live without restarting the server
+      try {
+        const builtAt = fs.statSync(path.join(distPath, 'index.html')).mtimeMs;
+        if (builtAt !== portalHtmlBuiltAt) {
+          portalHtml.clear();
+          portalHtmlBuiltAt = builtAt;
+        }
+      } catch {
+        /* keep the copies */
+      }
       let html = portalHtml.get(portal);
       if (!html) {
         const p = portalHead[portal];

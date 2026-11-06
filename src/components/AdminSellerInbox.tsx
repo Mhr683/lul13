@@ -450,7 +450,7 @@ const NoticesPanel: React.FC<{ sellers: SellerOption[] }> = ({ sellers }) => {
           }
         }}
       >
-        <h2 className="sm:col-span-2 text-lg font-display">Send a notice / alert</h2>
+        <h2 className="sm:col-span-2 text-lg font-display">Send a notice / alert <HelpDot id="admin.sellerNotice" /></h2>
         <div>
           <label className={labelCls}>Send to</label>
           <select className={inputCls} value={form.audience} onChange={set('audience')}>

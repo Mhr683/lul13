@@ -456,7 +456,7 @@ export const AdminSellerDetail: React.FC<{ id: string; onBack: () => void }> = (
 
       {/* Payouts */}
       <section className="space-y-2">
-        <h2 className="text-sm font-bold">Payouts</h2>
+        <h2 className="text-sm font-bold">Payouts <HelpDot id="admin.sellers.payout" /></h2>
         {data.payouts.length === 0 ? (
           <p className="p-4 bg-white border border-black/10 text-[#575653]">No payouts yet.</p>
         ) : (

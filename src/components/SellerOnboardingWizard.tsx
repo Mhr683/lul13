@@ -9,6 +9,7 @@ import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services
 import { KYC_LABELS, KYC_MAX_BYTES, idDocTypeFor, requiredKyc, type IdDocType, type KycKind } from '../services/sellerOnboarding';
 import { PolicyDocument } from './PolicyDocument';
 import { SUPPLIER_CODE } from '../data/policies';
+import { HelpDot } from './HelpDot';
 
 // Seller sign-up in four steps (shop → identity → warehouse & payout → review), with a progress bar.
 // What is typed is kept on this device until the application is sent, so a seller can stop and
@@ -305,7 +306,7 @@ export const SellerOnboardingWizard: React.FC<{
       <div>
         <h1 className="text-2xl font-display">Open your shop on {storeName}</h1>
         <p className="text-xs text-[#575653]">
-          Four short steps. Your ID, documents and bank details are seen only by the store team, for verification and payouts.
+          Four short steps. Your ID, documents and bank details are seen only by the store team, for verification and payouts. <HelpDot id="seller.signup" />
           What you type is kept on this device until you send it.
         </p>
       </div>

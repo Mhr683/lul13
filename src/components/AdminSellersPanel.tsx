@@ -244,7 +244,7 @@ export const AdminSellersPanel: React.FC = () => {
       {/* Default commission */}
       <div className="p-4 bg-white border border-black/10 flex flex-wrap items-end gap-3 text-xs">
         <div>
-          <label className="block font-bold mb-1">Default commission (% of each seller sale)</label>
+          <label className="block font-bold mb-1">Default commission (% of each seller sale) <HelpDot id="admin.sellers.commission" /></label>
           <input
             value={commissionDraft}
             onChange={(e) => setCommissionDraft(e.target.value)}
@@ -398,7 +398,7 @@ export const AdminSellersPanel: React.FC = () => {
                     onClick={() => update(s, { status: 'APPROVED', statusReason: '' }, `${s.shopName} approved.`)}
                     className="px-3 py-1.5 bg-emerald-700 text-white font-semibold cursor-pointer disabled:opacity-50"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" /> Approve
+                    <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" /> Approve <HelpDot id="admin.sellers.approve" />
                   </button>
                 )}
                 {s.status === 'PENDING' && (
@@ -461,7 +461,7 @@ export const AdminSellersPanel: React.FC = () => {
 
       {/* Payout history */}
       <div className="bg-white border border-black/10">
-        <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Payout history</div>
+        <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Payout history <HelpDot id="admin.sellers.payout" /></div>
         {payouts.length === 0 ? (
           <p className="p-4 text-xs text-[#575653]">No payouts yet.</p>
         ) : (

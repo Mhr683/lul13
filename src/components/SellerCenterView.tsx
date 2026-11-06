@@ -497,7 +497,7 @@ export const SellerCenterView: React.FC = () => {
             ·{' '}
             <button type="button" onClick={() => setTab('RULES')} className="font-semibold text-[#0E7A43] underline cursor-pointer">
               Seller rules
-            </button>
+            </button> <HelpDot id="seller.tab.RULES" />
           </p>
         </div>
       </div>
@@ -1050,7 +1050,7 @@ const ReturnsTab: React.FC = () => {
                   }}
                   className="text-[#0E7A43] font-semibold underline cursor-pointer"
                 >
-                  {r.sellerResponse ? 'Edit your reply' : 'Give your side'}
+                  {r.sellerResponse ? 'Edit your reply' : 'Give your side'} <HelpDot id="seller.returns.reply" />
                 </button>
               ))}
           </div>
@@ -1207,7 +1207,7 @@ const ReviewsTab: React.FC<{ onSeen: () => void }> = ({ onSeen }) => {
       </section>
 
       <section className="p-4 bg-white border border-black/10 space-y-2">
-        <h2 className="text-sm font-bold">Customer reviews</h2>
+        <h2 className="text-sm font-bold">Customer reviews <HelpDot id="seller.reviews.reply" /></h2>
         {data.feedback.length === 0 ? (
           <p className="text-xs text-[#575653]">No reviews yet. Customers can rate you after their order is delivered.</p>
         ) : (
@@ -2157,7 +2157,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             <input className={inputCls} value={editing.price} onChange={set('price')} inputMode="decimal" />
           </div>
           <div>
-            <label className={labelCls}>Old price (shown crossed out, optional)</label>
+            <label className={labelCls}>Old price (shown crossed out, optional) <HelpDot id="seller.product.price" /></label>
             <input className={inputCls} value={editing.compareAtPrice} onChange={set('compareAtPrice')} inputMode="decimal" />
           </div>
           <div>
@@ -2302,7 +2302,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             />
           </div>
           <div className="sm:col-span-2">
-            <label className={labelCls}>Key features (bullet points, one per line)</label>
+            <label className={labelCls}>Key features (bullet points, one per line) <HelpDot id="seller.product.keyfeatures" /></label>
             <textarea
               className={inputCls}
               rows={5}
@@ -2317,7 +2317,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             <input className={inputCls} value={editing.weightKg} onChange={set('weightKg')} inputMode="decimal" />
           </div>
           <div>
-            <label className={labelCls}>Status</label>
+            <label className={labelCls}>Status <HelpDot id="seller.product.status" /></label>
             <select className={inputCls} value={editing.status} onChange={set('status')}>
               <option value="ACTIVE">Live (visible in the store)</option>
               <option value="DRAFT">Draft (hidden)</option>
@@ -2909,7 +2909,7 @@ const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<v
               onClick={() => setComposing(true)}
               className="px-4 py-1.5 bg-[#141413] text-white font-bold flex items-center gap-1 cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> New complaint / message
+              <Plus className="w-4 h-4" /> New complaint / message <HelpDot id="seller.messages.new" />
             </button>
           </div>
         </div>
@@ -2973,7 +2973,7 @@ const NewThreadForm: React.FC<{ onCancel: () => void; onSent: (id: string) => vo
         }
       }}
     >
-      <h2 className="sm:col-span-2 text-lg font-display">New complaint / message to the store</h2>
+      <h2 className="sm:col-span-2 text-lg font-display">New complaint / message to the store <HelpDot id="seller.messages.new" /></h2>
       <div>
         <label className={labelCls}>What is it about?</label>
         <select className={inputCls} value={form.category} onChange={set('category')}>
@@ -3159,7 +3159,7 @@ const EarningsTab: React.FC = () => {
         </div>
       )}
       <div className="bg-white border border-black/10">
-        <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Payouts</div>
+        <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Payouts <HelpDot id="seller.earnings.payouts" /></div>
         {data.payouts.length === 0 ? (
           <p className="p-4 text-xs text-[#575653]">No payouts yet.</p>
         ) : (

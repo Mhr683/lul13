@@ -137,7 +137,7 @@ export const AdminGrowthPanel: React.FC = () => {
       <div className="grid gap-4 lg:grid-cols-2">
         <div className={box}>
           <div className="font-bold flex items-center gap-1.5 text-sm">
-            <Gift className="w-4 h-4 text-[#0E7A43]" /> Welcome discount (first order)
+            <Gift className="w-4 h-4 text-[#0E7A43]" /> Welcome discount (first order) <HelpDot id="admin.growth.welcome" />
           </div>
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={welcome.enabled} onChange={(e) => setWelcome({ ...welcome, enabled: e.target.checked })} /> New visitors see a popup with the code
@@ -153,7 +153,7 @@ export const AdminGrowthPanel: React.FC = () => {
 
         <div className={box}>
           <div className="font-bold flex items-center gap-1.5 text-sm">
-            <Users className="w-4 h-4 text-[#0E7A43]" /> Refer & Earn
+            <Users className="w-4 h-4 text-[#0E7A43]" /> Refer & Earn <HelpDot id="admin.growth.refer" />
           </div>
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={referral.enabled} onChange={(e) => setReferral({ ...referral, enabled: e.target.checked })} /> Customers get a share link in My Account
@@ -196,7 +196,7 @@ export const AdminGrowthPanel: React.FC = () => {
       {/* Flash deals */}
       <div className={box}>
         <div className="font-bold flex items-center gap-1.5 text-sm">
-          <Zap className="w-4 h-4 text-[#B91C1C]" /> Flash deals (Anokhi Daily Deals, with a countdown)
+          <Zap className="w-4 h-4 text-[#B91C1C]" /> Flash deals (Anokhi Daily Deals, with a countdown) <HelpDot id="admin.growth.flash" />
         </div>
         <div className="flex flex-wrap gap-2 items-center">
           <input className={`${input} w-64`} value={dealQuery} onChange={(e) => setDealQuery(e.target.value)} placeholder="Search a product by name or SKU" />
@@ -250,7 +250,7 @@ export const AdminGrowthPanel: React.FC = () => {
       <div className={box}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="font-bold flex items-center gap-1.5 text-sm">
-            <CalendarHeart className="w-4 h-4 text-[#0E7A43]" /> Event & festival zones (Eid, Black Friday, New Year...)
+            <CalendarHeart className="w-4 h-4 text-[#0E7A43]" /> Event & festival zones (Eid, Black Friday, New Year...) <HelpDot id="admin.growth.campaign" />
           </div>
           <div className="flex flex-wrap gap-1">
             {presets.map((p) => (

@@ -3,6 +3,7 @@ import { Upload, RotateCcw } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { getAuthHeaders } from '../lib/firebase';
 import { BrandLogo } from './BrandLogo';
+import { HelpDot } from './HelpDot';
 
 // Admin → Store settings: upload the store's own logo (shown in the store, Seller Center and admin
 // headers and the footer), or go back to the built-in "AS" logo.
@@ -57,7 +58,7 @@ export const StoreLogoUploader: React.FC = () => {
 
   return (
     <div className="space-y-2">
-      <label className="block text-[#141413] font-bold text-xs">Store logo</label>
+      <label className="block text-[#141413] font-bold text-xs">Store logo <HelpDot id="admin.logo" /></label>
       <div className="flex flex-wrap items-center gap-3 p-3 bg-white border-2 border-black/15">
         <BrandLogo name={settings.storeName} />
         <span className="flex-1" />

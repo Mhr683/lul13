@@ -63,7 +63,7 @@ export const AdminPaymentKeysPanel: React.FC = () => {
   return (
     <div className="p-4 sm:p-5 bg-[#F9F9F7] border-2 border-black/20 space-y-3 rounded-xs text-xs text-[#141413]">
       <div className="flex items-center gap-2 font-bold">
-        <KeyRound className="w-4 h-4" /> JazzCash / Easypaisa merchant keys <HelpDot id="admin.payments" />
+        <KeyRound className="w-4 h-4" /> JazzCash / Easypaisa merchant keys <HelpDot id="admin.settings.paymentKeys" />
       </div>
       <p className="font-semibold">
         Keys are stored privately on the server and are never shown again or sent to visitors. Leave a box empty to

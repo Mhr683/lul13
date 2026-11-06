@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Download, PlugZap, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
+import { HelpDot } from './HelpDot';
 
 // Traffic & Conversion → Ads & ROAS: Meta, Google Ads and TikTok spend (synced every 6 hours from the
 // platforms' APIs, keys in the server .env) against the orders and revenue our own tracking credits
@@ -115,7 +116,7 @@ export const AdminAdsSection: React.FC<{ from: string; to: string }> = ({ from, 
     <div className="p-4 bg-white border border-black/10 rounded-lg space-y-4 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="font-bold text-sm">Ads & ROAS</div>
+          <div className="font-bold text-sm">Ads & ROAS <HelpDot id="admin.traffic.ads" /></div>
           <div className="text-[#575653]">
             {data.syncedAt ? `Ad data synced ${new Date(data.syncedAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · every 6 hours` : 'Ad data not synced yet'}
             {' · '}ROAS = our revenue from the ad ÷ ad spend · USD spend at PKR {data.usdToPkr}
