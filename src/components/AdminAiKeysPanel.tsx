@@ -62,7 +62,7 @@ export const AdminAiKeysPanel: React.FC = () => {
       <ol className="list-decimal pl-5 text-[#575653] space-y-0.5">
         <li>Open aistudio.google.com/apikey and sign in with a Gmail.</li>
         <li>Press "Create API key" (choose "Create in new project" if asked), then copy the key (starts with AIza...).</li>
-        <li>Paste it below and press Add. Repeat with the next Gmail.</li>
+        <li>Paste it below and press Add. You can paste many keys at once, one per line. There is no limit on the number of keys.</li>
       </ol>
       {data && (
         <div className="space-y-1">
@@ -90,13 +90,15 @@ export const AdminAiKeysPanel: React.FC = () => {
         </div>
       )}
       <div className="flex flex-wrap gap-2">
-        <input
-          type="password"
+        <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Paste a Gemini API key (AIza...)"
+          placeholder={'Paste one or more Gemini API keys (AIza...), one per line'}
           autoComplete="off"
+          spellCheck={false}
+          rows={3}
           className="flex-1 min-w-[220px] px-2 py-1.5 border border-black/20 font-mono"
+          style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
         />
         <button
           type="button"
@@ -104,7 +106,7 @@ export const AdminAiKeysPanel: React.FC = () => {
           onClick={add}
           className="px-3 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer disabled:opacity-50"
         >
-          {busy ? 'Testing...' : 'Add key'}
+          {busy ? 'Testing keys...' : 'Add key(s)'}
         </button>
       </div>
       {msg && <p className={msg.ok ? 'text-emerald-800' : 'text-rose-700'}>{msg.text}</p>}

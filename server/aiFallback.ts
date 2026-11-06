@@ -11,6 +11,7 @@ const CHAIN = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemi
 const SKIP_MS = 3 * 60 * 1000;
 /** A used-up key is tried again after this (Google resets the free limit daily; per-minute limits sooner) */
 const KEY_REST_MS = 30 * 60 * 1000;
+const MAX_ATTEMPTS = 12;
 
 const busyUntil = new Map<string, number>();
 const keyRestUntil = new Map<string, number>();
@@ -61,16 +62,22 @@ export function withKeyPool(clients: Array<{ key: string; client: GoogleGenAI }>
     const keysReady = calls.filter((c) => (keyRestUntil.get(tail(c.key)) || 0) <= now);
     const keysResting = calls.filter((c) => (keyRestUntil.get(tail(c.key)) || 0) > now);
     let lastErr: any;
+    // At most this many tries per question, so a busy Google answers quickly instead of trying every
+    // model on every key (the store's own answers are used then)
+    let attempts = 0;
     for (const k of [...keysReady, ...keysResting]) {
+      if (attempts >= MAX_ATTEMPTS) break;
       const id = tail(k.key);
-      // Models that were busy a moment ago go last (still tried if all others fail)
-      const ready = models.filter((m) => (busyUntil.get(`${id}:${m}`) || 0) <= Date.now());
-      const resting = models.filter((m) => (busyUntil.get(`${id}:${m}`) || 0) > Date.now());
+      // Models that were busy a moment ago go last (a busy model is busy for every key)
+      const ready = models.filter((m) => (busyUntil.get(m) || 0) <= Date.now());
+      const resting = models.filter((m) => (busyUntil.get(m) || 0) > Date.now());
       let keyUsedUp = false;
-      for (const model of [...ready, ...resting]) {
+      // A few fresh models per key; when every model is busy, one try per key is enough
+      for (const model of ready.length ? ready.slice(0, 3) : resting.slice(0, 1)) {
+        if (attempts++ >= MAX_ATTEMPTS) break;
         try {
           const result = await k.call({ ...params, model });
-          busyUntil.delete(`${id}:${model}`);
+          busyUntil.delete(model);
           keyRestUntil.delete(id);
           keyStats.set(id, { ...keyStats.get(id), lastOkAt: Date.now() });
           return result;
@@ -84,7 +91,7 @@ export function withKeyPool(clients: Array<{ key: string; client: GoogleGenAI }>
             break;
           }
           if (!isBusy(err)) throw err;
-          busyUntil.set(`${id}:${model}`, Date.now() + SKIP_MS);
+          busyUntil.set(model, Date.now() + SKIP_MS);
           console.warn(`[ai] ${model} busy, trying the next model`);
         }
       }

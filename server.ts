@@ -6022,23 +6022,44 @@ app.get('/api/admin/ai-keys', requireAdmin, (req, res) => {
 });
 app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
   if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) return res.status(403).json({ error: 'Only the store owner or an admin can change AI keys.' });
-  const key = String(req.body?.key || '').trim();
-  if (!/^[A-Za-z0-9_\-]{30,60}$/.test(key)) return res.status(400).json({ error: 'This does not look like a Gemini API key (it starts with "AIza" and has about 39 letters).' });
-  if (allAiKeys().includes(key)) return res.status(400).json({ error: 'This key is already added.' });
-  // The key is tried once before it is saved, so a wrong key is caught now
-  let note = 'Key works.';
-  try {
-    const r = await newGeminiClient(key).models.generateContent({ model: 'gemini-3.1-flash-lite', contents: 'Reply with the word OK.' });
-    if (!r.text) note = 'Key saved (the test answer was empty).';
-  } catch (err: any) {
-    const msg = String(err?.message || err);
-    if (/quota|RESOURCE_EXHAUSTED|429/i.test(msg)) note = 'Key saved. Its free limit for today is already used; it will work after the daily reset.';
-    else return res.status(400).json({ error: `Google did not accept this key: ${msg.slice(0, 160)}` });
+  // One key, or many pasted together (one per line, or separated by spaces / commas)
+  const pasted = String(req.body?.key || '')
+    .split(/[\s,;]+/)
+    .map((k) => k.trim())
+    .filter(Boolean)
+    .slice(0, 50);
+  if (!pasted.length) return res.status(400).json({ error: 'Paste a key first.' });
+  const added: string[] = [];
+  const notes: string[] = [];
+  for (const key of Array.from(new Set(pasted))) {
+    const label = `••••${key.slice(-4)}`;
+    if (!/^[A-Za-z0-9_\-]{30,60}$/.test(key)) {
+      notes.push(`${label}: not a Gemini key (it starts with "AIza" and has about 39 letters).`);
+      continue;
+    }
+    if (allAiKeys().includes(key) || added.includes(key)) {
+      notes.push(`${label}: already added.`);
+      continue;
+    }
+    // Each key is tried once before it is saved, so a wrong key is caught now
+    try {
+      await newGeminiClient(key).models.generateContent({ model: 'gemini-3.1-flash-lite', contents: 'Reply with the word OK.' });
+      notes.push(`${label}: works.`);
+      added.push(key);
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      if (/quota|RESOURCE_EXHAUSTED|429/i.test(msg)) {
+        notes.push(`${label}: saved; today's free limit is already used, it works after the daily reset.`);
+        added.push(key);
+      } else notes.push(`${label}: Google did not accept it (${msg.slice(0, 100)}).`);
+    }
   }
+  if (!added.length) return res.status(400).json({ error: notes.join(' ') });
   try {
-    await AI_KEYS_DOC().set({ keys: [...adminAiKeys.map((k) => ({ key: k })), { key, addedAt: new Date().toISOString() }] }, { merge: true });
-    adminAiKeys = [...adminAiKeys, key];
-    res.json({ ...aiKeysView(), note });
+    const now = new Date().toISOString();
+    await AI_KEYS_DOC().set({ keys: [...adminAiKeys.map((k) => ({ key: k })), ...added.map((key) => ({ key, addedAt: now }))] }, { merge: true });
+    adminAiKeys = [...adminAiKeys, ...added];
+    res.json({ ...aiKeysView(), note: `${added.length} key(s) added. ${notes.join(' ')}` });
   } catch (err) {
     console.error('[ai-keys] save failed:', err);
     res.status(503).json({ error: 'The key was not saved. Please try again.' });
