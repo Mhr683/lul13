@@ -57,8 +57,8 @@ export const AdminAiKeysPanel: React.FC = () => {
         <Sparkles className="w-4 h-4" /> AI keys (Gemini) — backup keys keep the AI working <HelpDot id="admin.aiKeys" />
       </div>
       <p className="text-[#575653]">
-        Every free key has a daily limit. Add one key from <strong>each</strong> of your Gmail accounts: when one key's limit is used up, the
-        next key is used by itself. (Keys from the same Gmail share one limit, so use different Gmails.)
+        Every free key has a daily limit. Add several keys: when one key's limit is used up, the
+        next key is used by itself. The free limit belongs to each Google Cloud <strong>project</strong>, so create every key with "Create API key in new project" (one Gmail can have about 10 projects).
       </p>
       <a
         href="https://aistudio.google.com/apikey"

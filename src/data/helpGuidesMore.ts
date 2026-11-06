@@ -233,7 +233,9 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'List mein har key ke saath "ready" (hara) ya "limit used — resting" (peela).',
     ],
     tips: [
-      'Har key alag Gmail se banayein; ek Gmail ki saari keys ki had ek hi hoti hai.',
+      'Google ki free had har PROJECT ki alag hoti hai. Isliye har key "Create API key in new project" se banayein: ek hi Gmail mein bhi alag project = alag had.',
+      'Ek Gmail mein takreeban 10 project ban sakte hain; 3–4 Gmail kaafi hain.',
+      'AI Studio ki list mein har key ke saath project ka naam dikhta hai: ek hi project ki kai keys ki had ek hoti hai.',
       '"not valid" aaye to key dobara copy karein; bilkul nayi key 1–2 minute baad chalti hai.',
       'Keys kisi ko na bhejein.',
     ],
