@@ -55,6 +55,7 @@ import { ProductMediaEditor } from './ProductMediaEditor';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 import { HelpDot } from './HelpDot';
+import { FormSection, MoreMenu, OrderSteps, SegTabs, ui } from './SellerUi';
 import { SellerShell } from './SellerShell';
 import { AdminAiKeysPanel } from './AdminAiKeysPanel';
 
@@ -1501,37 +1502,40 @@ const OrdersTab: React.FC = () => {
     }
   };
 
+  const countOf = (f: 'OPEN' | 'SHIPPED' | 'DONE' | 'ALL') => {
+    const list = orders || [];
+    if (f === 'OPEN') return list.filter((o) => OPEN_STATUSES.includes(o.status)).length;
+    if (f === 'SHIPPED') return list.filter((o) => ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
+    if (f === 'DONE') return list.filter((o) => !OPEN_STATUSES.includes(o.status) && !['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
+    return list.length;
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {(
-          [
-            ['OPEN', 'To ship'],
-            ['SHIPPED', 'On the way'],
-            ['DONE', 'Completed / closed'],
-            ['ALL', 'All'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setFilter(id)}
-            className={`px-3 py-1.5 text-xs font-semibold border cursor-pointer ${
-              filter === id ? 'bg-[#141413] text-white border-[#141413]' : 'bg-white border-black/20'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-        <button type="button" onClick={load} className="ml-auto px-3 py-1.5 text-xs border border-black/20 bg-white cursor-pointer">
-          <RefreshCw className="w-3.5 h-3.5 inline mr-1" /> Refresh
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SegTabs
+          value={filter}
+          onChange={setFilter}
+          items={[
+            { id: 'OPEN', label: 'To ship', count: countOf('OPEN') },
+            { id: 'SHIPPED', label: 'On the way', count: countOf('SHIPPED') },
+            { id: 'DONE', label: 'Completed', count: countOf('DONE') },
+            { id: 'ALL', label: 'All', count: countOf('ALL') },
+          ]}
+        />
+        <button type="button" onClick={load} className={ui.secondary}>
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
         </button>
       </div>
 
       {orders === null ? (
         <p className="text-xs text-[#575653]">Loading orders...</p>
       ) : visible.length === 0 ? (
-        <p className="p-6 bg-white border border-black/10 text-xs text-[#575653] text-center">No orders in this list.</p>
+        <div className={`${ui.card} p-10 text-center`}>
+          <ShoppingCart className="w-8 h-8 mx-auto text-[#C9C6BE]" />
+          <p className="mt-2 text-sm font-semibold">No orders in this list</p>
+          <p className="text-xs text-[#8A8780]">New orders appear here as soon as a customer buys from your shop.</p>
+        </div>
       ) : (
         <div className="space-y-3">
           {visible.map((o) => (
@@ -1612,257 +1616,291 @@ const SellerOrderCard: React.FC<{
     }
   };
 
+  const isNew = ['PENDING_CONFIRMATION', 'PENDING'].includes(o.status);
+  const canPack = ['CONFIRMED', 'PROCESSING'].includes(o.status);
+  const showCourierBox = !closed && (o.courierBooking?.trackingNumber || (!shipped && o.status !== 'PENDING_CONFIRMATION' && apiCouriers.couriers.length > 0));
+  const trackingWhatsApp = whatsAppLink(
+    o.customerPhone,
+    `Hello ${o.customerName}!\n\nYour order #${o.orderNumber} has been handed to ${o.courierName || 'the courier'}.\n` +
+      `Tracking number: ${o.trackingNumber}\n` +
+      (o.paymentMethod === 'COD' ? `Please pay ${formatPKR(o.total)} on delivery.\n` : '') +
+      `Thank you! ${storeName}`
+  );
+
   return (
-    <div className="bg-white border border-black/10 p-4 space-y-3 text-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-sm">{o.orderNumber}</span>
-          <span className={`px-2 py-0.5 border text-[10px] font-bold ${statusTone(o.status)}`}>{statusLabel[o.status] || o.status}</span>
+    <div className={`${ui.card} text-xs`}>
+      {/* ---------------- header: number, status, payment, date, amount */}
+      <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2 border-b border-[#EFEDE8] bg-[#FBFBF9] rounded-t-2xl">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono font-bold text-[13px]">{o.orderNumber}</span>
+          <span className={`${ui.chip} ${statusTone(o.status)}`}>{statusLabel[o.status] || o.status}</span>
+          <span className={`${ui.chip} bg-white border-[#DCD9D2] text-[#3A3936]`}>{o.paymentMethod === 'COD' ? 'Cash on Delivery' : o.paymentMethod}</span>
+          {o.cancelRequest?.status === 'PENDING' && !closed && <span className={`${ui.chip} bg-rose-50 border-rose-300 text-rose-800`}>Cancel requested</span>}
         </div>
-        <span className="text-[#575653]">
-          {new Date(o.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <div className="font-bold text-[#141413]">Customer</div>
-          <div>{o.customerName}</div>
-          <div className="font-mono">{o.customerPhone}</div>
-          <div className="text-[#454441]">{o.shippingAddressSummary}</div>
-        </div>
-        <div>
-          <div className="font-bold text-[#141413]">Items</div>
-          {(o.items || []).map((it, i) => {
-            // Where this product comes from (private: the customer's order never shows it)
-            const source = normalizeSource(supplierFor(it.productId)?.supplierName);
-            return (
-              <div key={i} className="mb-1">
-                {it.quantity} × {it.name}
-                {it.variant ? <strong> ({it.variant})</strong> : null}{' '}
-                <span
-                  className={`inline-block px-1.5 py-0.5 border text-[10px] font-bold ${
-                    source === DIRECT_SOURCE ? 'bg-emerald-50 border-emerald-400 text-emerald-900' : 'bg-violet-100 border-violet-400 text-violet-950'
-                  }`}
-                >
-                  {source === DIRECT_SOURCE ? 'Direct seller' : `From ${source}`}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        <div>
-          <div className="font-bold text-[#141413]">Amount</div>
-          <div>
-            Customer pays: <strong>{formatPKR(o.total)}</strong> ({o.paymentMethod === 'COD' ? 'COD' : o.paymentMethod})
-          </div>
-          <div>
-            Commission ({o.commissionPercent}%): {formatPKR(o.commissionAmount)}
-          </div>
-          <div className="text-emerald-800 font-bold">Your earning: {formatPKR(o.sellerEarning)}</div>
-          {Number(o.supplierCost) > 0 && (
-            <>
-              <div>Supplier cost: {formatPKR(Number(o.supplierCost))}</div>
-              <div className={`font-bold ${profit >= 0 ? 'text-emerald-800' : 'text-rose-800'}`}>Profit: {formatPKR(profit)}</div>
-            </>
-          )}
-          {o.payoutId && <div className="text-emerald-800">✓ {o.payoutId === 'OWN_SHOP' ? 'Settled' : 'Paid out'}</div>}
+        <div className="flex items-center gap-3">
+          <span className="text-[#8A8780]">
+            {new Date(o.createdAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+          </span>
+          <span className="text-[14px] font-bold">{formatPKR(o.total)}</span>
         </div>
       </div>
 
-      {hasSupplier && !closed && !shipped && (
-        <div className="p-3 bg-violet-50 border border-violet-300 space-y-2">
-          <div className="font-bold text-violet-950">Order these items on the source app</div>
-          {(o.items || []).map((it, i) => {
-            const s = supplierFor(it.productId);
-            if (!s || isDirectSource(s.supplierName)) return null;
-            return (
-              <div key={i} className="text-[#141413]">
-                {it.quantity} × {it.name}
-                {it.variant ? ` (${it.variant})` : ''} — <strong>{normalizeSource(s.supplierName)}</strong>
-                {s.supplierSku ? ` · SKU ${s.supplierSku}` : ''}
-                {Number(s.supplierCostPrice) > 0 ? ` · cost ${formatPKR(Number(s.supplierCostPrice))}` : ''}
-                {s.supplierProductUrl && (
-                  <a href={s.supplierProductUrl} target="_blank" rel="noopener noreferrer" className="ml-2 underline text-violet-900">
-                    Open on {normalizeSource(s.supplierName)}
-                  </a>
-                )}
-              </div>
-            );
-          })}
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={copySupplierText} className={`${btn} bg-white border-violet-500 text-violet-950`}>
-              Copy order for supplier <HelpDot id="seller.order.supplier" />
-            </button>
-            {o.status === 'CONFIRMED' && (
-              <button type="button" disabled={busy} onClick={() => act(o, { status: 'PROCESSING' })} className={`${btn} bg-violet-700 text-white border-violet-700`}>
-                ✓ Sent to supplier
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      <div className="p-4 space-y-4">
+        <OrderSteps status={o.status} />
 
-      {/* The customer asked to cancel after the free-cancel time: accept (cancels the order) or decline */}
-      {!closed && o.cancelRequest?.status === 'PENDING' && (
-        <div className="p-3 bg-rose-50 border border-rose-300 space-y-2">
-          <div className="font-bold text-rose-900">
-            The customer asked to cancel this order: {o.cancelRequest.reason}
-            {o.cancelRequest.note ? ` — "${o.cancelRequest.note}"` : ''}
+        {/* ---------------- customer · items · money */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-1">
+            <div className={ui.label}>Customer</div>
+            <div className="font-semibold text-[13px]">{o.customerName}</div>
+            <a href={`tel:${o.customerPhone}`} className="font-mono text-[#0E7A43] font-semibold">
+              {o.customerPhone}
+            </a>
+            <div className="text-[#6B6963] leading-relaxed">{o.shippingAddressSummary}</div>
           </div>
-          <div className="text-[#454441]">
-            If the parcel is not packed yet, please accept. Decline only when it is already being packed or sent, and say why.
+          <div className="space-y-2">
+            <div className={ui.label}>Items</div>
+            {(o.items || []).map((it, i) => {
+              // Where this product comes from (private: the customer's order never shows it)
+              const source = normalizeSource(supplierFor(it.productId)?.supplierName);
+              return (
+                <div key={i} className="flex items-start gap-2">
+                  {it.image ? (
+                    <img src={it.image} alt="" className="w-10 h-10 rounded-lg object-cover border border-[#E7E5DF] shrink-0" />
+                  ) : (
+                    <span className="w-10 h-10 rounded-lg bg-[#F2F1EC] flex items-center justify-center shrink-0">
+                      <Package className="w-4 h-4 text-[#8A8780]" />
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-semibold leading-snug">
+                      {it.quantity} × {it.name}
+                      {it.variant ? <span className="text-[#6B6963]"> ({it.variant})</span> : null}
+                    </div>
+                    <span
+                      className={`${ui.chip} mt-0.5 ${
+                        source === DIRECT_SOURCE ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-violet-50 border-violet-300 text-violet-900'
+                      }`}
+                    >
+                      {source === DIRECT_SOURCE ? 'Direct seller' : `From ${source}`}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" disabled={busy} onClick={() => act(o, { status: 'CANCELLED' })} className={`${btn} bg-rose-700 text-white border-rose-700`}>
-              Accept and cancel order <HelpDot id="seller.order.cancelRequest" />
-            </button>
-            <input
-              value={declineReply}
-              onChange={(e) => setDeclineReply(e.target.value)}
-              placeholder="Why it cannot be cancelled (e.g. already packed)"
-              maxLength={200}
-              className="flex-1 min-w-[180px] px-2 py-1.5 border border-black/20 bg-white"
-            />
-            <button
-              type="button"
-              disabled={busy || declineReply.trim().length < 5}
-              onClick={() => act(o, { reply: declineReply.trim() }, '/api/seller/orders/cancel-request/decline')}
-              className={`${btn} bg-white border-black/30`}
-            >
-              Decline
-            </button>
-          </div>
-        </div>
-      )}
-
-      {!closed && (
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-black/10">
-          {['PENDING_CONFIRMATION', 'PENDING'].includes(o.status) && (
-            <>
-              <a
-                href={whatsAppLink(o.customerPhone, confirmText)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`${btn} bg-[#128C4A] text-white border-[#128C4A]`}
-              >
-                Confirm on WhatsApp
-              </a>
-              <button type="button" disabled={busy} onClick={() => act(o, { status: 'CONFIRMED' })} className={`${btn} bg-emerald-700 text-white border-emerald-700`}>
-                ✓ Confirm
-              </button>
-            </>
-          )}
-          {['CONFIRMED', 'PROCESSING'].includes(o.status) && (
-            <button type="button" disabled={busy} onClick={() => act(o, { status: 'PACKED' })} className={`${btn} bg-white border-black/30`}>
-              📦 Packed
-            </button>
-          )}
-          {!closed && (o.courierBooking?.trackingNumber || (!shipped && o.status !== 'PENDING_CONFIRMATION' && apiCouriers.couriers.length > 0)) && (
-            <div className="w-full">
-              <CourierBookBox
-                orderId={o.id}
-                couriers={apiCouriers.couriers}
-                defaultCourier={apiCouriers.defaultCourier}
-                apiBase="/api/seller/couriers"
-                defaultWeightKg={o.shippingCalculationSnapshot?.billableWeightKg}
-                booking={o.courierBooking}
-                onBooked={(p) => act(o, { status: 'SHIPPED', courierName: p.courierName, trackingNumber: p.trackingNumber })}
-              />
+          <div className="space-y-1 md:pl-4 md:border-l md:border-[#EFEDE8]">
+            <div className={ui.label}>Money</div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[#6B6963]">Customer pays</span>
+              <strong>{formatPKR(o.total)}</strong>
             </div>
-          )}          {!shipped && (
-            <span className="flex flex-wrap items-center gap-1">
-              <select value={courier} onChange={(e) => setCourier(e.target.value)} className="px-2 py-1.5 border border-black/20 bg-white">
-                {COURIERS.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+            <div className="flex justify-between gap-2">
+              <span className="text-[#6B6963]">Commission ({o.commissionPercent}%)</span>
+              <span>− {formatPKR(o.commissionAmount)}</span>
+            </div>
+            {Number(o.supplierCost) > 0 && (
+              <div className="flex justify-between gap-2">
+                <span className="text-[#6B6963]">Supplier cost</span>
+                <span>− {formatPKR(Number(o.supplierCost))}</span>
+              </div>
+            )}
+            <div className="flex justify-between gap-2 pt-1 mt-1 border-t border-dashed border-[#DCD9D2] text-emerald-800 font-bold">
+              <span>{Number(o.supplierCost) > 0 ? 'Your profit' : 'Your earning'}</span>
+              <span className={Number(o.supplierCost) > 0 && profit < 0 ? 'text-rose-700' : ''}>
+                {formatPKR(Number(o.supplierCost) > 0 ? profit : Number(o.sellerEarning))}
+              </span>
+            </div>
+            {o.payoutId && <div className="text-emerald-800 font-semibold">✓ {o.payoutId === 'OWN_SHOP' ? 'Settled' : 'Paid out'}</div>}
+          </div>
+        </div>
+
+        {hasSupplier && !closed && !shipped && (
+          <div className="p-3 rounded-xl bg-violet-50 border border-violet-200 space-y-2">
+            <div className="font-bold text-violet-950">Order these items on the source app</div>
+            {(o.items || []).map((it, i) => {
+              const sp = supplierFor(it.productId);
+              if (!sp || isDirectSource(sp.supplierName)) return null;
+              return (
+                <div key={i} className="text-[#141413]">
+                  {it.quantity} × {it.name}
+                  {it.variant ? ` (${it.variant})` : ''} — <strong>{normalizeSource(sp.supplierName)}</strong>
+                  {sp.supplierSku ? ` · SKU ${sp.supplierSku}` : ''}
+                  {Number(sp.supplierCostPrice) > 0 ? ` · cost ${formatPKR(Number(sp.supplierCostPrice))}` : ''}
+                  {sp.supplierProductUrl && (
+                    <a href={sp.supplierProductUrl} target="_blank" rel="noopener noreferrer" className="ml-2 font-semibold underline text-violet-900">
+                      Open on {normalizeSource(sp.supplierName)}
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={copySupplierText} className={ui.secondary}>
+                Copy order for supplier <HelpDot id="seller.order.supplier" />
+              </button>
+              {o.status === 'CONFIRMED' && (
+                <button type="button" disabled={busy} onClick={() => act(o, { status: 'PROCESSING' })} className={`${ui.primary} !bg-violet-700 hover:!bg-violet-800`}>
+                  ✓ Sent to supplier
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* The customer asked to cancel after the free-cancel time: accept (cancels the order) or decline */}
+        {!closed && o.cancelRequest?.status === 'PENDING' && (
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 space-y-2">
+            <div className="font-bold text-rose-900">
+              The customer asked to cancel this order: {o.cancelRequest.reason}
+              {o.cancelRequest.note ? ` — "${o.cancelRequest.note}"` : ''}
+            </div>
+            <div className="text-[#6B6963]">If the parcel is not packed yet, please accept. Decline only when it is already being packed or sent, and say why.</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" disabled={busy} onClick={() => act(o, { status: 'CANCELLED' })} className={ui.dangerSolid}>
+                Accept and cancel order <HelpDot id="seller.order.cancelRequest" />
+              </button>
               <input
-                value={tracking}
-                onChange={(e) => setTracking(e.target.value)}
-                placeholder="Courier tracking #"
-                className="w-36 px-2 py-1.5 border border-black/20 font-mono"
+                value={declineReply}
+                onChange={(e) => setDeclineReply(e.target.value)}
+                placeholder="Why it cannot be cancelled (e.g. already packed)"
+                maxLength={200}
+                className={`${ui.field} flex-1 min-w-[180px]`}
               />
               <button
                 type="button"
-                disabled={busy || tracking.trim().length < 4}
-                onClick={() => act(o, { status: 'SHIPPED', courierName: courier, trackingNumber: tracking.trim() })}
-                className={`${btn} bg-sky-700 text-white border-sky-700`}
+                disabled={busy || declineReply.trim().length < 5}
+                onClick={() => act(o, { reply: declineReply.trim() }, '/api/seller/orders/cancel-request/decline')}
+                className={ui.secondary}
               >
-                <Truck className="w-3.5 h-3.5 inline mr-1" /> Ship <HelpDot id="seller.order.ship" />
+                Decline
               </button>
-            </span>
-          )}
-          {o.status === 'SHIPPED' && (
-            <button type="button" disabled={busy} onClick={() => act(o, { status: 'OUT_FOR_DELIVERY' })} className={`${btn} bg-white border-sky-600 text-sky-900`}>
-              🛵 Out for delivery
-            </button>
-          )}
-          {shipped && (
-            <button type="button" disabled={busy} onClick={() => act(o, { status: 'DELIVERED' })} className={`${btn} bg-emerald-700 text-white border-emerald-700`}>
-              ✓ Delivered
-            </button>
-          )}
-          {shipped && o.trackingNumber && (
-            <a
-              href={whatsAppLink(
-                o.customerPhone,
-                `Hello ${o.customerName}!\n\nYour order #${o.orderNumber} has been handed to ${o.courierName || 'the courier'}.\n` +
-                  `Tracking number: ${o.trackingNumber}\n` +
-                  (o.paymentMethod === 'COD' ? `Please pay ${formatPKR(o.total)} on delivery.\n` : '') +
-                  `Thank you! ${storeName}`
+            </div>
+          </div>
+        )}
+
+        {showCourierBox && (
+          <CourierBookBox
+            orderId={o.id}
+            couriers={apiCouriers.couriers}
+            defaultCourier={apiCouriers.defaultCourier}
+            apiBase="/api/seller/couriers"
+            defaultWeightKg={o.shippingCalculationSnapshot?.billableWeightKg}
+            booking={o.courierBooking}
+            onBooked={(p) => act(o, { status: 'SHIPPED', courierName: p.courierName, trackingNumber: p.trackingNumber })}
+          />
+        )}
+
+        {/* ---------------- next step: one main button, the rest in "More" */}
+        {!closed && (
+          <div className="pt-3 border-t border-[#EFEDE8] space-y-3">
+            {!shipped && !isNew && (
+              <div className="p-3 rounded-xl bg-[#F7F6F2] border border-[#E7E5DF] space-y-2">
+                <div className="font-semibold text-[#3A3936] flex items-center gap-1">
+                  <Truck className="w-4 h-4" /> Ship with a tracking number <HelpDot id="seller.order.ship" />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select value={courier} onChange={(e) => setCourier(e.target.value)} className={ui.field}>
+                    {COURIERS.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                  <input
+                    value={tracking}
+                    onChange={(e) => setTracking(e.target.value)}
+                    placeholder="Courier tracking #"
+                    className={`${ui.field} font-mono w-44`}
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || tracking.trim().length < 4}
+                    onClick={() => act(o, { status: 'SHIPPED', courierName: courier, trackingNumber: tracking.trim() })}
+                    className={ui.dark}
+                  >
+                    <Truck className="w-3.5 h-3.5" /> Ship
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {isNew && (
+                <>
+                  <button type="button" disabled={busy} onClick={() => act(o, { status: 'CONFIRMED' })} className={ui.primary}>
+                    ✓ Confirm order
+                  </button>
+                  <a href={whatsAppLink(o.customerPhone, confirmText)} target="_blank" rel="noopener noreferrer" className={ui.whatsapp}>
+                    Confirm on WhatsApp
+                  </a>
+                </>
               )}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`${btn} bg-white border-[#128C4A] text-[#0B5C30]`}
-            >
-              Send tracking on WhatsApp
-            </a>
-          )}
-          {shipped && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                const location = window.prompt('Where is the parcel now? (e.g. "Lahore hub")');
-                if (location && location.trim()) act(o, { location: location.trim() }, '/api/seller/orders/event');
-              }}
-              className={`${btn} bg-white border-black/30`}
-            >
-              <MapPin className="w-3.5 h-3.5 inline mr-1" /> Location
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              const note = window.prompt('Message to the customer:');
-              if (note && note.trim()) act(o, { note: note.trim() }, '/api/seller/orders/event');
-            }}
-            className={`${btn} bg-white border-black/30`}
-          >
-            <MessageSquare className="w-3.5 h-3.5 inline mr-1" /> Message
-          </button>
-          {!shipped && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                const reason = window.prompt(`Reason for cancelling order ${o.orderNumber}? (the stock will be restored)`);
-                if (reason !== null) act(o, { status: 'CANCELLED', reason: reason.trim() });
-              }}
-              className={`${btn} bg-white border-rose-500 text-rose-800 ml-auto`}
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-      )}
-      {o.trackingNumber && (
-        <div className="text-[11px] text-[#454441]">
-          {o.courierName}: <span className="font-mono">{o.trackingNumber}</span>
-        </div>
-      )}
+              {canPack && (
+                <button type="button" disabled={busy} onClick={() => act(o, { status: 'PACKED' })} className={ui.primary}>
+                  📦 Mark as packed
+                </button>
+              )}
+              {shipped && (
+                <button type="button" disabled={busy} onClick={() => act(o, { status: 'DELIVERED' })} className={ui.primary}>
+                  ✓ Delivered
+                </button>
+              )}
+              {o.status === 'SHIPPED' && (
+                <button type="button" disabled={busy} onClick={() => act(o, { status: 'OUT_FOR_DELIVERY' })} className={ui.secondary}>
+                  🛵 Out for delivery
+                </button>
+              )}
+              {shipped && o.trackingNumber && (
+                <a href={trackingWhatsApp} target="_blank" rel="noopener noreferrer" className={ui.whatsapp}>
+                  Send tracking on WhatsApp
+                </a>
+              )}
+              <div className="ml-auto">
+                <MoreMenu
+                  items={[
+                    shipped && {
+                      label: (
+                        <>
+                          <MapPin className="w-4 h-4" /> Add parcel location
+                        </>
+                      ),
+                      disabled: busy,
+                      onClick: () => {
+                        const location = window.prompt('Where is the parcel now? (e.g. "Lahore hub")');
+                        if (location && location.trim()) act(o, { location: location.trim() }, '/api/seller/orders/event');
+                      },
+                    },
+                    {
+                      label: (
+                        <>
+                          <MessageSquare className="w-4 h-4" /> Message the customer
+                        </>
+                      ),
+                      disabled: busy,
+                      onClick: () => {
+                        const note = window.prompt('Message to the customer:');
+                        if (note && note.trim()) act(o, { note: note.trim() }, '/api/seller/orders/event');
+                      },
+                    },
+                    !shipped && {
+                      label: 'Cancel order',
+                      danger: true,
+                      disabled: busy,
+                      onClick: () => {
+                        const reason = window.prompt(`Reason for cancelling order ${o.orderNumber}? (the stock will be restored)`);
+                        if (reason !== null) act(o, { status: 'CANCELLED', reason: reason.trim() });
+                      },
+                    },
+                  ]}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+        {o.trackingNumber && (
+          <div className="text-[11.5px] text-[#6B6963] flex items-center gap-1.5">
+            <Truck className="w-3.5 h-3.5" /> {o.courierName}: <span className="font-mono font-semibold text-[#2A2A28]">{o.trackingNumber}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -2145,8 +2183,18 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
     const nameSuggestions = suggestCategories(editing.name);
     const withVariants = editing.variants.length > 0;
     return (
-      <div className="bg-white border border-black/10 p-5 space-y-4">
-        <h2 className="text-lg font-display">{editing.id ? 'Edit product' : 'New product'}</h2>
+      <div className="bg-white border border-black/10 p-4 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#EFEDE8]">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setEditing(null)} className={ui.secondary}>
+              ← Back
+            </button>
+            <h2 className="text-lg font-bold tracking-tight">{editing.id ? 'Edit product' : 'New product'}</h2>
+          </div>
+          <span className={`${ui.chip} ${editing.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-slate-50 text-slate-700 border-slate-300'}`}>
+            {editing.status === 'ACTIVE' ? '● Will be live' : 'Draft'}
+          </span>
+        </div>
         {editing.adminHiddenReason && (
           <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs">
             The store has hidden this product: <strong>{editing.adminHiddenReason}</strong>. You can still edit it; please contact the
@@ -2154,6 +2202,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormSection n={1} title="Basic information" hint="Name, price, stock, category and brand" />
           <div className="sm:col-span-2">
             <label className={labelCls}>Name * <HelpDot id="seller.product.name" /></label>
             <input
@@ -2235,6 +2284,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               </p>
             )}
           </div>
+          <FormSection n={2} title="Photos & video" hint="The first photo is the main one customers see" />
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9]">
             <ProductMediaEditor
               images={editing.images}
@@ -2244,6 +2294,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               onError={showToast}
             />
           </div>
+          <FormSection n={3} title="Variants & deals" hint="Colours / sizes with their own stock, and a short-time deal price" />
           {editing.id && <FlashDealBox productId={editing.id} price={Number(editing.price) || 0} current={editing.flashPrice ? { price: editing.flashPrice, endsAt: editing.flashEndsAt } : null} />}
           <VariantsEditor
             title={editing.variantTitle}
@@ -2299,13 +2350,14 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             </div>
           </div>
           )}
-          <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[11px] text-[#575653]">Let AI write the description and key features from the name and category. <HelpDot id="seller.product.ai" /></span>
+          <FormSection n={4} title="Description" hint="What it is, and its key features as bullet points" />
+          <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-violet-50/70 border border-violet-200">
+            <span className="text-[11.5px] text-violet-950">Let AI write the description and key features from the name and category. <HelpDot id="seller.product.ai" /></span>
             <button
               type="button"
               disabled={aiBusy}
               onClick={writeWithAi}
-              className="px-3 py-1.5 bg-[#C5A059] text-black text-xs font-bold cursor-pointer disabled:opacity-50"
+              className={`${ui.primary} !bg-gradient-to-r !from-violet-600 !to-sky-600`}
             >
               {aiBusy ? 'Writing...' : '✨ Write description with AI'}
             </button>
@@ -2332,6 +2384,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             />
             <span className="block mt-1 text-[11px] text-[#575653]">Each line is shown as a bullet point on the product page.</span>
           </div>
+          <FormSection n={5} title="Shipping & visibility" hint="Parcel weight for the delivery charge, and Live or Draft" />
           <div>
             <label className={labelCls}>Weight (kg) <HelpDot id="seller.product.weight" /></label>
             <input className={inputCls} value={editing.weightKg} onChange={set('weightKg')} inputMode="decimal" />
@@ -2343,6 +2396,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               <option value="DRAFT">Draft (hidden)</option>
             </select>
           </div>
+          <FormSection n={6} title="More details (optional)" hint="Specifications, how to use, care, manual" />
           <ProductInfoEditor
             info={editing.info}
             dimensions={editing.dimensions}
@@ -2351,6 +2405,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             upload={uploadMedia}
             onError={showToast}
           />
+          <FormSection n={7} title="Where you get it (private)" hint="Only you and the store team see this" />
           {/* Private: customers never see where the product comes from */}
           <div className="sm:col-span-2 p-3 border border-violet-300 bg-violet-50/60 space-y-2">
             <div>
@@ -2396,13 +2451,16 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             )}
           </div>
         </div>
-        <div className="flex gap-2">
-          <button type="button" disabled={saving} onClick={save} className="px-5 py-2 bg-[#141413] text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-          <button type="button" onClick={() => setEditing(null)} className="px-5 py-2 border border-black/20 text-xs cursor-pointer">
-            Back
-          </button>
+        <div className="sticky bottom-[68px] lg:bottom-0 z-20 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3 bg-white/95 backdrop-blur border-t border-[#E7E5DF] flex items-center justify-between gap-2 rounded-b-[14px]">
+          <span className="text-[11.5px] text-[#8A8780] hidden sm:block">Fields with * are required.</span>
+          <div className="flex gap-2 ml-auto">
+            <button type="button" onClick={() => setEditing(null)} className={ui.secondary}>
+              Cancel
+            </button>
+            <button type="button" disabled={saving} onClick={save} className={`${ui.primary} !px-6`}>
+              {saving ? 'Saving...' : editing.id ? 'Save changes' : 'Save product'}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -2417,10 +2475,17 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
   ];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {/* ---------------- toolbar: count + actions */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs text-[#575653]">
-          {products ? `${counts.ALL} products` : 'Loading products...'}
+        <span className="text-[13px] text-[#6B6963]">
+          {products ? (
+            <>
+              <strong className="text-[#141413]">{counts.ALL}</strong> products
+            </>
+          ) : (
+            'Loading products...'
+          )}
           {refreshing && products ? ' · updating…' : ''}
         </span>
         <div className="flex flex-wrap gap-2">
@@ -2430,126 +2495,127 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               disabled={archiving}
               onClick={archiveImages}
               title="Copy product pictures into the store's storage so they stay even if the supplier deletes them"
-              className="px-4 py-2 bg-white border border-black/30 text-[#141413] text-xs font-bold cursor-pointer hover:bg-black/[0.04] disabled:opacity-50"
+              className={ui.secondary}
             >
               {archiving ? 'Saving images...' : 'Save images to store'}
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setBulkOpen(true)}
-            className="px-4 py-2 bg-white border border-black/30 text-[#141413] text-xs font-bold flex items-center gap-1 cursor-pointer hover:bg-black/[0.04]"
-          >
+          <button type="button" onClick={() => setBulkOpen(true)} className={ui.secondary}>
             <Upload className="w-4 h-4" /> CSV / Bulk listing <HelpDot id="seller.bulk" />
           </button>
-          <button
-            type="button"
-            onClick={() => setEditing({ ...emptyProduct })}
-            className="px-4 py-2 bg-[#141413] text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
-          >
+          <button type="button" onClick={() => setEditing({ ...emptyProduct })} className={ui.primary}>
             <Plus className="w-4 h-4" /> New product <HelpDot id="seller.product.new" />
           </button>
         </div>
       </div>
 
+      {/* ---------------- search + filters */}
       {products && products.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#575653]" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, SKU or category"
-              className={`${inputCls} pl-8`}
-            />
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8780]" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, SKU or category" className={`${ui.field} w-full pl-9`} />
           </div>
-          {filterTabs.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setFilter(id)}
-              className={`px-3 py-1.5 text-xs font-semibold border cursor-pointer ${
-                filter === id ? 'bg-[#141413] text-white border-[#141413]' : 'bg-white border-black/20 text-[#141413]'
-              }`}
-            >
-              {label} ({counts[id]})
-            </button>
-          ))}
+          <SegTabs value={filter} onChange={setFilter} items={filterTabs.map(([id, label]) => ({ id, label, count: counts[id] }))} />
         </div>
       )}
 
       {products && products.length === 0 && (
-        <p className="p-6 bg-white border border-black/10 text-xs text-center text-[#575653]">
-          No products yet. Start with "New product" or "CSV / Bulk listing".
-        </p>
+        <div className={`${ui.card} p-10 text-center space-y-2`}>
+          <Package className="w-9 h-9 mx-auto text-[#C9C6BE]" />
+          <p className="text-sm font-semibold">No products yet</p>
+          <p className="text-xs text-[#8A8780]">Add your first product, or upload many at once from a CSV file.</p>
+          <div className="flex justify-center gap-2 pt-1">
+            <button type="button" onClick={() => setBulkOpen(true)} className={ui.secondary}>
+              <Upload className="w-4 h-4" /> CSV / Bulk listing
+            </button>
+            <button type="button" onClick={() => setEditing({ ...emptyProduct })} className={ui.primary}>
+              <Plus className="w-4 h-4" /> New product
+            </button>
+          </div>
+        </div>
       )}
       {products && products.length > 0 && filtered.length === 0 && (
-        <p className="p-6 bg-white border border-black/10 text-xs text-center text-[#575653]">No products match.</p>
+        <div className={`${ui.card} p-8 text-center text-xs text-[#8A8780]`}>No products match this search or filter.</div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {filtered.slice(0, shown).map((p) => (
-          <div key={p.id} className="bg-white border border-black/10 p-3 flex gap-3 text-xs [content-visibility:auto] [contain-intrinsic-size:auto_112px]">
-            <div className="w-20 h-20 bg-[#F4F3EF] shrink-0 overflow-hidden">
-              {p.primaryImage ? (
-                <img src={p.primaryImage} alt="" width={80} height={80} className="w-full h-full object-cover" loading="lazy" decoding="async" />
-              ) : null}
-            </div>
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="font-bold truncate">{p.name}</div>
-              <div>
-                {formatPKR(p.price)} · Stock {p.stock}
-              </div>
-              <span
-                className={`inline-block px-1.5 py-0.5 border text-[10px] font-bold ${
-                  p.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-900 border-emerald-400' : 'bg-slate-100 text-slate-900 border-slate-400'
-                }`}
-              >
-                {p.status === 'ACTIVE' ? 'Live' : p.status === 'DRAFT' ? 'Draft' : 'Removed'}
-              </span>
-              {p.adminHidden && (
-                <span className="ml-1 inline-block px-1.5 py-0.5 border text-[10px] font-bold bg-rose-100 text-rose-900 border-rose-400" title={p.adminHiddenReason}>
-                  Hidden by store
-                </span>
-              )}
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  disabled={opening === p.id}
-                  onClick={() => openEditor(p)}
-                  className="px-2 py-1 border border-black/30 font-semibold cursor-pointer disabled:opacity-50"
-                >
-                  {opening === p.id ? 'Opening...' : 'Edit'}
-                </button>
-                {p.status === 'ACTIVE' && !p.adminHidden && (
-                  <ShareProductButton
-                    productId={p.id}
-                    productName={p.name}
-                    price={p.price}
-                    className="px-2 py-1 border border-[#0E7A43] text-[#0E7A43] font-semibold flex items-center gap-1 cursor-pointer"
-                    showToast={showToast}
-                  />
+      {/* ---------------- product cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {filtered.slice(0, shown).map((p) => {
+          const low = p.status === 'ACTIVE' && Number(p.stock) <= 5;
+          return (
+            <div
+              key={p.id}
+              className={`${ui.card} p-3 flex gap-3 text-xs [content-visibility:auto] [contain-intrinsic-size:auto_124px] hover:shadow-md transition-shadow`}
+            >
+              <div className="w-[88px] h-[88px] rounded-xl bg-[#F4F3EF] shrink-0 overflow-hidden border border-[#EFEDE8]">
+                {p.primaryImage ? (
+                  <img src={p.primaryImage} alt="" width={88} height={88} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Package className="w-6 h-6 text-[#C9C6BE]" />
+                  </div>
                 )}
-                {p.status !== 'ARCHIVED' && (
-                  <button
-                    type="button"
-                    onClick={() => archive(p)}
-                    className="px-2 py-1 border border-rose-400 text-rose-800 font-semibold cursor-pointer"
+              </div>
+              <div className="min-w-0 flex-1 flex flex-col">
+                <div className="font-semibold text-[13px] leading-snug line-clamp-2">{p.name}</div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="text-[14px] font-bold">{formatPKR(p.price)}</span>
+                  {Number((p as any).compareAtPrice) > Number(p.price) && (
+                    <span className="text-[11px] text-[#8A8780] line-through">{formatPKR(Number((p as any).compareAtPrice))}</span>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  <span
+                    className={`${ui.chip} ${
+                      p.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-slate-50 text-slate-700 border-slate-300'
+                    }`}
                   >
-                    Remove
+                    {p.status === 'ACTIVE' ? '● Live' : p.status === 'DRAFT' ? 'Draft' : 'Removed'}
+                  </span>
+                  <span
+                    className={`${ui.chip} ${
+                      Number(p.stock) <= 0
+                        ? 'bg-rose-50 text-rose-800 border-rose-300'
+                        : low
+                          ? 'bg-amber-50 text-amber-800 border-amber-300'
+                          : 'bg-white text-[#3A3936] border-[#DCD9D2]'
+                    }`}
+                  >
+                    {Number(p.stock) <= 0 ? 'Out of stock' : `Stock ${p.stock}`}
+                  </span>
+                  {p.adminHidden && (
+                    <span className={`${ui.chip} bg-rose-50 text-rose-800 border-rose-300`} title={p.adminHiddenReason}>
+                      Hidden by store
+                    </span>
+                  )}
+                </div>
+                <div className="mt-auto pt-2 flex items-center gap-1.5">
+                  <button type="button" disabled={opening === p.id} onClick={() => openEditor(p)} className={`${ui.secondary} !px-3 !py-1.5`}>
+                    {opening === p.id ? 'Opening...' : 'Edit'}
                   </button>
-                )}
+                  {p.status === 'ACTIVE' && !p.adminHidden && (
+                    <ShareProductButton
+                      productId={p.id}
+                      productName={p.name}
+                      price={p.price}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#0E7A43]/40 bg-[#E8F3EC] text-[#0B5E34] text-[12px] font-semibold cursor-pointer hover:bg-[#DCEFE3]"
+                      showToast={showToast}
+                    />
+                  )}
+                  {p.status !== 'ARCHIVED' && (
+                    <button type="button" onClick={() => archive(p)} className={`${ui.danger} !px-3 !py-1.5 ml-auto`}>
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       {filtered.length > shown && (
-        <button
-          type="button"
-          onClick={() => setShown((n) => n + PAGE_SIZE * 2)}
-          className="w-full py-2.5 bg-white border border-black/20 text-xs font-bold text-[#141413] cursor-pointer hover:bg-black/[0.03]"
-        >
+        <button type="button" onClick={() => setShown((n) => n + PAGE_SIZE * 2)} className={`${ui.secondary} w-full`}>
           Show more ({filtered.length - shown} more)
         </button>
       )}

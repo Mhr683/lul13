@@ -350,6 +350,39 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     tips: ['Qawaid todne par warning, phir account rok diya ja sakta hai.'],
   },
 
+  'seller.tab.ORDERS': {
+    title: 'Orders (order se delivery tak)',
+    what: 'Har order ek card mein: upar number, status, payment aur raqam; beech mein customer, items aur paise; neeche agla qadam.',
+    steps: [
+      'Upar ki pills se list chunein: "To ship", "On the way", "Completed", "All" (saath ginti likhi hoti hai).',
+      'Card ke upar qadmon ki patti (1 Confirmed → 2 Packed → 3 Shipped → 4 Delivered) batati hai order kahan hai; peela gol = agla qadam.',
+      'Naya order: customer ko "Confirm on WhatsApp" se tasdeeq karein, phir hara "✓ Confirm order".',
+      'Pack ho jaye to "📦 Mark as packed".',
+      'Bhejna: courier connected ho to "Book & ship"; warna "Ship with a tracking number" mein courier chunein, tracking number likhein aur "Ship".',
+      'Raste mein: "Send tracking on WhatsApp", phir pahunchne par "✓ Delivered" (courier connected ho to khud ho jata hai).',
+      'Kam istemal hone wale kaam "⋯ More" mein hain: parcel ki location likhna, customer ko paigham, aur order cancel karna (laal).',
+      'Customer ka number dabane se seedha call lagti hai.',
+    ],
+    tips: [
+      'Order confirm hone ke 48 ghante ke andar courier ko dena zaroori hai.',
+      'Doosri app (Oshi, YourMart...) wale items jamni dabbe mein aate hain: "Copy order for supplier" se wahan order dein, phir "✓ Sent to supplier".',
+      '"Your profit" = customer ki raqam − commission − supplier ki qeemat.',
+    ],
+  },
+  'seller.product.new': {
+    title: 'Naya product daalna',
+    steps: [
+      'Products page par hara "New product" dabayein.',
+      'Form 7 hisson mein hai: 1 Basic information, 2 Photos & video, 3 Variants & deals, 4 Description, 5 Shipping & visibility, 6 More details, 7 Where you get it.',
+      '1: naam, qeemat, stock, category aur brand (* wale zaroori).',
+      '2: tasveerein (pehli tasveer main hoti hai) aur video.',
+      '4: khud likhein ya "✨ Write description with AI".',
+      '5: wazan aur "Live" ya "Draft".',
+      'Neeche hamesha nazar aane wali patti mein hara "Save product" dabayein ("Cancel" se wapis).',
+    ],
+    tips: ['Product list mein har card par stock ka rang: peela = 5 ya kam, laal = khatam.', 'Har khane ke saath ? mein us ki tafseel hai.'],
+  },
+
   // =============================================================== SELLER: apni AI key
   'seller.aiKeys': {
     title: 'Meri AI keys (apna muft AI)',
