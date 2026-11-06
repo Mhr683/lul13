@@ -1105,6 +1105,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       throw new Error(resData.error || 'Failed to place order.');
     }
 
+    // The store database was busy: the order is saved on the store's server and confirmed shortly
+    if (resData.queued && resData.message) showToast(resData.message);
     const createdOrder: Order = resData.order;
     // A cart with items from several sellers becomes one order per seller
     const splitOrders: Order[] = Array.isArray(resData.orders) && resData.orders.length > 0 ? resData.orders : [createdOrder];

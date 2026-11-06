@@ -37,6 +37,13 @@ export const AdminOrdersOverview: React.FC = () => {
   const [shown, setShown] = useState(PAGE);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Orders that came in while the database was full: placed by themselves later (server/orderQueue.ts)
+  const [queue, setQueue] = useState<{ pending: any[]; problems: any[] }>({ pending: [], problems: [] });
+  const loadQueue = () => courierApi<any>('/api/admin/order-queue').then(setQueue).catch(() => {});
+  useEffect(() => {
+    loadQueue();
+  }, []);
+
   // Connected courier accounts ("Book & ship" on orders that are not shipped yet)
   const [couriers, setCouriers] = useState<{ list: Array<{ id: string; label: string }>; def: string | null }>({ list: [], def: null });
   useEffect(() => {
@@ -105,6 +112,42 @@ export const AdminOrdersOverview: React.FC = () => {
           shipped, or record a return or a refund. Stock is restored automatically.
         </p>
       </div>
+
+      {queue.pending.length > 0 && (
+        <div className="p-3 bg-sky-50 border border-sky-300 text-xs text-sky-950 space-y-1">
+          <p className="font-semibold">
+            {queue.pending.length} order(s) came in while the database was full. They are saved on the store computer and will be placed
+            automatically (checked every 5 minutes).
+          </p>
+          <p>{queue.pending.map((q) => `${q.orderNumbers.join(', ')} (${q.customerName})`).join(' · ')}</p>
+          <button
+            type="button"
+            onClick={() => courierApi('/api/admin/order-queue/retry', { method: 'POST' }).then(() => setTimeout(loadQueue, 15000))}
+            className="px-3 py-1.5 border border-sky-500 font-semibold cursor-pointer"
+          >
+            Try now
+          </button>
+        </div>
+      )}
+      {queue.problems.length > 0 && (
+        <div className="p-3 bg-rose-50 border border-rose-300 text-xs text-rose-950 space-y-2">
+          <p className="font-semibold">These waiting orders could not be placed later. Please call the customer:</p>
+          {queue.problems.map((q) => (
+            <div key={q.id} className="flex flex-wrap items-center gap-2">
+              <span>
+                {q.orderNumbers.join(', ')} · {q.customerName} · <span className="font-mono">{q.customerPhone}</span> — {q.lastError}
+              </span>
+              <button
+                type="button"
+                onClick={() => courierApi('/api/admin/order-queue/dismiss', { method: 'POST', body: JSON.stringify({ id: q.id }) }).then(loadQueue)}
+                className="px-2 py-1 border border-rose-400 font-semibold cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">

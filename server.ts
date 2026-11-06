@@ -37,6 +37,7 @@ import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners'
 import { registerMarketplaceRoutes } from './server/marketplace';
 import { registerCourierRoutes } from './server/couriers';
 import { offlineSupportReply, offlineProductContent } from './server/offlineAnswers';
+import { createOrderQueue } from './server/orderQueue';
 import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/stepUp';
 import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
@@ -220,7 +221,18 @@ function noteFirestoreError(err: any) {
     firestoreQuotaHitAt = Date.now();
   }
 }
-const firestoreQuotaHit = () => Date.now() - firestoreQuotaHitAt < 15 * 60_000;
+// Test switch: while the file .private/simulate-db-full exists the server acts as if the daily
+// limit were used up (to check that orders wait in the queue); checked at most every 10 seconds
+let simulateFullAt = 0;
+let simulateFull = false;
+const simulatingFullDb = () => {
+  if (Date.now() - simulateFullAt > 10_000) {
+    simulateFullAt = Date.now();
+    simulateFull = fs.existsSync(path.join(process.cwd(), '.private', 'simulate-db-full'));
+  }
+  return simulateFull;
+};
+const firestoreQuotaHit = () => simulatingFullDb() || Date.now() - firestoreQuotaHitAt < 15 * 60_000;
 // Errors logged anywhere on the server also mark the quota state
 const consoleError = console.error.bind(console);
 console.error = (...args: any[]) => {
@@ -1316,6 +1328,49 @@ const catalogStore = createCatalogStore(adminDb, {
   onListenerError: noteFirestoreError,
 });
 catalogStore.start().catch((err) => console.warn('[Catalog] start failed:', err?.message));
+
+// Orders that came in while the database could not take them wait here and are placed by
+// themselves later (server/orderQueue.ts). Only this server can send them again.
+const ORDER_REPLAY_SECRET = crypto.randomBytes(24).toString('hex');
+const orderQueue = createOrderQueue({
+  dir: path.join(process.cwd(), '.private'),
+  isBlocked: () => firestoreQuotaHit(),
+  replay: async (q) => {
+    const r = await fetch(`http://127.0.0.1:${PORT}/api/orders/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-anokha-replay': ORDER_REPLAY_SECRET },
+      body: JSON.stringify({ ...q.body, _replay: { userId: q.userId, token: q.token, numbers: q.numbers } }),
+    });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  },
+  // An order that can no longer be placed (sold out meanwhile) goes to Admin → Support for a call
+  onProblem: (q, error) => {
+    const id = `qprob-${q.id}`;
+    const nums = Object.values(q.numbers).join(', ');
+    const ticket: any = {
+      id,
+      ticketNumber: newTicketNumber(),
+      name: String(q.body?.customerName || 'Customer').slice(0, 110),
+      email: String(q.body?.customerEmail || ''),
+      phone: String(q.body?.customerPhone || '').slice(0, 30),
+      orderNumber: Object.values(q.numbers)[0],
+      category: 'ORDER_PROBLEM',
+      subject: `Order ${nums} could not be placed`,
+      message: `This order came in on ${new Date(q.at).toLocaleString('en-PK')} while the database was full, and could not be placed later: ${error}. Please call the customer.`,
+      status: 'OPEN',
+      channel: 'SYSTEM',
+      needsHuman: true,
+      createdAt: new Date().toISOString(),
+      messages: [],
+    };
+    adminDb
+      .collection('support_tickets')
+      .doc(id)
+      .set(ticket)
+      .then(() => ticketChanged(id, ticket))
+      .catch((err) => console.error('[order-queue] problem ticket failed:', err?.message));
+  },
+});
 
 // Exchange rates for showing prices in the customer's currency (one document, refreshed daily)
 const exchangeRates = createExchangeRates(adminDb, {
@@ -2831,10 +2886,15 @@ app.post('/api/orders/create', async (req, res) => {
       destCountryIso,
     } = req.body;
 
+    // An order from the waiting queue (server/orderQueue.ts), sent again by this server itself: it
+    // keeps the customer, order numbers and tracking key it was given when it was queued
+    const replay: { userId: string | null; token: string; numbers: Record<string, string> } | null =
+      req.headers['x-anokha-replay'] === ORDER_REPLAY_SECRET && req.body?._replay ? req.body._replay : null;
+
     // Optional Firebase ID token for logged-in users; guest if missing
-    let userId: string | null = null;
+    let userId: string | null = replay ? replay.userId || null : null;
     const authHeader = req.headers.authorization || req.headers.Authorization;
-    if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    if (!replay && authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice(7).trim();
       if (token) {
         try {
@@ -2951,7 +3011,8 @@ app.post('/api/orders/create', async (req, res) => {
     }
     // Too many cancelled orders on this number pause Cash on Delivery (src/services/cancelPolicy.ts);
     // one small read, only for COD orders
-    if (paymentMethod === 'COD') {
+    // (skipped while the database limit is used up: the order then waits in the queue)
+    if (paymentMethod === 'COD' && !firestoreQuotaHit()) {
       try {
         const flags = await adminDb.collection('customer_flags').doc(phoneKey(cleanPhone)).get();
         const until = codPausedUntil((flags.data()?.cancels as string[]) || []);
@@ -2980,13 +3041,86 @@ app.post('/api/orders/create', async (req, res) => {
     // Growth: referral code from a friend's link, and the customer's own referral credit
     const referralCode = String(req.body.referralCode || '').trim().toUpperCase().slice(0, 20);
     let creditInfo: { earned: number } | null = null;
-    if (userId && req.body.useReferralCredit === true && referralOf(catalogStore.settings()).enabled) {
+    if (userId && !firestoreQuotaHit() && req.body.useReferralCredit === true && referralOf(catalogStore.settings()).enabled) {
       try {
         creditInfo = await referralCreditOf(adminDb, userId, catalogStore.settings());
       } catch (credErr) {
         console.warn('[orders/create] referral credit lookup failed:', (credErr as any)?.message);
       }
     }
+
+    // The database cannot take the order right now (daily free limit used up, Google down): the order
+    // is kept on this computer and placed by itself as soon as the database works again
+    // (server/orderQueue.ts). Checked against the saved catalog copy; card payments and quotes still
+    // need the database, so they are not queued.
+    const canQueue = !replay && paymentMethod !== 'CARD' && paymentMethod !== 'MANUAL_QUOTE' && catalogStore.ready;
+    const queueInstead = () => {
+      const qty = new Map<string, number>();
+      for (const it of items) qty.set(String(it.productId), (qty.get(String(it.productId)) || 0) + Number(it.quantity || 0));
+      const lines: Array<{ p: any; it: any; price: number }> = [];
+      for (const it of items) {
+        const p: any = catalogStore.product(String(it.productId));
+        if (!p || p.status !== 'ACTIVE') return res.status(400).json({ error: `"${p?.name || 'A product'}" is not available any more. Please remove it from your cart.` });
+        if (!(Number(p.stock) >= (qty.get(String(it.productId)) || 0))) {
+          return res.status(400).json({ error: `Only ${Number(p.stock) || 0} of "${p.name}" left. Please change the quantity.` });
+        }
+        const v = typeof it.variant === 'string' && hasVariants(p) ? findVariant(p, it.variant) : undefined;
+        lines.push({ p, it, price: variantPrice(Number(p.price) || 0, v) });
+      }
+      const sellersInCart = Array.from(new Set(lines.map((l) => String(l.p.sellerId || HOUSE_SELLER_ID))));
+      const numbers: Record<string, string> = {};
+      for (const sid of sellersInCart) numbers[sid] = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
+      const token = crypto.randomBytes(24).toString('hex');
+      const { _replay, ...body } = req.body || {};
+      const q = orderQueue.add({ body, userId, token, numbers });
+      const now = new Date().toISOString();
+      // What the customer sees now; the real order (coupon, delivery charge) is confirmed by email
+      const orders = sellersInCart.map((sid) => {
+        const own = lines.filter((l) => String(l.p.sellerId || HOUSE_SELLER_ID) === sid);
+        const subtotal = Number(own.reduce((s, l) => s + l.price * Number(l.it.quantity || 0), 0).toFixed(2));
+        let shippingFee = 0;
+        try {
+          shippingFee = ShippingCalculationService.calculateBySeller({
+            destinationCountryIso: destIso,
+            items: own.map((l) => ({ productId: l.p.id, quantity: Number(l.it.quantity || 0), price: l.price } as any)),
+            catalogProducts: own.map((l) => l.p),
+            settings: catalogStore.settings() || (DEFAULT_SETTINGS as any),
+          }).finalShippingFee;
+        } catch {
+          /* shown as 0; the confirmation email has the exact amount */
+        }
+        return {
+          id: `${q.id}-${sid}`,
+          orderNumber: numbers[sid],
+          items: own.map((l) => ({ productId: l.p.id, name: l.p.name, sku: l.p.sku || '', price: l.price, quantity: Number(l.it.quantity || 0), image: l.p.images?.[0] || l.p.image, ...(l.it.variant ? { variant: String(l.it.variant) } : {}) })),
+          customerName: String(customerName || ''),
+          customerEmail: String(customerEmail || ''),
+          customerPhone: cleanPhone,
+          status: 'PENDING_CONFIRMATION',
+          paymentStatus: 'PENDING',
+          paymentMethod,
+          subtotal,
+          shippingFee,
+          total: Number((subtotal + shippingFee).toFixed(2)),
+          currency: 'PKR',
+          sellerId: sid,
+          queued: true,
+          createdAt: now,
+        };
+      });
+      return res.status(201).json({
+        success: true,
+        queued: true,
+        message: 'Your order is received. Confirmation (with the final total) will reach you shortly.',
+        orderNumber: orders[0].orderNumber,
+        orderAccessToken: token,
+        orderId: orders[0].id,
+        order: orders[0],
+        orders,
+        trackingUrl: `/track?order=${orders[0].orderNumber}&token=${token}`,
+      });
+    };
+    if (canQueue && firestoreQuotaHit()) return queueInstead();
 
     // 6. Execute atomic Firestore Transaction with firebase-admin (with local persistence fallback if ADC is unconfigured in container)
     let result: {
@@ -3279,7 +3413,7 @@ app.post('/api/orders/create', async (req, res) => {
         }
 
         // Step H: Guest tracking token (shared by the orders of this checkout) and checkout id
-        const orderAccessToken = crypto.randomBytes(24).toString('hex');
+        const orderAccessToken = replay?.token || crypto.randomBytes(24).toString('hex');
         const checkoutId = `chk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
         // Step I: Enforce status rules:
@@ -3316,7 +3450,7 @@ app.post('/api/orders/create', async (req, res) => {
 
         const created: Array<{ order: Order; ownerOrder: Order }> = [];
         for (const g of groups) {
-          const orderNumber = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
+          const orderNumber = replay?.numbers?.[g.sellerId] || `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
           const orderId = `ord-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
           // Supplier name/cost per item is admin-only and goes to order_private
           const { publicItems, privateItems } = splitOrderItemsPrivate(g.items);
@@ -3416,6 +3550,8 @@ app.post('/api/orders/create', async (req, res) => {
       if (isValidationError) {
         return res.status(400).json({ error: txnError.message });
       }
+      // The database did not answer: the order waits on this computer instead of being lost
+      if (canQueue) return queueInstead();
 
       return res.status(503).json({
         error: 'Service temporarily unavailable: unable to process order in database. Please try again shortly.',
@@ -3545,11 +3681,57 @@ app.post('/api/orders/create', async (req, res) => {
 type RelatedOrder = { orderNumber: string; status: string; total: number; createdAt: string };
 const relatedOrdersCache = new Map<string, { at: number; list: RelatedOrder[] }>();
 
+// Admin: orders waiting for the database, and the ones that could not be placed
+app.get('/api/admin/order-queue', requireAdmin, (_req, res) => {
+  const { pending, problems } = orderQueue.list();
+  const view = (q: any) => ({
+    id: q.id,
+    at: q.at,
+    orderNumbers: Object.values(q.numbers),
+    customerName: q.body?.customerName,
+    customerPhone: q.body?.customerPhone,
+    tries: q.tries,
+    lastError: q.lastError || '',
+  });
+  res.json({ pending: pending.map(view), problems: problems.map(view) });
+});
+app.post('/api/admin/order-queue/retry', requireAdmin, async (_req, res) => {
+  void orderQueue.flush();
+  res.json({ success: true });
+});
+app.post('/api/admin/order-queue/dismiss', requireAdmin, (req, res) => {
+  res.json({ success: orderQueue.dismissProblem(String(req.body?.id || '')) });
+});
+
 // 6.2. GET /api/orders/track (Secure Order Tracking for Guests & Members)
 app.get('/api/orders/track', async (req, res) => {
   const { order, token, phone } = req.query;
   if (!order || typeof order !== 'string') {
     return res.status(400).json({ error: 'Order reference parameter is required.' });
+  }
+
+  // An order still waiting on this computer for the database (server/orderQueue.ts): no read needed
+  const waiting = orderQueue.find(order.trim().toUpperCase());
+  if (waiting) {
+    const digits = (v: unknown) => String(v || '').replace(/\D/g, '').slice(-10);
+    const ok = (token && token === waiting.token) || (phone && digits(phone).length === 10 && digits(phone) === digits(waiting.body?.customerPhone));
+    if (!ok) return res.status(403).json({ error: 'Unauthorized: Please provide the phone number or token associated with this order.' });
+    return res.json({
+      success: true,
+      relatedOrders: [],
+      order: {
+        id: waiting.id,
+        orderNumber: order.trim().toUpperCase(),
+        status: 'PENDING_CONFIRMATION',
+        paymentStatus: 'PENDING',
+        paymentMethod: waiting.body?.paymentMethod,
+        customerName: waiting.body?.customerName,
+        items: [],
+        shipments: [],
+        createdAt: waiting.at,
+        trackingEvents: [{ at: waiting.at, status: 'PENDING_CONFIRMATION', note: 'Order received. It will be confirmed shortly.' }],
+      },
+    });
   }
 
   try {
