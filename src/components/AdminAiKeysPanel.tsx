@@ -42,6 +42,21 @@ export const AdminAiKeysPanel: React.FC = () => {
     }
   };
 
+  // Which keys share one Google project (and so one free limit)
+  const [projects, setProjects] = useState<{ projects: number; keys: number; groups: Array<Array<{ key: string; saved: boolean }>> } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const checkProjects = async () => {
+    setChecking(true);
+    setMsg(null);
+    try {
+      setProjects(await api('/api/admin/ai-keys/check-projects', { method: 'POST' }));
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message });
+    } finally {
+      setChecking(false);
+    }
+  };
+
   const remove = async (k: KeyRow) => {
     if (!window.confirm(`Remove the AI key ${k.key}?`)) return;
     try {
@@ -122,6 +137,34 @@ export const AdminAiKeysPanel: React.FC = () => {
         </button>
       </div>
       {msg && <p className={msg.ok ? 'text-emerald-800' : 'text-rose-700'}>{msg.text}</p>}
+      {data && data.keys.length > 1 && (
+        <div className="space-y-2 pt-2 border-t border-black/10">
+          <button
+            type="button"
+            disabled={checking}
+            onClick={checkProjects}
+            className="px-3 py-1.5 border border-violet-400 text-violet-900 font-semibold cursor-pointer disabled:opacity-50"
+          >
+            {checking ? 'Checking projects...' : 'Check projects (find keys that share one limit)'}
+          </button>
+          {projects && (
+            <div className="space-y-1">
+              <p className="font-semibold">
+                {projects.keys} key(s) in {projects.projects} separate Google project(s) = {projects.projects} separate daily limit(s).
+              </p>
+              {projects.groups.map((g, i) => (
+                <div
+                  key={i}
+                  className={`px-2 py-1.5 border ${g.length > 1 ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-emerald-50 border-emerald-200 text-emerald-950'}`}
+                >
+                  Project {i + 1}: {g.map((k) => k.key).join(', ')}
+                  {g.length > 1 && <span> — these {g.length} keys share ONE limit; keep one and remove the others.</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

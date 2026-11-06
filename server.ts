@@ -6012,6 +6012,46 @@ const PAYMENT_SECRET_ROLES = ['SUPER_ADMIN', 'ADMIN'];
 
 // ---------------------------------------------------------------- AI backup keys (Admin → Settings)
 loadAdminAiKeys();
+// Which of `others` is in the same Google project as `key` (null: none, or the check was not
+// possible). Google never tells a key's Gmail or project, but its file store is per project: a tiny
+// marker file saved with `key` can be read only by keys of the same project. The marker is deleted.
+async function sameProjectKey(key: string, others: string[]): Promise<string | null> {
+  return (await projectTwins(key, others, true))[0] || null;
+}
+/** All keys of others in the same project as key (or only the first one) */
+async function projectTwins(key: string, others: string[], firstOnly = false): Promise<string[]> {
+  const list = others.filter((k) => k !== key);
+  if (!list.length) return [];
+  let marker: string | undefined;
+  try {
+    const f = await newGeminiClient(key).files.upload({
+      file: new Blob(['anokha key check'], { type: 'text/plain' }),
+      config: { mimeType: 'text/plain', displayName: 'anokha-key-check' },
+    });
+    marker = f.name;
+  } catch (err: any) {
+    console.warn('[ai-keys] project check skipped (marker not saved):', String(err?.message || err).slice(0, 160));
+    return [];
+  }
+  const twins: string[] = [];
+  try {
+    for (const other of list) {
+      try {
+        const g = await newGeminiClient(other).files.get({ name: marker! });
+        if (g?.name === marker) {
+          twins.push(other);
+          if (firstOnly) break;
+        }
+      } catch {
+        /* another project (or that key is resting): not the same */
+      }
+    }
+    return twins;
+  } finally {
+    newGeminiClient(key).files.delete({ name: marker! }).catch(() => {});
+  }
+}
+
 const aiKeysView = () => ({
   fromEnv: allAiKeys().filter((k) => !adminAiKeys.includes(k)).length,
   keys: aiKeyStatus(allAiKeys()).map((s, i) => ({ ...s, index: i, saved: adminAiKeys.some((k) => `••••${k.slice(-4)}` === s.key) })),
@@ -6048,17 +6088,19 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
       continue;
     }
     // Each key is tried once before it is saved, so a wrong key is caught now
+    let usable = false;
+    let okNote = '';
     try {
       await newGeminiClient(key).models.generateContent({ model: 'gemini-3.1-flash-lite', contents: 'Reply with the word OK.' });
-      notes.push(`${label}: works.`);
-      added.push(key);
+      okNote = `${label}: works.`;
+      usable = true;
     } catch (err: any) {
       const msg = String(err?.message || err);
       console.warn(`[ai-keys] test of key ${label} (${key.length} chars) failed:`, msg.slice(0, 300));
       if (/quota|RESOURCE_EXHAUSTED|429|high demand|UNAVAILABLE|503|500/i.test(msg)) {
         // The key itself works; only the limit or Google's load stopped the test
-        notes.push(`${label}: saved (Google is busy or today's free limit is used; it will work by itself).`);
-        added.push(key);
+        okNote = `${label}: saved (Google is busy or today's free limit is used; it will work by itself).`;
+        usable = true;
       } else if (/API key not valid|API_KEY_INVALID|invalid api key/i.test(msg)) {
         notes.push(`${label}: Google says this key is not valid. Copy it again with the copy button (a brand-new key can take 1-2 minutes to start working).`);
       } else if (/has not been used|is disabled|SERVICE_DISABLED|PERMISSION_DENIED|403/i.test(msg)) {
@@ -6067,6 +6109,17 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
         notes.push(`${label}: Google does not allow this key from this country / account.`);
       } else notes.push(`${label}: Google did not accept it (${msg.slice(0, 140)}).`);
     }
+    if (!usable) continue;
+    // One key per Google project: keys of the same project share one free limit
+    const twin = await sameProjectKey(key, [...allAiKeys(), ...added]);
+    if (twin) {
+      notes.push(
+        `${label}: NOT added — it belongs to the same Google project as key ••••${twin.slice(-4)}, so it would share that key's limit. Create the key with "Create API key in new project".`
+      );
+      continue;
+    }
+    notes.push(okNote);
+    added.push(key);
   }
   if (!added.length) return res.status(400).json({ error: notes.join(' ') });
   try {
@@ -6079,6 +6132,20 @@ app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
     res.status(503).json({ error: 'The key was not saved. Please try again.' });
   }
 });
+// Groups the added keys by Google project, so keys that share one limit can be removed
+app.post('/api/admin/ai-keys/check-projects', requireAdmin, async (req, res) => {
+  if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) return res.status(403).json({ error: 'Only the store owner or an admin can see AI keys.' });
+  const remaining = [...allAiKeys()];
+  const groups: Array<Array<{ key: string; saved: boolean }>> = [];
+  while (remaining.length) {
+    const k = remaining.shift()!;
+    const twins = await projectTwins(k, remaining);
+    for (const t of twins) remaining.splice(remaining.indexOf(t), 1);
+    groups.push([k, ...twins].map((x) => ({ key: `••••${x.slice(-4)}`, saved: adminAiKeys.includes(x) })));
+  }
+  res.json({ projects: groups.length, keys: allAiKeys().length, groups });
+});
+
 app.post('/api/admin/ai-keys/remove', requireAdmin, async (req, res) => {
   if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) return res.status(403).json({ error: 'Only the store owner or an admin can change AI keys.' });
   const last4 = String(req.body?.key || '').replace(/\W/g, '').slice(-4);

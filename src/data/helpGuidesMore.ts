@@ -231,6 +231,8 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Yahan box mein paste karein. Kai keys ek saath: har line par ek.',
       '"Add key(s)" dabayein. Har key check hoti hai aur nateeja neeche likha aata hai.',
       'List mein har key ke saath "ready" (hara) ya "limit used — resting" (peela).',
+      'System khud pehchanta hai ke nayi key kisi pehle wali key ke project ki to nahi: ho to "NOT added" likh kar nahi lagata (ek project = ek had).',
+      'Pehle se lagi keys ke liye "Check projects" dabayein: jo keys ek hi project ki hon woh peele dabbe mein aati hain; ek rakh kar baqi "Remove" kar dein.',
     ],
     tips: [
       'Google ki free had har PROJECT ki alag hoti hai. Isliye har key "Create API key in new project" se banayein: ek hi Gmail mein bhi alag project = alag had.',
