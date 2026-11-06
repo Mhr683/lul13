@@ -324,6 +324,32 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     steps: ['Neeche se Copilot kholein.', 'Is page ke baare mein hukm ya sawal likhein, jaise "is hafte ke orders ka khulasa".', '"Run" dabayein. Bari tabdeeli se pehle tasdeeq maangi jati hai.'],
   },
 
+  // =============================================================== SELLER: naya dhancha aur Dashboard
+  'seller.tab.DASHBOARD': {
+    title: 'Dashboard aur Seller Center ka naqsha',
+    what: 'Aaj ka khulasa: bhejne wale orders, raste mein, payout ke liye tayyar raqam, stock aur Shop Coach.',
+    steps: [
+      'Laptop par: baayein taraf menu (sidebar) hai, groups mein: Overview, Sales (Orders, Returns), Catalog (Products), Customers (Reviews, Questions, Messages), Finance (Earnings), Growth (AI Assistant), Account (Profile, Seller rules).',
+      'Mobile par: neeche patti mein Dashboard, Orders, Products, Messages; baqi sab "More" dabane par.',
+      'Upar ghanti (🔔) par laal number = store ke naye paigham; dabane se Messages khulta hai.',
+      'Upar daayein apni dukaan ki tasveer dabayein: "View my shop", "Profile & payout", "Seller rules" aur "Logout".',
+      'Dashboard ke 4 dabbe: "Orders to ship" (peela ho to bhejna baqi hai), "On the way", "Ready for payout", "Paid out so far". Kisi dabbe par click se us ka page khulta hai.',
+      '"Running low": jin products ka stock 5 ya kam hai; waqt par barha dein.',
+      '"Shop Coach": dukaan ki sehat aur kya behtar karna hai; "Refresh" se nayi report.',
+    ],
+    tips: ['Har page ke upar us ka naam, ek line ka matlab aur rangeen ? hota hai.', 'Roz ek dafa Dashboard zaroor dekhein taa ke koi order late na ho.'],
+  },
+  'seller.tab.RULES': {
+    title: 'Seller rules',
+    what: 'Dukaan chalane ke qawaid. Inhein manna zaroori hai.',
+    steps: [
+      'Laptop par menu mein "Account → Seller rules"; mobile par "More → Seller rules"; ya upar apni tasveer wale menu se.',
+      'Poore qawaid parhein.',
+      'Qawaid badlen to Seller Center dobara manzoori maangta hai: parh kar "I have read these rules" dabayein.',
+    ],
+    tips: ['Qawaid todne par warning, phir account rok diya ja sakta hai.'],
+  },
+
   // =============================================================== SELLER: apni AI key
   'seller.aiKeys': {
     title: 'Meri AI keys (apna muft AI)',

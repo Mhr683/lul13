@@ -42,3 +42,40 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Seller Center (src/components/SellerShell.tsx): one modern look for every page inside it —
+   rounded cards with a soft shadow, rounded buttons and fields, calmer borders. The pages keep
+   their own markup; only the finish is set here. */
+.seller-ui .bg-white.border,
+.seller-ui .bg-\[\#FBFBF9\].border,
+.seller-ui .bg-\[\#F9F9F7\].border,
+.seller-ui details.border {
+  border-radius: 14px;
+  border-color: #e7e5df;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 1px rgba(16, 24, 40, 0.02);
+}
+.seller-ui .bg-white.border > .border-b:first-child {
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+.seller-ui main button,
+.seller-ui main a.inline-flex,
+.seller-ui main input:not([type='checkbox']):not([type='radio']),
+.seller-ui main select,
+.seller-ui main textarea {
+  border-radius: 9px;
+}
+.seller-ui main input:not([type='checkbox']):not([type='radio']):focus,
+.seller-ui main select:focus,
+.seller-ui main textarea:focus {
+  outline: 2px solid rgba(14, 122, 67, 0.25);
+  outline-offset: 1px;
+  border-color: #0e7a43;
+}
+.seller-ui main [class*='bg-amber-50'].border,
+.seller-ui main [class*='bg-emerald-50'].border,
+.seller-ui main [class*='bg-sky-50'].border,
+.seller-ui main [class*='bg-rose-50'].border,
+.seller-ui main [class*='bg-violet-50'].border {
+  border-radius: 12px;
+}

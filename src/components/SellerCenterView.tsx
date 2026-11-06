@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Bot,
   MessageCircleQuestion,
+  ShieldCheck,
 } from 'lucide-react';
 import { SellerAiAssistant } from './SellerAiAssistant';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
@@ -54,6 +55,7 @@ import { ProductMediaEditor } from './ProductMediaEditor';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 import { HelpDot } from './HelpDot';
+import { SellerShell } from './SellerShell';
 import { AdminAiKeysPanel } from './AdminAiKeysPanel';
 
 // Seller Center (/seller): marketplace sellers apply, then manage their own products, orders,
@@ -321,24 +323,24 @@ export const SellerCenterView: React.FC = () => {
 
   const shell = (children: React.ReactNode) => (
     <div className="min-h-screen bg-[#FBFBF9] text-[#141413]">
-      <header className="sticky top-0 z-30 bg-[#141413] text-white">
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-[#E7E5DF]">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <BrandLogo name={storeName} tone="dark" size="sm" />
-            <span className="ml-1 pl-2 border-l border-white/20 text-[11px] font-bold uppercase tracking-wider text-[#E5C98A] shrink-0">
+            <BrandLogo name={storeName} size="sm" />
+            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-[#0E7A43] text-white text-[10px] font-bold uppercase tracking-wider shrink-0">
               Seller Center
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <a href={`${storeOrigin()}/`} className="text-xs text-white/80 hover:text-white underline hidden sm:inline">
+            <a href={`${storeOrigin()}/`} className="text-xs font-semibold text-[#3A3936] hover:bg-[#F2F1EC] px-3 py-1.5 rounded-lg hidden sm:inline">
               View store
             </a>
-            <PWAInstallButton variant="onDark" />
+            <PWAInstallButton />
             {uid && (
               <button
                 type="button"
                 onClick={handleSignOut}
-                className="px-2.5 py-1.5 border border-white/30 text-xs flex items-center gap-1 cursor-pointer hover:bg-white/10"
+                className="px-3 py-1.5 rounded-lg border border-[#E7E5DF] text-xs font-semibold flex items-center gap-1 cursor-pointer hover:bg-[#F2F1EC]"
               >
                 <LogOut className="w-3.5 h-3.5" /> Logout
               </button>
@@ -476,74 +478,75 @@ export const SellerCenterView: React.FC = () => {
     );
   }
 
-  return shell(
-    <div className="max-w-6xl mx-auto px-4 py-5 space-y-5">
-      <div className="flex items-center gap-3">
-        <button type="button" onClick={() => setTab('PROFILE')} title="Profile picture" className="cursor-pointer">
-          <SellerAvatar src={seller.logoUrl || firebaseUser?.photoURL} name={seller.shopName} size={52} className="border border-black/10" />
-        </button>
-        <div className="min-w-0">
-          <h1 className="text-2xl font-display truncate">{seller.shopName}</h1>
-          <p className="text-xs text-[#575653]">
-            Commission: {commissionPercent ?? 0}% per sale · {seller.city} ·{' '}
-            {Number((seller as any).followers) > 0 && (
+  // Each page's title, one-line explanation and "?" guide (shown in the page header)
+  const PAGES: Record<string, { title: string; description: string; help?: string }> = {
+    DASHBOARD: { title: 'Dashboard', description: 'Today at a glance: orders to ship, payouts, stock and what to improve.', help: 'seller.tab.DASHBOARD' },
+    ORDERS: { title: 'Orders', description: 'Confirm, pack, ship and deliver your orders.', help: 'seller.tab.ORDERS' },
+    RETURNS: { title: 'Returns', description: 'Return requests from customers and your side of the story.', help: 'seller.tab.RETURNS' },
+    PRODUCTS: { title: 'Products', description: 'Add, edit and bulk-upload the products of your shop.', help: 'seller.tab.PRODUCTS' },
+    REVIEWS: { title: 'Reviews', description: 'Your rating, customer reviews, likes and dislikes.', help: 'seller.tab.REVIEWS' },
+    QUESTIONS: { title: 'Questions', description: 'Customers ask about your products; your answers show to everyone.', help: 'seller.tab.QUESTIONS' },
+    MESSAGES: { title: 'Messages', description: 'Notices from the store and your conversations with the team.', help: 'seller.tab.MESSAGES' },
+    EARNINGS: { title: 'Earnings & payouts', description: 'What you earned on each order and what was paid to you.', help: 'seller.tab.EARNINGS' },
+    AI: { title: 'AI Assistant', description: 'Ask about your shop, get descriptions written and fixes suggested.', help: 'seller.tab.AI' },
+    PROFILE: { title: 'Profile & payout', description: 'Your shop details, pickup address and where payouts are sent.', help: 'seller.tab.PROFILE' },
+    RULES: { title: 'Seller rules', description: 'The rules every shop on the marketplace follows.', help: 'seller.tab.RULES' },
+  };
+  const byId = Object.fromEntries(tabs.map((t) => [t.id, t]));
+  const groups = [
+    { label: 'Overview', tabs: [byId.DASHBOARD] },
+    { label: 'Sales', tabs: [byId.ORDERS, byId.RETURNS] },
+    { label: 'Catalog', tabs: [byId.PRODUCTS] },
+    { label: 'Customers', tabs: [byId.REVIEWS, byId.QUESTIONS, byId.MESSAGES] },
+    { label: 'Finance', tabs: [byId.EARNINGS] },
+    { label: 'Growth', tabs: [byId.AI] },
+    { label: 'Account', tabs: [byId.PROFILE, { id: 'RULES', label: 'Seller rules', icon: ShieldCheck }] },
+  ];
+  const followers = Number((seller as any).followers) || 0;
+
+  return (
+    <SellerShell
+      storeName={storeName}
+      shopName={seller.shopName}
+      shopLogo={seller.logoUrl || firebaseUser?.photoURL}
+      shopUrl={`${storeOrigin()}/#shop/${encodeURIComponent(seller.id || uid)}`}
+      storeUrl={`${storeOrigin()}/`}
+      subtitle={
+        <>
+          Commission {commissionPercent ?? 0}% · {seller.city}
+          {followers > 0 ? ` · ${followers.toLocaleString('en-PK')} ${followers === 1 ? 'follower' : 'followers'}` : ''}
+        </>
+      }
+      groups={groups}
+      mobileTabs={['DASHBOARD', 'ORDERS', 'PRODUCTS', 'MESSAGES']}
+      active={tab}
+      onTab={(id) => setTab(id as Tab)}
+      page={PAGES[tab] || PAGES.DASHBOARD}
+      unread={unreadTotal}
+      onSignOut={handleSignOut}
+      banner={
+        tab !== 'MESSAGES' && unreadTotal > 0 ? (
+          <button
+            type="button"
+            onClick={() => setTab('MESSAGES')}
+            className={`w-full p-3 rounded-xl text-left text-xs border cursor-pointer ${
+              urgentNotice ? 'bg-rose-50 border-rose-300 text-rose-950' : 'bg-sky-50 border-sky-200 text-sky-950'
+            }`}
+          >
+            {urgentNotice ? (
               <>
-                <strong className="text-[#141413]">{Number((seller as any).followers).toLocaleString('en-PK')}</strong>{' '}
-                {Number((seller as any).followers) === 1 ? 'follower' : 'followers'} (emailed when you add products) ·{' '}
+                <strong>Urgent notice from the store:</strong> {urgentNotice.title} — tap to read.
+              </>
+            ) : (
+              <>
+                You have <strong>{unreadTotal}</strong> new {unreadTotal === 1 ? 'message / notice' : 'messages / notices'} from the
+                store. Tap to read.
               </>
             )}
-            <a href={`${storeOrigin()}/#shop/${encodeURIComponent(seller.id || uid)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#0E7A43] underline">
-              My shop page
-            </a>{' '}
-            ·{' '}
-            <button type="button" onClick={() => setTab('RULES')} className="font-semibold text-[#0E7A43] underline cursor-pointer">
-              Seller rules
-            </button> <HelpDot id="seller.tab.RULES" />
-          </p>
-        </div>
-      </div>
-      <nav className="flex gap-1 overflow-x-auto border-b border-black/10">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`px-3 py-2 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap border-b-2 cursor-pointer ${
-                tab === t.id ? 'border-[#141413] text-[#141413]' : 'border-transparent text-[#575653] hover:text-[#141413]'
-              }`}
-            >
-              <Icon className="w-4 h-4" /> {t.label} <HelpDot id={`seller.tab.${t.id}`} />
-              {!!t.badge && (
-                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center">
-                  {t.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-      {tab !== 'MESSAGES' && unreadTotal > 0 && (
-        <button
-          type="button"
-          onClick={() => setTab('MESSAGES')}
-          className={`w-full p-3 text-left text-xs border cursor-pointer ${
-            urgentNotice ? 'bg-rose-50 border-rose-400 text-rose-950' : 'bg-sky-50 border-sky-300 text-sky-950'
-          }`}
-        >
-          {urgentNotice ? (
-            <>
-              <strong>Urgent notice from the store:</strong> {urgentNotice.title} — tap to read.
-            </>
-          ) : (
-            <>
-              You have <strong>{unreadTotal}</strong> new {unreadTotal === 1 ? 'message / notice' : 'messages / notices'} from the
-              store. Tap to read.
-            </>
-          )}
-        </button>
-      )}
+          </button>
+        ) : null
+      }
+    >
       {tab === 'DASHBOARD' && <DashboardTab onGo={setTab} seller={seller} />}
       {tab === 'ORDERS' && <OrdersTab />}
       {tab === 'PRODUCTS' && (
@@ -576,7 +579,6 @@ export const SellerCenterView: React.FC = () => {
       )}
       {tab === 'RULES' && (
         <div className="bg-white border border-black/10 p-5 space-y-3">
-          <h2 className="text-lg font-display">Seller Rules (Supplier Code of Conduct)</h2>
           <PolicyDocument intro={SUPPLIER_CODE.intro} sections={SUPPLIER_CODE.sections} />
           <p className="text-[11px] text-[#575653]">
             You accepted these rules on{' '}
@@ -613,7 +615,7 @@ export const SellerCenterView: React.FC = () => {
           </div>
         </details>
       )}
-    </div>
+    </SellerShell>
   );
 };
 
@@ -1327,25 +1329,36 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
   const toShip = (orders || []).filter((o) => OPEN_STATUSES.includes(o.status)).length;
   const onTheWay = (orders || []).filter((o) => ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
   const cards = [
-    { label: 'Orders to ship', value: orders ? String(toShip) : '…', tab: 'ORDERS' as Tab, strong: toShip > 0 },
-    { label: 'On the way', value: orders ? String(onTheWay) : '…', tab: 'ORDERS' as Tab },
-    { label: 'Ready for payout', value: summary ? formatPKR(summary.available) : '…', tab: 'EARNINGS' as Tab },
-    { label: 'Paid out so far', value: summary ? formatPKR(summary.paid) : '…', tab: 'EARNINGS' as Tab },
+    { label: 'Orders to ship', value: orders ? String(toShip) : '…', tab: 'ORDERS' as Tab, strong: toShip > 0, icon: Package, tone: 'bg-amber-100 text-amber-800', hint: toShip > 0 ? 'Ship within 48 hours' : 'All caught up' },
+    { label: 'On the way', value: orders ? String(onTheWay) : '…', tab: 'ORDERS' as Tab, icon: Truck, tone: 'bg-sky-100 text-sky-800', hint: 'With the courier' },
+    { label: 'Ready for payout', value: summary ? formatPKR(summary.available) : '…', tab: 'EARNINGS' as Tab, icon: Wallet, tone: 'bg-emerald-100 text-emerald-800', hint: 'From delivered orders' },
+    { label: 'Paid out so far', value: summary ? formatPKR(summary.paid) : '…', tab: 'EARNINGS' as Tab, icon: Store, tone: 'bg-violet-100 text-violet-800', hint: 'Sent to your account' },
   ];
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => (
-          <button
-            key={c.label}
-            type="button"
-            onClick={() => onGo(c.tab)}
-            className={`p-4 text-left border cursor-pointer ${c.strong ? 'bg-amber-50 border-amber-400' : 'bg-white border-black/10'}`}
-          >
-            <div className="text-[11px] text-[#575653]">{c.label}</div>
-            <div className="text-xl font-bold font-mono mt-1">{c.value}</div>
-          </button>
-        ))}
+        {cards.map((c) => {
+          const Icon = c.icon;
+          return (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => onGo(c.tab)}
+              className={`p-4 text-left rounded-2xl border cursor-pointer transition-shadow hover:shadow-md ${
+                c.strong ? 'bg-amber-50 border-amber-300' : 'bg-white border-[#E7E5DF]'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-[12px] font-semibold text-[#6B6963]">{c.label}</div>
+                <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${c.tone}`}>
+                  <Icon className="w-4.5 h-4.5" />
+                </span>
+              </div>
+              <div className="text-2xl font-bold tracking-tight mt-1">{c.value}</div>
+              <div className="text-[11px] text-[#8A8780] mt-0.5">{c.hint}</div>
+            </button>
+          );
+        })}
       </div>
       {freeUntil && freeUntil > Date.now() && (
         <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs">
