@@ -16,6 +16,7 @@ const SellerCenterView = lazy(() =>
 );
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { ExitGuard } from './components/ExitGuard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthPanel } from './components/AuthPanel';
 import { storeOrigin } from './components/ShareProductButton';
 import { LoginStepUp } from './components/LoginStepUp';
@@ -150,6 +151,7 @@ const MainRouter: React.FC = () => {
     <div className="relative min-h-screen">
       {/* "Install App" strip on all three parts of the site, also before signing in */}
       <PWAInstallButton variant="banner" />
+      <ErrorBoundary key={mode} label={mode}>
       {mode === 'SELLER' ? (
         <Suspense
           fallback={
@@ -178,6 +180,7 @@ const MainRouter: React.FC = () => {
           </Suspense>
         </AdminGate>
       )}
+      </ErrorBoundary>
 
       {toastMessage && (
         <div
@@ -200,8 +203,10 @@ const MainRouter: React.FC = () => {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <MainRouter />
-    </StoreProvider>
+    <ErrorBoundary label="root">
+      <StoreProvider>
+        <MainRouter />
+      </StoreProvider>
+    </ErrorBoundary>
   );
 }

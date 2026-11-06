@@ -36,6 +36,7 @@ import { CANCEL_POLICY, CANCEL_REASONS, cancelOptionFor, codPausedUntil, recentS
 import { BUILT_IN_OWNER_EMAILS, isBuiltInOwnerEmail } from './src/config/owners';
 import { registerMarketplaceRoutes } from './server/marketplace';
 import { registerCourierRoutes } from './server/couriers';
+import { offlineSupportReply, offlineProductContent } from './server/offlineAnswers';
 import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/stepUp';
 import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
@@ -101,6 +102,11 @@ dotenv.config();
 // missing): Node would otherwise exit on an unhandled promise rejection and take the site down.
 process.on('unhandledRejection', (reason) => {
   console.error('[Unhandled Promise Rejection]', reason);
+});
+// One unexpected error must not take the whole store offline: it is logged and the server keeps
+// serving (the run-server loop still restarts it if the process ever stops)
+process.on('uncaughtException', (err) => {
+  console.error('[Uncaught Exception]', err);
 });
 
 // Initialize Firebase Admin SDK
@@ -1864,10 +1870,11 @@ Desired Tone: ${tone}`,
     const parsed = JSON.parse(rawText.trim());
     res.json(parsed);
   } catch (error: any) {
-    console.error('AI Content Generation Error:', error);
-    res.status(500).json({
-      error: error?.message || 'Failed to generate product content.',
-    });
+    // The AI is not available: a plain draft from the name and category, so listing never stops
+    console.warn('AI Content Generation unavailable, using a plain draft:', error?.message || error);
+    const { name, category, brand } = req.body || {};
+    if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Product name is required.' });
+    res.json(offlineProductContent({ name, category, brand, storeName: catalogStore.ready ? catalogStore.settings()?.storeName : undefined }));
   }
 });
 
@@ -1908,9 +1915,25 @@ app.post('/api/ai/enrich-csv-rows', requireAdminOrSeller, async (req, res) => {
     const enriched = JSON.parse((response.text || '[]').trim());
     res.json({ enriched });
   } catch (error: any) {
-    console.error('AI CSV Enrichment Error:', error);
-    res.status(500).json({
-      error: error?.message || 'Failed to enrich CSV rows with AI.',
+    // Without the AI the rows still get a plain description and SEO text (only where missing)
+    console.warn('AI CSV Enrichment unavailable, using plain text:', error?.message || error);
+    const rows: any[] = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 25) : [];
+    const storeName = catalogStore.ready ? catalogStore.settings()?.storeName : undefined;
+    res.json({
+      fallback: true,
+      enriched: rows.map((r) => {
+        const draft = offlineProductContent({ name: String(r?.name || ''), category: r?.category, brand: r?.brand, storeName });
+        return {
+          sku: r?.sku,
+          name: r?.name,
+          shortDescription: r?.shortDescription || draft.shortDescription,
+          description: r?.description || draft.description,
+          seoTitle: r?.seoTitle || draft.seoTitle,
+          seoDescription: r?.seoDescription || draft.seoDescription,
+          seoKeywords: r?.seoKeywords || draft.seoKeywords,
+          category: r?.category,
+        };
+      }),
     });
   }
 });
@@ -5418,10 +5441,16 @@ Rules:
   }));
   contents.push({ role: 'user', parts: [{ text: message }] });
 
-  const ai = getGenAIClient();
-  for (const modelName of ['gemini-3.8-flash', 'gemini-3.1-flash-lite']) {
+  // Without the AI (no key, quota used up, service down) the store's own answers are used
+  let ai: ReturnType<typeof getGenAIClient> | null = null;
+  try {
+    ai = getGenAIClient();
+  } catch (err: any) {
+    console.warn('[Helpline AI] not available:', err?.message || err);
+  }
+  for (const modelName of ai ? ['gemini-3.8-flash', 'gemini-3.1-flash-lite'] : []) {
     try {
-      const response = await ai.models.generateContent({
+      const response = await ai!.models.generateContent({
         model: modelName,
         contents,
         config: { systemInstruction: systemPrompt, temperature: 0.5 },
@@ -5431,9 +5460,7 @@ Rules:
       console.warn(`[Helpline AI] ${modelName} failed:`, err?.message || err);
     }
   }
-  return whatsapp
-    ? `Thank you! We have received your message and our team will reply soon. WhatsApp: ${whatsapp}`
-    : 'Thank you! We have received your message and our team will reply soon.';
+  return offlineSupportReply(message, store, orderNumber);
 }
 
 function trimThread(messages: ThreadMessage[]): ThreadMessage[] {

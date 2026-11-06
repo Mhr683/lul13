@@ -2107,7 +2107,11 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
       setEditing((p) =>
         p ? { ...p, shortDescription: r.shortDescription || p.shortDescription, description: r.description || p.description } : p
       );
-      showToast('Description written. Check it before saving.');
+      showToast(
+        r.fallback
+          ? 'The AI is busy, so a simple description was written. Check and improve it before saving.'
+          : 'Description written. Check it before saving.'
+      );
     } catch (err: any) {
       showToast(err.message);
     } finally {
