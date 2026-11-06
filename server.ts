@@ -55,7 +55,7 @@ import { createAnalytics } from './server/analytics';
 import { createAds } from './server/ads';
 import { effectivePrice, isFlashActive, welcomeOf, referralOf, DEFAULT_NEW_SELLER_FREE_DAYS } from './src/services/promotions';
 import { findVariant, hasVariants, variantPrice } from './src/services/productVariants';
-import { withModelFallback } from './server/aiFallback';
+import { withKeyPool, aiKeyStatus } from './server/aiFallback';
 import {
   PAYMENT_SECRET_FIELDS,
   PAYMENT_SECRETS_COLLECTION,
@@ -730,27 +730,46 @@ app.use('/api/orders/track', limitPerIp('track', 20));
 app.use('/api/orders/updates', limitPerIp('updates', 20));
 app.use('/api/orders/create', limitPerIp('create', 10));
 
-// Initialize Server-Side Gemini Client with mandatory User-Agent header
+// Gemini keys: GEMINI_API_KEY (and GEMINI_API_KEY_2 ... _20) from .env, plus the backup keys the
+// owner pastes in Admin → Settings → AI keys (ai_private/keys, read once at start and on change).
+// Each key from another Google account has its own free daily limit; when one is used up the next
+// one is used by itself (server/aiFallback.ts).
+let adminAiKeys: string[] = [];
+const AI_KEYS_DOC = () => adminDb.collection('ai_private').doc('keys');
+const loadAdminAiKeys = async () => {
+  try {
+    const snap = await AI_KEYS_DOC().get();
+    adminAiKeys = (Array.isArray(snap.data()?.keys) ? snap.data()!.keys : []).map((k: any) => String(k?.key || '')).filter(Boolean);
+  } catch (err: any) {
+    console.warn('[ai] backup keys not loaded:', err?.message);
+  }
+};
+const allAiKeys = () => {
+  const env = [process.env.GEMINI_API_KEY, ...Array.from({ length: 19 }, (_, i) => process.env[`GEMINI_API_KEY_${i + 2}`])];
+  return Array.from(new Set([...env, ...adminAiKeys].map((k) => String(k || '').trim()).filter((k) => k.length > 20)));
+};
+const newGeminiClient = (apiKey: string) =>
+  new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: { 'User-Agent': 'aistudio-build' },
+      // One try per model: a busy model moves on to the next one at once instead of waiting
+      // through the library's own retries
+      retryOptions: { attempts: 1 },
+    },
+  });
+let aiPool: { sig: string; client: GoogleGenAI } | null = null;
+
 function getGenAIClient() {
+  const keys = allAiKeys();
   // Without a key the library falls back to Google Cloud credentials and fails with a confusing
   // "Could not load the default credentials" message
-  if (!String(process.env.GEMINI_API_KEY || '').trim()) {
+  if (!keys.length) {
     throw new Error('The AI is not set up on this server: add GEMINI_API_KEY to the .env file (free key from aistudio.google.com/apikey) and restart the server.');
   }
-  // A busy model (503 high demand) is retried on the next one (server/aiFallback.ts)
-  return withModelFallback(
-    new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-        // One try per model: a busy model moves on to the next one at once instead of waiting
-        // through the library's own retries
-        retryOptions: { attempts: 1 },
-      },
-    })
-  );
+  const sig = keys.join('|');
+  if (aiPool?.sig !== sig) aiPool = { sig, client: withKeyPool(keys.map((key) => ({ key, client: newGeminiClient(key) }))) };
+  return aiPool.client;
 }
 
 // Comprehensive Controlled Tool Declarations for AI Store Operator
@@ -5990,6 +6009,55 @@ function paymentSecretsStatus(s: PaymentSecrets) {
 }
 
 const PAYMENT_SECRET_ROLES = ['SUPER_ADMIN', 'ADMIN'];
+
+// ---------------------------------------------------------------- AI backup keys (Admin → Settings)
+loadAdminAiKeys();
+const aiKeysView = () => ({
+  fromEnv: allAiKeys().filter((k) => !adminAiKeys.includes(k)).length,
+  keys: aiKeyStatus(allAiKeys()).map((s, i) => ({ ...s, index: i, saved: adminAiKeys.some((k) => `••••${k.slice(-4)}` === s.key) })),
+});
+app.get('/api/admin/ai-keys', requireAdmin, (req, res) => {
+  if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) return res.status(403).json({ error: 'Only the store owner or an admin can see AI keys.' });
+  res.json(aiKeysView());
+});
+app.post('/api/admin/ai-keys', requireAdmin, async (req, res) => {
+  if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) return res.status(403).json({ error: 'Only the store owner or an admin can change AI keys.' });
+  const key = String(req.body?.key || '').trim();
+  if (!/^[A-Za-z0-9_\-]{30,60}$/.test(key)) return res.status(400).json({ error: 'This does not look like a Gemini API key (it starts with "AIza" and has about 39 letters).' });
+  if (allAiKeys().includes(key)) return res.status(400).json({ error: 'This key is already added.' });
+  // The key is tried once before it is saved, so a wrong key is caught now
+  let note = 'Key works.';
+  try {
+    const r = await newGeminiClient(key).models.generateContent({ model: 'gemini-3.1-flash-lite', contents: 'Reply with the word OK.' });
+    if (!r.text) note = 'Key saved (the test answer was empty).';
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (/quota|RESOURCE_EXHAUSTED|429/i.test(msg)) note = 'Key saved. Its free limit for today is already used; it will work after the daily reset.';
+    else return res.status(400).json({ error: `Google did not accept this key: ${msg.slice(0, 160)}` });
+  }
+  try {
+    await AI_KEYS_DOC().set({ keys: [...adminAiKeys.map((k) => ({ key: k })), { key, addedAt: new Date().toISOString() }] }, { merge: true });
+    adminAiKeys = [...adminAiKeys, key];
+    res.json({ ...aiKeysView(), note });
+  } catch (err) {
+    console.error('[ai-keys] save failed:', err);
+    res.status(503).json({ error: 'The key was not saved. Please try again.' });
+  }
+});
+app.post('/api/admin/ai-keys/remove', requireAdmin, async (req, res) => {
+  if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) return res.status(403).json({ error: 'Only the store owner or an admin can change AI keys.' });
+  const last4 = String(req.body?.key || '').replace(/\W/g, '').slice(-4);
+  const keep = adminAiKeys.filter((k) => k.slice(-4) !== last4);
+  if (keep.length === adminAiKeys.length) return res.status(404).json({ error: 'Only keys added here can be removed here.' });
+  try {
+    await AI_KEYS_DOC().set({ keys: keep.map((k) => ({ key: k })) });
+    adminAiKeys = keep;
+    res.json(aiKeysView());
+  } catch (err) {
+    console.error('[ai-keys] remove failed:', err);
+    res.status(503).json({ error: 'The key was not removed. Please try again.' });
+  }
+});
 
 app.get('/api/admin/payment-secrets', requireAdmin, async (req, res) => {
   if (!PAYMENT_SECRET_ROLES.includes((req as any).user?.role)) {

@@ -60,6 +60,7 @@ import { AdminSellerInbox } from './AdminSellerInbox';
 import { BrandLogo } from './BrandLogo';
 import { AdminOrdersOverview } from './AdminOrdersOverview';
 import { AdminCouriersPanel } from './AdminCouriersPanel';
+import { AdminAiKeysPanel } from './AdminAiKeysPanel';
 import { StoreTextsPanel } from './StoreTextsPanel';
 import { StoreLogoUploader } from './StoreLogoUploader';
 import { BackupRestorePanel } from './BackupRestorePanel';
@@ -4076,6 +4077,9 @@ export const AdminDashboardView: React.FC<{
               {/* 0. Admins & owner login */}
               <AdminTeamPanel />
               <AdminLoginSecurityPanel />
+
+              {/* AI keys: backup Gemini keys so the AI keeps working when one key's free limit is used */}
+              <AdminAiKeysPanel />
 
               {/* 0b. Customer-facing home page texts */}
               <StoreTextsPanel />
