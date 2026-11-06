@@ -171,6 +171,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Banner: chhoti line, bara heading, description, aur tasveer ka link (khali = pehle product ki tasveer).',
       '"Highlights": banner ke neeche ki baatein, | se alag, jaise Cash on Delivery|Easy Returns.',
       'Seller ad: title, text aur button ka naam; dikhana band ho to "Show the Become a seller ad" ka tick hata dein.',
+      '"Seller app home page: offers": Seller app ke homepage par "Running right now" mein dikhne wali offers. Har line ek offer: "Offer ka naam | tafseel", jaise "Top seller of the month | Ek hafta home page par". "0% commission" aur "Free to join" khud dikhte hain (0% wale din Marketing & Growth se).',
       '"Delivery line on the product page": sach likhein, jaise "3–6 working days".',
       'About Us ka text.',
       '"Save texts" dabayein; foran store par aa jata hai.',

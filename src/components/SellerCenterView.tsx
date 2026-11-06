@@ -57,6 +57,7 @@ import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '..
 import { HelpDot } from './HelpDot';
 import { FormSection, MoreMenu, OrderSteps, SegTabs, ui } from './SellerUi';
 import { SellerShell } from './SellerShell';
+import { SellerLanding } from './SellerLanding';
 import { AdminAiKeysPanel } from './AdminAiKeysPanel';
 
 // Seller Center (/seller): marketplace sellers apply, then manage their own products, orders,
@@ -360,30 +361,18 @@ export const SellerCenterView: React.FC = () => {
   }
 
   if (!uid) {
+    // Seller app home page: offers, benefits, how it works, FAQ, with the sign-up / login box
     return shell(
-      <div className="max-w-5xl mx-auto px-4 py-10 grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-        <div className="space-y-4">
-          <h1 className="text-3xl font-display">Open your shop on {storeName}</h1>
-          <p className="text-sm text-[#454441]">
-            Reach thousands of customers with your products. You list your products, ship the parcel when an order comes
-            in, and receive your earnings for every delivered order in your bank account.
-          </p>
-          <ul className="text-sm space-y-2 text-[#141413]">
-            <li>✓ Free account and your own Seller Center</li>
-            <li>✓ Only a commission per sale, no monthly fees</li>
-            <li>✓ The store collects Cash on Delivery payments and pays you out</li>
-            <li>✓ Orders, tracking and earnings in one place</li>
-          </ul>
-        </div>
-        <div className="bg-white border border-black/10 p-6">
+      <SellerLanding
+        authPanel={
           <AuthPanel
             title="Seller login / new account"
             subtitle="Step 1 of 5: create your account (or sign in). Then 4 short steps for your shop, ID, payout and review."
             allowSignup
             strongPassword
           />
-        </div>
-      </div>
+        }
+      />
     );
   }
 

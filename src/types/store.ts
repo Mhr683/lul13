@@ -518,6 +518,8 @@ export interface StoreSettings {
   sellerBannerTitle?: string;
   sellerBannerText?: string;
   sellerBannerButton?: string;
+  /** Seller app home page: offers for sellers, one per line ("Title | details") */
+  sellerOffers?: string;
   deliveryPromiseText?: string;
   aboutText?: string;
   logoUrl?: string;

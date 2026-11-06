@@ -14,6 +14,7 @@ type TextKey =
   | 'sellerBannerTitle'
   | 'sellerBannerText'
   | 'sellerBannerButton'
+  | 'sellerOffers'
   | 'deliveryPromiseText'
   | 'aboutText';
 
@@ -56,6 +57,12 @@ const FIELDS: Array<{ key: TextKey; label: string; placeholder: string; multilin
     key: 'sellerBannerText',
     label: '"Become a seller" ad: description',
     placeholder: 'Apna kaam shuru karein — ghar baithe apne products bechein aur har order par kamaayein.',
+    multiline: true,
+  },
+  {
+    key: 'sellerOffers',
+    label: 'Seller app home page: offers for sellers (one per line, "Title | details")',
+    placeholder: 'Free product photos for the first 10 products | Send us your products and we shoot them for free\nTop seller of the month | Featured on our home page for one week',
     multiline: true,
   },
   {
