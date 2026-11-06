@@ -60,9 +60,20 @@ export const AdminAiKeysPanel: React.FC = () => {
         Every free key has a daily limit. Add one key from <strong>each</strong> of your Gmail accounts: when one key's limit is used up, the
         next key is used by itself. (Keys from the same Gmail share one limit, so use different Gmails.)
       </p>
+      <a
+        href="https://aistudio.google.com/apikey"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-violet-600 to-sky-600 text-white text-sm font-bold shadow"
+      >
+        <Sparkles className="w-4 h-4" /> Create Gemini API key (opens Google AI Studio)
+      </a>
       <ol className="list-decimal pl-5 text-[#575653] space-y-0.5">
-        <li>Open aistudio.google.com/apikey and sign in with a Gmail.</li>
-        <li>Press "Create API key" (choose "Create in new project" if asked), then copy the key (starts with AIza...).</li>
+        <li>Press the button above and sign in with a Gmail (to switch Gmail, use your picture at the top right of that page).</li>
+        <li>
+          Press "Create API key" (choose "Create API key in new project" if asked). Then press the <strong>copy</strong> button next to the
+          new key. Do not copy the shortened key shown in the list.
+        </li>
         <li>Paste it below and press Add. You can paste many keys at once, one per line. There is no limit on the number of keys.</li>
       </ol>
       {data && (
