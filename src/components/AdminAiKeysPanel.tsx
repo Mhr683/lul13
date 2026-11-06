@@ -107,10 +107,16 @@ export const AdminAiKeysPanel: React.FC = () => {
                 <span className="px-1.5 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-900">ready</span>
               )}
               {k.lastOkAt && <span className="text-[#575653]">last used {new Date(k.lastOkAt).toLocaleString('en-PK')}</span>}
-              {k.saved && (
-                <button type="button" onClick={() => remove(k)} className="ml-auto text-rose-700 inline-flex items-center gap-1 cursor-pointer">
+              {k.saved ? (
+                <button
+                  type="button"
+                  onClick={() => remove(k)}
+                  className="ml-auto px-2.5 py-1 rounded border border-rose-400 bg-rose-50 text-rose-800 font-semibold inline-flex items-center gap-1 cursor-pointer hover:bg-rose-100"
+                >
                   <Trash2 className="w-3.5 h-3.5" /> Remove
                 </button>
+              ) : (
+                <span className="ml-auto text-[#575653]" title="This key is in the server settings file (.env), not added here">server key</span>
               )}
             </div>
           ))}
@@ -157,8 +163,28 @@ export const AdminAiKeysPanel: React.FC = () => {
                   key={i}
                   className={`px-2 py-1.5 border ${g.length > 1 ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-emerald-50 border-emerald-200 text-emerald-950'}`}
                 >
-                  Project {i + 1}: {g.map((k) => k.key).join(', ')}
-                  {g.length > 1 && <span> — these {g.length} keys share ONE limit; keep one and remove the others.</span>}
+                  <div>
+                    Project {i + 1}: {g.map((k) => k.key).join(', ')}
+                    {g.length > 1 && <span> — these {g.length} keys share ONE limit; keep one and remove the others.</span>}
+                  </div>
+                  {g.length > 1 && (
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {/* The first key of the project is kept; the others can be removed here */}
+                      {g.slice(1).filter((k) => k.saved).map((k) => (
+                        <button
+                          key={k.key}
+                          type="button"
+                          onClick={async () => {
+                            await remove({ key: k.key } as KeyRow);
+                            setProjects((p) => (p ? { ...p, keys: p.keys - 1, groups: p.groups.map((x) => x.filter((y) => y.key !== k.key)) } : p));
+                          }}
+                          className="px-2.5 py-1 rounded border border-rose-400 bg-white text-rose-800 font-semibold inline-flex items-center gap-1 cursor-pointer hover:bg-rose-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Remove {k.key}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

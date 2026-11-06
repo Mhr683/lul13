@@ -232,7 +232,9 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       '"Add key(s)" dabayein. Har key check hoti hai aur nateeja neeche likha aata hai.',
       'List mein har key ke saath "ready" (hara) ya "limit used — resting" (peela).',
       'System khud pehchanta hai ke nayi key kisi pehle wali key ke project ki to nahi: ho to "NOT added" likh kar nahi lagata (ek project = ek had).',
-      'Pehle se lagi keys ke liye "Check projects" dabayein: jo keys ek hi project ki hon woh peele dabbe mein aati hain; ek rakh kar baqi "Remove" kar dein.',
+      'Pehle se lagi keys ke liye "Check projects" dabayein: jo keys ek hi project ki hon woh peele dabbe mein aati hain, aur wahin har faltu key ka laal "Remove" button hota hai (pehli key rakhi jati hai).',
+      'Kisi bhi key ko hatane ke liye list mein us ke saath laal "Remove" dabayein aur tasdeeq karein.',
+      'Jis key ke saath "server key" likha ho woh server ki settings file (.env) mein hai; usay yahan se nahi hataya ja sakta.',
     ],
     tips: [
       'Google ki free had har PROJECT ki alag hoti hai. Isliye har key "Create API key in new project" se banayein: ek hi Gmail mein bhi alag project = alag had.',
