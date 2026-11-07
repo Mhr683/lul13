@@ -73,6 +73,7 @@ import { CardPaymentStatus } from './CardPaymentStatus';
 import { OrderCancelBox } from './OrderCancelBox';
 import { HeroSlider, TrendingTicker } from './HeroSlider';
 import { BecomeSellerBanner, sellerCenterUrl } from './BecomeSellerBanner';
+import { QuestionAnswerNotifier } from './QuestionAnswerNotifier';
 import { PolicyDocument } from './PolicyDocument';
 import { CUSTOMER_PROTECTION } from '../data/policies';
 import { withFlashPrices, referralOf, type Campaign, campaignProducts } from '../services/promotions';
@@ -5725,6 +5726,9 @@ export const StorefrontView: React.FC = () => {
           <span className="hidden sm:inline font-semibold tracking-wide">24/7 Helpline & AI</span>
         </button>
       </div>
+
+      {/* "The seller answered your question" notice (questions asked from this phone) */}
+      <QuestionAnswerNotifier />
 
       {/* Customer Helpline Drawer Modal */}
       <CustomerHelplineDrawer

@@ -411,6 +411,19 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     ],
   },
 
+  'seller.tab.QUESTIONS': {
+    title: 'Questions (product ke baare mein sawal)',
+    what: 'Customers product page par sawal poochhte hain; aap ka jawab sab ko nazar aata hai aur poochne wale ko khabar jati hai.',
+    steps: [
+      'Menu mein "Customers → Questions" kholein. Laal number = jawab ka intezar.',
+      'Sawal ke neeche jawab likhein aur bhejein.',
+      'Jawab foran product page par lag jata hai.',
+      'Poochne wale customer ko app mein notice aata hai: "The seller answered your question" (usi phone par jis se sawal poocha tha).',
+      'Agar customer ne email di thi ya woh login tha, to jawab email se bhi jata hai.',
+    ],
+    tips: ['Jaldi aur saaf jawab se sale barhti hai.', 'Qeemat, delivery ke din ya warranty ka ghalat wada na karein.'],
+  },
+
   // =============================================================== SELLER: apni AI key
   'seller.aiKeys': {
     title: 'Meri AI keys (apna muft AI)',

@@ -183,6 +183,18 @@ export function registerProductExtrasRoutes(app: express.Express, d: ProductExtr
     const p = d.productById(productId);
     if (!p || p.status !== 'ACTIVE') return res.status(404).json({ error: 'Product not found.' });
     const id = `q-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const userId = (await d.callerUid(req).catch(() => null)) || '';
+    // A signed-in customer who left the email empty still gets the answer at their account email
+    let accountEmail = '';
+    if (!email && userId) {
+      try {
+        const u = await adminDb.collection('users').doc(userId).get();
+        const e = String(u.data()?.email || '').toLowerCase();
+        if (isEmail(e)) accountEmail = e;
+      } catch {
+        /* the answer still shows on the product page and in the app */
+      }
+    }
     const q = {
       id,
       productId,
@@ -191,8 +203,8 @@ export function registerProductExtrasRoutes(app: express.Express, d: ProductExtr
       question,
       customerName: shortName(name),
       // Private: used only to email the answer, never shown on the store
-      email: email || '',
-      userId: (await d.callerUid(req).catch(() => null)) || '',
+      email: email || accountEmail,
+      userId,
       status: 'PENDING',
       answer: '',
       createdAt: new Date().toISOString(),
@@ -200,10 +212,40 @@ export function registerProductExtrasRoutes(app: express.Express, d: ProductExtr
     try {
       await questionsCol().doc(id).set(q);
       forgetQuestions(q);
-      res.json({ success: true });
+      // The id lets this phone check for the answer later (Q&A notifications in the store)
+      res.json({ success: true, id, emailed: Boolean(q.email) });
     } catch (err: any) {
       console.error('[questions] save failed:', err?.message);
       res.status(503).json({ error: 'Could not send your question. Please try again.' });
+    }
+  });
+
+  // The customer's phone asks which of its own questions have been answered (it keeps their ids).
+  // Answers are public on the product page anyway; only these ids are read (at most 20).
+  app.get('/api/questions/mine', d.limitPerIp('questions-mine', 30), async (req, res) => {
+    const ids = String(req.query.ids || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => /^q-\d+-[a-f0-9]{8}$/.test(s))
+      .slice(0, 20);
+    if (!ids.length) return res.json({ success: true, questions: [] });
+    try {
+      const snaps = await adminDb.getAll(...ids.map((i) => questionsCol().doc(i)));
+      const questions = snaps
+        .filter((s) => s.exists)
+        .map((s) => s.data() as Doc)
+        .map((q) => ({
+          id: q.id,
+          productId: q.productId,
+          productName: q.productName,
+          status: q.status,
+          ...(q.status === 'ANSWERED' ? { answer: q.answer, answeredBy: q.answeredBy, answeredAt: q.answeredAt } : {}),
+        }));
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, questions });
+    } catch (err) {
+      console.error('[questions mine] failed:', err);
+      res.status(503).json({ error: 'Could not check your questions.' });
     }
   });
 

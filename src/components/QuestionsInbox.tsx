@@ -192,7 +192,11 @@ export const QuestionsInbox: React.FC<{ mode: 'seller' | 'admin'; onWaitingChang
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#575653]">
-                <span>{q.willEmail ? (q.answer ? 'The customer was emailed the answer.' : 'The customer will get your answer by email.') : 'No email: the answer shows on the product page.'}</span>
+                <span>{q.willEmail
+                    ? q.answer
+                      ? 'The customer was emailed the answer and sees a notice in the app.'
+                      : 'The customer will get your answer by email and as a notice in the app.'
+                    : 'The customer sees your answer as a notice in the app and on the product page.'}</span>
                 {mode === 'admin' && (
                   <button
                     type="button"

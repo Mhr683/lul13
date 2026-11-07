@@ -6,6 +6,7 @@ import { ProductImage } from './ProductImage';
 import { ProductRatingBadge } from './SellerRating';
 import type { Product } from '../types/store';
 import { formatMoney } from '../services/currency';
+import { hasOpenQuestionOn, markQuestionSeen, myQuestions, rememberQuestion } from '../services/myQuestions';
 
 // Product page extras (server side: server/productExtras.ts):
 //   - "Tell me when it's back" for out-of-stock products
@@ -294,12 +295,14 @@ export const ProductQuestions: React.FC<{ productId: string; onCount?: (n: numbe
   const [email, setEmail] = useState(() => auth.currentUser?.email || '');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [emailed, setEmailed] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     setSent(false);
     setError('');
-    const cached = questionsCache.get(productId);
+    // A question this phone asked here is waiting for its answer: the list is read fresh
+    const cached = hasOpenQuestionOn(productId) ? undefined : questionsCache.get(productId);
     setList(cached || null);
     if (cached) {
       onCount?.(cached.length);
@@ -311,6 +314,9 @@ export const ProductQuestions: React.FC<{ productId: string; onCount?: (n: numbe
       .then((d) => {
         const qs: PublicQuestion[] = Array.isArray(d?.questions) ? d.questions : [];
         questionsCache.set(productId, qs);
+        // The customer sees their own answer here, so no separate notice is needed for it
+        const mine = new Set(myQuestions().map((m) => m.id));
+        qs.forEach((q) => mine.has(q.id) && markQuestionSeen(q.id));
         if (live) {
           setList(qs);
           onCount?.(qs.length);
@@ -335,6 +341,9 @@ export const ProductQuestions: React.FC<{ productId: string; onCount?: (n: numbe
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Could not send. Please try again.');
+      // This phone remembers the question, so the customer is told when it is answered
+      if (data?.id) rememberQuestion(String(data.id), productId);
+      setEmailed(Boolean(data?.emailed));
       setQuestion('');
       setSent(true);
     } catch (err: any) {
@@ -370,8 +379,8 @@ export const ProductQuestions: React.FC<{ productId: string; onCount?: (n: numbe
 
       {sent ? (
         <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs flex items-center gap-2">
-          <Check className="w-4 h-4 shrink-0" /> Thank you! Your question was sent. The answer will appear here
-          {email ? ' and we will email it to you' : ''}.
+          <Check className="w-4 h-4 shrink-0" /> Thank you! Your question was sent to the seller. When they answer, you will see a
+          notice in the app{emailed ? ' and get an email' : ''}, and the answer will show here.
         </div>
       ) : (
         <form onSubmit={submit} className="p-4 bg-[#FBFBF9] border border-black/[0.08] space-y-2.5">
@@ -403,7 +412,7 @@ export const ProductQuestions: React.FC<{ productId: string; onCount?: (n: numbe
               maxLength={254}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email for the answer (optional)"
+              placeholder="Email to get the answer (optional)"
               className="px-3 py-2 border border-black/20 bg-white text-sm focus:border-black focus:outline-none"
             />
           </div>
