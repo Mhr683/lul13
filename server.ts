@@ -506,6 +506,23 @@ app.use('/api/feedback/upload', express.raw({ type: () => true, limit: '21mb' })
 app.use('/api/payments/tazapay/webhook', express.raw({ type: () => true, limit: '1mb' }));
 app.use('/api/payments/verifone/ipn', express.raw({ type: () => true, limit: '1mb' }));
 app.use('/api/payments/payoneer/notify', express.raw({ type: () => true, limit: '1mb' }));
+// Old phones (Chrome below 100 on Android): every file they ask for is noted in
+// .private/old-phone.log, to see how far the store gets on them when it does not open
+app.use((req, _res, next) => {
+  try {
+    const ua = String(req.headers['user-agent'] || '');
+    const v = Number((ua.match(/Chrome\/(\d+)/) || [])[1] || 0);
+    if (/Android/.test(ua) && v > 0 && v < 100) {
+      const file = path.join(process.cwd(), '.private', 'old-phone.log');
+      try {
+        if (fs.statSync(file).size > 300_000) fs.writeFileSync(file, fs.readFileSync(file, 'utf8').slice(-150_000));
+      } catch { /* new file */ }
+      const sw = req.headers['service-worker'] ? ' [sw]' : '';
+      fs.appendFileSync(file, `${new Date().toISOString()} | ${req.method} ${req.hostname}${req.originalUrl.slice(0, 150)}${sw} | ${ua.slice(0, 200)}\n`);
+    }
+  } catch { /* never block a request */ }
+  next();
+});
 app.use(express.json({ limit: '10mb' }));
 // The "Yes, it's me" button on the emailed admin-login page posts a plain form
 app.use('/api/auth/step-up/email', express.urlencoded({ extended: false, limit: '4kb' }));
