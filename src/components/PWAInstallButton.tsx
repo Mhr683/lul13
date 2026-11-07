@@ -61,8 +61,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
         <div className={`bg-[#141413] text-[#FBFBF9] py-2 pl-3 pr-1.5 sm:px-4 flex items-center justify-between gap-2 text-xs border-b border-white/10 ${className}`}>
           <div className="flex items-center gap-2 min-w-0">
             <DeviceIcon className="w-4 h-4 text-[#C5A059] shrink-0" />
-            <span className="leading-snug">
+            <span className="leading-snug max-[380px]:hidden">
               Get the <strong>{storeName}</strong> app on your {deviceLabel} to {why}
+            </span>
+            {/* Narrow phones: a short line, so the strip does not fill half the screen */}
+            <span className="hidden max-[380px]:block leading-snug truncate">
+              Get the <strong>{storeName.split(' ')[0]}</strong> app
             </span>
           </div>
           <div className="flex items-center gap-1 shrink-0">

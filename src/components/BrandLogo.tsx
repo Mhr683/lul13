@@ -51,7 +51,8 @@ export const BrandLogo: React.FC<{
   const main = words[0] || name;
   const rest = words.slice(1).join(' ');
   const dims = {
-    sm: { mark: 24, main: 'text-[18px]', rest: 'text-[7.5px]' },
+    // Very narrow phones (or a big phone font, e.g. Oppo A5s): a little smaller so the whole name fits
+    sm: { mark: 24, main: 'text-[18px] max-[360px]:text-[15px]', rest: 'text-[7.5px] max-[360px]:text-[6.5px]' },
     md: { mark: 30, main: 'text-[21px] sm:text-[24px]', rest: 'text-[8px] sm:text-[9px]' },
     lg: { mark: 42, main: 'text-[30px]', rest: 'text-[11.5px]' },
   }[size];
@@ -65,7 +66,7 @@ export const BrandLogo: React.FC<{
   }
   return (
     <span className={`inline-flex items-center gap-2 min-w-0 ${className}`} aria-label={name}>
-      {showMark && <BrandMark size={dims.mark} />}
+      {showMark && <BrandMark size={dims.mark} className={size === 'sm' ? 'max-[360px]:h-5 max-[360px]:w-auto' : ''} />}
       <span className="flex flex-col leading-none min-w-0" aria-hidden="true">
         <span
           className={`${dims.main} font-brand font-extrabold uppercase tracking-[0.01em] truncate ${

@@ -38,12 +38,12 @@ export const BecomeSellerBanner: React.FC<{ settings: StoreSettings }> = ({ sett
       >
         {/* soft gold glow */}
         <div className="pointer-events-none absolute -right-20 -top-24 w-72 h-72 rounded-full bg-[#C5A059]/25 blur-3xl" />
-        <div className="relative p-5 sm:p-7 lg:p-8 grid lg:grid-cols-[1.1fr_1fr] gap-6 items-center">
+        <div className="relative p-5 max-[380px]:p-4 sm:p-7 lg:p-8 grid lg:grid-cols-[1.1fr_1fr] gap-6 max-[380px]:gap-4 items-center">
           <div className="space-y-3">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#C5A059] text-[#0B0F17] text-[11px] font-bold uppercase tracking-wider">
               <Store className="w-3.5 h-3.5" /> Become a seller
             </span>
-            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-display font-semibold leading-tight">
+            <h2 className="text-2xl max-[380px]:text-xl sm:text-3xl lg:text-4xl font-display font-semibold leading-tight">
               {title}
             </h2>
             <p className="text-sm sm:text-base text-white/85 whitespace-pre-line">{text}</p>

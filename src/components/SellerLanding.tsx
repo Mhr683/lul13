@@ -86,10 +86,10 @@ export const SellerLanding: React.FC<{ authPanel: React.ReactNode }> = ({ authPa
                 <Zap className="w-4 h-4" /> Limited offer: 0% commission for your first {freeDays} days
               </span>
             )}
-            <h1 className="text-[32px] sm:text-[44px] leading-[1.08] font-bold tracking-tight">
+            <h1 className="text-[32px] max-[380px]:text-[26px] sm:text-[44px] leading-[1.08] font-bold tracking-tight">
               Sell to customers all over Pakistan — <span className="text-[#E5C98A]">from your own shop on {storeName}</span>
             </h1>
-            <p className="text-[15px] sm:text-base text-white/85 max-w-xl leading-relaxed">
+            <p className="text-[15px] max-[380px]:text-[14px] sm:text-base text-white/85 max-w-xl leading-relaxed">
               Apna kaam online le jayein. Products list karein, orders paayein, parcel bhejein — aur har delivered order ki kamai seedha apne
               account mein.
             </p>

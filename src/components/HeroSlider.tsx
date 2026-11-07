@@ -53,6 +53,60 @@ const Countdown: React.FC<{ endsAt: string }> = ({ endsAt }) => {
   );
 };
 
+// The slide's video. Some phones (battery saver, data saver, older Android) do not start a video by
+// themselves: then it is started from code, and if the phone still refuses, a big play button shows
+// so one tap starts it (the tap plays the video instead of opening the product).
+const HeroVideo: React.FC<{ src: string; poster?: string }> = ({ src, poster }) => {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [blocked, setBlocked] = useState(false);
+  const start = () => {
+    const v = ref.current;
+    if (!v) return;
+    v.muted = true;
+    const p = v.play();
+    if (p && typeof p.then === 'function') p.then(() => setBlocked(false)).catch(() => setBlocked(true));
+  };
+  useEffect(() => {
+    start();
+    // Still not playing after 2.5 s (no error either): offer the button
+    const t = setTimeout(() => {
+      const v = ref.current;
+      if (v && v.paused) setBlocked(true);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [src]);
+  return (
+    <>
+      <video
+        ref={ref}
+        src={src}
+        poster={poster}
+        className="max-h-full max-w-full object-contain sm:rounded shadow-2xl"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        onPlaying={() => setBlocked(false)}
+      />
+      {blocked && (
+        <button
+          type="button"
+          aria-label="Play video"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            start();
+          }}
+          className="absolute inset-0 flex items-center justify-center cursor-pointer"
+        >
+          <PlayCircle className="w-16 h-16 text-white drop-shadow-lg" />
+        </button>
+      )}
+    </>
+  );
+};
+
 export const HeroSlider: React.FC<{
   products: P[];
   campaigns: Campaign[];
@@ -267,7 +321,7 @@ export const HeroSlider: React.FC<{
           return (
             <div
               key={s.key}
-              className={`relative w-full shrink-0 h-[360px] sm:h-[380px] lg:h-[460px] cursor-pointer bg-gradient-to-br ${s.accent}`}
+              className={`relative w-full shrink-0 h-[360px] max-[380px]:h-[310px] sm:h-[380px] lg:h-[460px] cursor-pointer bg-gradient-to-br ${s.accent}`}
               onClick={() => clickSlide(s)}
               aria-hidden={!isActive}
               role="group"
@@ -285,16 +339,7 @@ export const HeroSlider: React.FC<{
                 {/* The product / banner, gently zooming while it is shown */}
                 <div className="absolute inset-x-0 top-0 h-[47%] sm:static sm:h-full sm:order-2 flex items-center justify-center overflow-hidden">
                   {s.video && isActive ? (
-                    <video
-                      src={s.video}
-                      poster={s.image}
-                      className="max-h-full max-w-full object-contain sm:rounded shadow-2xl"
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
-                      preload="metadata"
-                    />
+                    <HeroVideo src={s.video} poster={s.image} />
                   ) : s.image ? (
                     <div className={`h-full w-full flex items-center justify-center p-3 sm:p-8 ${isActive ? 'hs-zoom' : ''}`}>
                       {renderImage(s.image, s.title, 'max-h-full max-w-full object-contain drop-shadow-2xl rounded', i === 0)}

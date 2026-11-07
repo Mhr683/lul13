@@ -43,6 +43,18 @@
   }
 }
 
+/* Narrow phones (under 380px wide, e.g. Oppo A5s or any phone with a big font setting): the page
+   never slides sideways and long words wrap. Wider screens are not touched by this block. */
+@media not all and (min-width: 380px) {
+  html,
+  body {
+    overflow-x: clip;
+  }
+  .seller-ui {
+    overflow-wrap: break-word;
+  }
+}
+
 /* Seller Center (src/components/SellerShell.tsx): one modern look for every page inside it —
    rounded cards with a soft shadow, rounded buttons and fields, calmer borders. The pages keep
    their own markup; only the finish is set here. */

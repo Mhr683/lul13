@@ -1440,7 +1440,7 @@ export const StorefrontView: React.FC = () => {
       {/* Top Bar Contract: Zone 1 Brand Wordmark | Zone 2 Dropdown Nav Links | Zone 3 Actions */}
       <header className="sticky top-0 z-30 bg-[#FBFBF9]/95 backdrop-blur-md border-b border-black/[0.07]">
         {/* Row 1: brand | search | actions */}
-        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-5">
+        <div className="max-w-[1400px] mx-auto px-3 max-[360px]:px-2 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 max-[360px]:gap-1 sm:gap-5">
           {/* Mobile / tablet menu hamburger (the nav row only shows on large screens) */}
           <button
             type="button"
@@ -1521,7 +1521,7 @@ export const StorefrontView: React.FC = () => {
 
             <button
               onClick={() => setCartDrawerOpen(true)}
-              className="px-2.5 sm:px-3 py-2 bg-[#141413] text-[#FBFBF9] text-xs font-medium flex items-center gap-1.5 hover:bg-[#2A2A28] transition-colors whitespace-nowrap cursor-pointer"
+              className="px-2.5 max-[360px]:px-2 sm:px-3 py-2 bg-[#141413] text-[#FBFBF9] text-xs font-medium flex items-center gap-1.5 max-[360px]:gap-1 hover:bg-[#2A2A28] transition-colors whitespace-nowrap cursor-pointer"
               aria-label="Shopping bag"
             >
               <ShoppingBag className="w-4 h-4 stroke-[1.5]" />

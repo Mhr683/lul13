@@ -234,7 +234,7 @@ export const SellerShell: React.FC<{
                 <span className={`w-10 h-7 rounded-full flex items-center justify-center ${on ? 'bg-[#E8F3EC] text-[#0B5E34]' : 'text-[#6B6963]'}`}>
                   <Icon className="w-5 h-5" />
                 </span>
-                <span className={`text-[10.5px] font-semibold ${on ? 'text-[#0B5E34]' : 'text-[#6B6963]'}`}>{t.label}</span>
+                <span className={`text-[10.5px] max-[360px]:text-[9.5px] max-w-full px-0.5 truncate font-semibold ${on ? 'text-[#0B5E34]' : 'text-[#6B6963]'}`}>{t.label}</span>
                 {!!t.badge && (
                   <span className="absolute top-1 right-[22%] min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center">
                     {t.badge}
