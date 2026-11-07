@@ -98,6 +98,13 @@ export default defineConfig(() => {
         },
       }),
     ],
+    // Older phones (e.g. Oppo A5s with the Chrome it came with) do not understand the newest JavaScript
+    // (?. and ??) and the app stayed on a white screen: the code is written for Chrome 70+ instead, and
+    // the CSS gets fallbacks for old browsers (see also the old-browser notice in index.html)
+    build: {
+      target: ['es2019', 'chrome70', 'firefox68', 'safari12', 'edge79'],
+      cssTarget: ['chrome70', 'firefox68', 'safari12', 'edge79'],
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

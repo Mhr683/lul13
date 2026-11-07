@@ -200,6 +200,48 @@
   </head>
   <body class="bg-[#FBFBF9] text-[#141413] antialiased selection:bg-[#141413] selection:text-[#FBFBF9]">
     <div id="root"></div>
+    <!-- Old browsers (e.g. the Chrome an old phone came with): instead of a white screen, a short note
+         with an "Update Chrome" button. Plain old JavaScript on purpose so every browser runs it. -->
+    <script>
+      (function () {
+        try {
+          var modernJs = true;
+          try { new Function('var a = {}; return a?.b ?? 1;'); } catch (e) { modernJs = false; }
+          var layers = false;
+          try {
+            var st = document.createElement('style');
+            st.textContent = '@layer anokhaTest { #anokha-layer-test { width: 7px; } }';
+            document.head.appendChild(st);
+            var el = document.createElement('div');
+            el.id = 'anokha-layer-test';
+            document.body.appendChild(el);
+            layers = el.offsetWidth === 7;
+            document.body.removeChild(el);
+            document.head.removeChild(st);
+          } catch (e) {}
+          var seen = false;
+          try { seen = sessionStorage.getItem('oldBrowserOk') === '1'; } catch (e) {}
+          if ((modernJs && layers) || seen) return;
+          var box = document.createElement('div');
+          box.setAttribute('style', 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:99999;background:#F6F5F1;font-family:Arial,sans-serif;color:#141413;overflow:auto');
+          box.innerHTML =
+            '<div style="max-width:420px;margin:40px auto;padding:24px;background:#fff;border:1px solid #E7E5DF;border-radius:16px;text-align:center">' +
+            '<div style="font-size:40px">&#128241;</div>' +
+            '<h2 style="margin:8px 0 6px;font-size:20px">Please update Chrome</h2>' +
+            '<p style="margin:0 0 6px;font-size:14px;color:#55534E">Your phone\'s browser is old, so this app cannot open properly.</p>' +
+            '<p style="margin:0 0 16px;font-size:14px;color:#55534E">Aap ke phone ka Chrome purana hai. Play Store se Chrome update karein, phir app dobara kholein.</p>' +
+            '<a href="https://play.google.com/store/apps/details?id=com.android.chrome" style="display:block;padding:13px;border-radius:10px;background:#0E7A43;color:#fff;font-weight:bold;text-decoration:none;font-size:15px">Update Chrome</a>' +
+            '<a href="https://play.google.com/store/apps/details?id=com.google.android.webview" style="display:block;margin-top:10px;padding:11px;border-radius:10px;border:1px solid #DCD9D2;color:#141413;text-decoration:none;font-size:14px">Update Android System WebView</a>' +
+            '<button id="anokha-old-continue" style="margin-top:14px;background:none;border:0;color:#6B6963;text-decoration:underline;font-size:13px">Continue anyway</button>' +
+            '</div>';
+          document.body.appendChild(box);
+          document.getElementById('anokha-old-continue').onclick = function () {
+            try { sessionStorage.setItem('oldBrowserOk', '1'); } catch (e) {}
+            box.parentNode.removeChild(box);
+          };
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
