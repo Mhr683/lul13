@@ -3282,6 +3282,57 @@ async function shrinkToSquareJpeg(file: File, size = 256): Promise<string> {
   }
 }
 
+// Change the shop name (own save button: it is checked more strictly and renames every product)
+const ShopNameEditor: React.FC<{ seller: SellerShop; onSaved: () => void }> = ({ seller, onSaved }) => {
+  const { showToast } = useStore();
+  const [name, setName] = useState(seller.shopName || '');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setName(seller.shopName || ''), [seller.shopName]);
+  const last = Date.parse((seller as any).shopNameChangedAt || '');
+  const nextAllowed = !isNaN(last) ? last + 30 * 86400_000 : 0;
+  const locked = nextAllowed > Date.now();
+  const changed = name.replace(/\s+/g, ' ').trim() !== (seller.shopName || '');
+  const submit = async () => {
+    const clean = name.replace(/\s+/g, ' ').trim();
+    if (!window.confirm(`Change your shop name to "${clean}"?\n\nAll your products will show the new name. You can change it again after 30 days.`)) return;
+    setBusy(true);
+    try {
+      const r = await api('/api/seller/profile', { method: 'PUT', body: JSON.stringify({ shopName: clean }) });
+      showToast(`Shop name changed to "${r.shopName || clean}"${r.productsRenamed ? ` on ${r.productsRenamed} products` : ''}.`);
+      onSaved();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sm:col-span-2 p-3 rounded-xl bg-[#F7F6F2] border border-[#E7E5DF] space-y-2">
+      <label className={labelCls}>
+        Shop name <HelpDot id="seller.shopName" />
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className={`${inputCls} flex-1 min-w-[200px]`}
+          value={name}
+          maxLength={50}
+          disabled={locked || busy}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Ali Electronics"
+        />
+        <button type="button" disabled={locked || busy || !changed || name.trim().length < 3} onClick={submit} className={ui.primary}>
+          {busy ? 'Changing...' : 'Change name'}
+        </button>
+      </div>
+      <p className="text-[11px] text-[#8A8780]">
+        {locked
+          ? `You changed the name recently. You can change it again on ${new Date(nextAllowed).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}.`
+          : '3–50 characters, your own name (no brand names like Samsung), not used by another shop. Can be changed once in 30 days; all your products show the new name.'}
+      </p>
+    </div>
+  );
+};
+
 const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onSaved: () => void }> = ({
   seller,
   privateData,
@@ -3337,7 +3388,6 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
         <div className="space-y-2 text-xs text-[#575653]">
           <div>
             Shop: <strong className="text-[#141413]">{seller.shopName}</strong> · {seller.ownerEmail}
-            <span className="block">To change the shop name, please contact the store.</span>
           </div>
           <div className="flex flex-wrap gap-2">
             <label
@@ -3375,6 +3425,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
           </div>
         </div>
       </div>
+      <ShopNameEditor seller={seller} onSaved={onSaved} />
       <div>
         <label className={labelCls}>Mobile</label>
         <input className={inputCls} value={form.phone} onChange={set('phone')} />

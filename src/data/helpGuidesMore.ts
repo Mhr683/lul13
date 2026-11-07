@@ -384,6 +384,33 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     tips: ['Product list mein har card par stock ka rang: peela = 5 ya kam, laal = khatam.', 'Har khane ke saath ? mein us ki tafseel hai.'],
   },
 
+  'seller.shopName': {
+    title: 'Dukaan ka naam badalna',
+    steps: [
+      'Profile & payout page kholein (menu mein "Account → Profile", ya upar apni tasveer → "Profile & payout").',
+      '"Shop name" ke khane mein naya naam likhein.',
+      'Hara "Change name" dabayein aur tasdeeq karein.',
+      'Naya naam aap ke shop page aur sab products par lag jata hai. Purane orders par wahi naam rehta hai jis par order hua tha.',
+    ],
+    tips: [
+      'Naam 3–50 akshar ka ho, aap ka apna (Samsung, Apple jaise brand ka naam nahi).',
+      'Jo naam kisi aur dukaan ka ho woh nahi milta.',
+      'Naam 30 din mein ek dafa badla ja sakta hai, taa ke customers pareshan na hon.',
+    ],
+  },
+  'seller.tab.PROFILE': {
+    title: 'Profile & payout (dukaan aur payout ki maloomat)',
+    what: 'Dukaan ka naam, tasveer, mobile, shehar, pata aur payout ka bank / wallet.',
+    steps: [
+      'Menu mein "Account → Profile" (ya upar apni tasveer → "Profile & payout") kholein.',
+      'Tasveer: "Add picture / Change picture".',
+      'Dukaan ka naam: "Shop name" mein naya naam aur "Change name" (us ka apna ? dekhein).',
+      'Mobile, City aur Address sahi likhein: courier yahin se parcel uthata hai.',
+      'Bank / wallet, Account title aur Account number / IBAN: payouts yahin aate hain.',
+      'Neeche Save dabayein (naam ka apna button hai).',
+    ],
+  },
+
   // =============================================================== SELLER: apni AI key
   'seller.aiKeys': {
     title: 'Meri AI keys (apna muft AI)',

@@ -466,6 +466,37 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       updates.phone = country === 'PK' ? `0${ph.e164.slice(3)}` : ph.e164;
     }
     if (b.city !== undefined) updates.city = str(b.city, 60);
+    // Shop name: 3-50 characters, no famous brand, not used by another shop, once in 30 days.
+    // Every product of the shop then shows the new name (orders keep the name they were placed under).
+    let newShopName = '';
+    if (b.shopName !== undefined) {
+      const current = (req as any).seller || {};
+      const clean = String(b.shopName || '').replace(/\s+/g, ' ').trim().slice(0, 50);
+      if (clean !== current.shopName) {
+        if (clean.length < 3 || !/[a-z؀-ۿ]/i.test(clean)) return res.status(400).json({ error: 'The shop name needs at least 3 letters.' });
+        const brand = famousBrandIn(clean);
+        if (brand) return res.status(400).json({ error: `A shop name cannot use the brand name "${brand}". Choose your own name.` });
+        const last = Date.parse(current.shopNameChangedAt || '');
+        if (!isNaN(last) && Date.now() - last < 30 * 86400_000) {
+          const next = new Date(last + 30 * 86400_000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+          return res.status(429).json({ error: `The shop name can be changed once in 30 days. You can change it again on ${next}.` });
+        }
+        const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9؀-ۿ]/g, '');
+        try {
+          const all = await sellersCol().select('shopName').get();
+          if (all.docs.some((doc) => doc.id !== uid && key(String(doc.data()?.shopName || '')) === key(clean))) {
+            return res.status(409).json({ error: 'Another shop already uses this name. Please choose a different one.' });
+          }
+        } catch (err) {
+          console.error('[seller/profile] name check failed:', err);
+          return res.status(503).json({ error: 'Could not check the name right now. Please try again.' });
+        }
+        newShopName = clean;
+        updates.shopName = clean;
+        updates.shopNameChangedAt = updates.updatedAt;
+        updates.previousShopNames = [...(Array.isArray(current.previousShopNames) ? current.previousShopNames : []), current.shopName].filter(Boolean).slice(-10);
+      }
+    }
     if (b.logoUrl !== undefined) {
       const logo = String(b.logoUrl || '').trim();
       // Sent from the browser already cropped and shrunk to 256px; Firebase Storage is not available
@@ -484,7 +515,24 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       await sellersCol().doc(uid).set(updates, { merge: true });
       await adminDb.collection('seller_private').doc(uid).set(priv, { merge: true });
       forgetSeller(uid);
-      res.json({ success: true });
+      let productsRenamed = 0;
+      if (newShopName) {
+        // The shop's products carry the shop name (store, search, shop page): all get the new one
+        try {
+          const mine = await adminDb.collection('products').where('sellerId', '==', uid).select().get();
+          for (let i = 0; i < mine.docs.length; i += 400) {
+            const batch = adminDb.batch();
+            for (const doc of mine.docs.slice(i, i + 400)) batch.update(doc.ref, { sellerName: newShopName, updatedAt: updates.updatedAt });
+            await batch.commit();
+          }
+          productsRenamed = mine.docs.length;
+        } catch (err) {
+          console.error('[seller/profile] renaming products failed:', err);
+        }
+        shopCache.delete(uid);
+        console.log(`[seller/profile] ${uid} renamed the shop to "${newShopName}" (${productsRenamed} products)`);
+      }
+      res.json({ success: true, ...(newShopName ? { shopName: newShopName, productsRenamed } : {}) });
     } catch (err) {
       console.error('[seller/profile] failed:', err);
       res.status(503).json({ error: 'Could not save your profile. Please try again.' });
