@@ -4,11 +4,68 @@ import path from 'path';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
+// Tailwind puts all of the design inside "@layer" blocks. Chrome older than version 99 (old phones such as
+// the Oppo A5s) skips everything inside them, so the store opened without any design. For every CSS file
+// a copy without the layer wrappers is written next to it (name.legacy.css); index.html switches only
+// those old browsers to the copy, so new phones and computers keep the normal file.
+function unwrapCssLayers(css: string): string {
+  let out = '';
+  let i = 0;
+  while (i < css.length) {
+    const at = css.indexOf('@layer', i);
+    if (at < 0) {
+      out += css.slice(i);
+      break;
+    }
+    out += css.slice(i, at);
+    let j = at + 6;
+    while (j < css.length && css[j] !== '{' && css[j] !== ';') j++;
+    if (css[j] === ';') {
+      // "@layer theme, base, utilities;" only names the layers
+      i = j + 1;
+      continue;
+    }
+    // Find the matching closing brace (skipping quoted text)
+    let depth = 0;
+    let k = j;
+    let quote = '';
+    for (; k < css.length; k++) {
+      const ch = css[k];
+      if (quote) {
+        if (ch === '\\') k++;
+        else if (ch === quote) quote = '';
+      } else if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) break;
+    }
+    out += unwrapCssLayers(css.slice(j + 1, k));
+    i = k + 1;
+  }
+  return out;
+}
+
+const legacyCssCopies = () => ({
+  name: 'anokha-legacy-css',
+  apply: 'build' as const,
+  generateBundle(_opts: unknown, bundle: Record<string, any>) {
+    for (const file of Object.values(bundle)) {
+      if (file.type !== 'asset' || !/\.css$/.test(file.fileName) || /\.legacy\.css$/.test(file.fileName)) continue;
+      const source = typeof file.source === 'string' ? file.source : new TextDecoder().decode(file.source);
+      (this as any).emitFile({
+        type: 'asset',
+        fileName: file.fileName.replace(/\.css$/, '.legacy.css'),
+        source: unwrapCssLayers(source),
+      });
+    }
+  },
+});
+
 export default defineConfig(() => {
   return {
     plugins: [
       react(),
       tailwindcss(),
+      legacyCssCopies(),
       VitePWA({
         registerType: 'autoUpdate',
         // Registered from src/main.tsx so the app can reload itself when a new version is installed

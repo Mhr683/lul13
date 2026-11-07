@@ -2,6 +2,66 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Old phones (Chrome 61-98, e.g. Oppo A5s): small stand-ins for newer built-in functions the app
+         uses, and a report to the server if the store fails to start. Plain old JavaScript on purpose. -->
+    <script>
+      (function () {
+        var w = window;
+        try { if (typeof globalThis === 'undefined') w.globalThis = w; } catch (e) {}
+        if (!w.queueMicrotask) w.queueMicrotask = function (f) { Promise.resolve().then(f); };
+        if (!Promise.allSettled) Promise.allSettled = function (list) {
+          return Promise.all(Array.prototype.map.call(list, function (p) {
+            return Promise.resolve(p).then(function (v) { return { status: 'fulfilled', value: v }; },
+              function (r) { return { status: 'rejected', reason: r }; });
+          }));
+        };
+        function def(o, n, f) { if (!o[n]) try { Object.defineProperty(o, n, { value: f, configurable: true, writable: true }); } catch (e) {} }
+        def(Array.prototype, 'flat', function (d) {
+          d = d === undefined ? 1 : d;
+          return Array.prototype.reduce.call(this, function (a, v) {
+            return a.concat(Array.isArray(v) && d > 0 ? v.flat(d - 1) : [v]);
+          }, []);
+        });
+        def(Array.prototype, 'flatMap', function (f, t) { return Array.prototype.map.call(this, f, t).flat(); });
+        def(Array.prototype, 'at', function (n) { n = Math.trunc(n) || 0; if (n < 0) n += this.length; return this[n]; });
+        def(String.prototype, 'at', function (n) { n = Math.trunc(n) || 0; if (n < 0) n += this.length; return this.charAt(n) || undefined; });
+        def(String.prototype, 'replaceAll', function (a, b) {
+          if (a instanceof RegExp) return this.replace(a, b);
+          return this.split(a).join(typeof b === 'function' ? b(a) : b);
+        });
+        def(String.prototype, 'trimStart', String.prototype.trimLeft);
+        def(String.prototype, 'trimEnd', String.prototype.trimRight);
+        def(Object, 'fromEntries', function (it) { var o = {}; Array.from(it).forEach(function (p) { o[p[0]] = p[1]; }); return o; });
+        def(Object, 'hasOwn', function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); });
+
+        // Errors before the store has started are sent to the server (.private/client-errors.log)
+        w.__anokhaErrors = [];
+        function report(kind, msg) {
+          try {
+            var data = JSON.stringify({ kind: kind, msg: String(msg).slice(0, 1500), ua: navigator.userAgent, page: location.pathname + location.hash });
+            if (navigator.sendBeacon) navigator.sendBeacon('/api/client-error', data);
+            else { var x = new XMLHttpRequest(); x.open('POST', '/api/client-error'); x.send(data); }
+          } catch (e) {}
+        }
+        w.__anokhaReport = report;
+        w.addEventListener('error', function (e) {
+          var root = document.getElementById('root');
+          if (root && root.firstChild) return;
+          var m = (e && (e.message || (e.error && e.error.message))) || (e && e.target && e.target.src ? 'failed to load ' + e.target.src : 'error');
+          if (e && e.filename) m += ' @ ' + e.filename.split('/').pop() + ':' + e.lineno + ':' + e.colno;
+          w.__anokhaErrors.push(m);
+          report('error', m);
+        }, true);
+        w.addEventListener('unhandledrejection', function (e) {
+          var root = document.getElementById('root');
+          if (root && root.firstChild) return;
+          var r = e && e.reason;
+          var m = 'promise: ' + ((r && (r.stack || r.message)) || r);
+          w.__anokhaErrors.push(m);
+          report('promise', m);
+        });
+      })();
+    </script>
     <script>
       // AI Studio Dev Environment: Suppress expected Vite HMR WebSocket closure in Cloud Run proxy
       (function() {
@@ -200,13 +260,16 @@
   </head>
   <body class="bg-[#FBFBF9] text-[#141413] antialiased selection:bg-[#141413] selection:text-[#FBFBF9]">
     <div id="root"></div>
-    <!-- Old browsers (e.g. the Chrome an old phone came with): instead of a white screen, a short note
-         with an "Update Chrome" button. Plain old JavaScript on purpose so every browser runs it. -->
+    <!-- Old browsers (e.g. the Chrome an old phone came with):
+         1. Chrome 61-98 does not understand "@layer" in the design file: switch it to the copy without
+            layers (name.legacy.css, made by vite.config.ts), also for design files loaded later.
+         2. Browsers too old to run the app at all (no modules): a short note with an "Update Chrome" button.
+         3. If the store has still not appeared after 15 seconds: the reason on screen (and to the server)
+            with Reload / Update Chrome buttons, instead of a white screen.
+         Plain old JavaScript on purpose so every browser runs it. -->
     <script>
       (function () {
         try {
-          var modernJs = true;
-          try { new Function('var a = {}; return a?.b ?? 1;'); } catch (e) { modernJs = false; }
           var layers = false;
           try {
             var st = document.createElement('style');
@@ -219,9 +282,56 @@
             document.body.removeChild(el);
             document.head.removeChild(st);
           } catch (e) {}
+          var chrome = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1] || '';
+          if (!layers) {
+            var toLegacy = function (link) {
+              var h = link.getAttribute('href') || '';
+              if (link.rel === 'stylesheet' && /\/assets\/[^?#]+\.css/.test(h) && !/\.legacy\.css/.test(h)) {
+                link.setAttribute('href', h.replace(/\.css/, '.legacy.css'));
+              }
+            };
+            var links = document.querySelectorAll('link[rel="stylesheet"]');
+            for (var li = 0; li < links.length; li++) toLegacy(links[li]);
+            if (window.MutationObserver) {
+              new MutationObserver(function (list) {
+                for (var a = 0; a < list.length; a++) {
+                  var added = list[a].addedNodes;
+                  for (var b = 0; b < added.length; b++) if (added[b].tagName === 'LINK') toLegacy(added[b]);
+                }
+              }).observe(document.head, { childList: true });
+            }
+          }
+
+          // Store did not appear: show why (after 15 s when there was an error, 45 s on a slow network)
+          var started = Date.now();
+          var check = function () {
+            var root = document.getElementById('root');
+            if (!root || root.firstChild || document.getElementById('anokha-fail')) return;
+            var errs = window.__anokhaErrors || [];
+            if (!errs.length && Date.now() - started < 44000) return setTimeout(check, 5000);
+            var why = errs.length ? errs[0] : 'The store did not start (no error message).';
+            if (window.__anokhaReport) window.__anokhaReport('blank', 'chrome ' + chrome + ' | ' + why);
+            var f = document.createElement('div');
+            f.id = 'anokha-fail';
+            f.setAttribute('style', 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:99998;background:#F6F5F1;font-family:Arial,sans-serif;color:#141413;overflow:auto');
+            f.innerHTML =
+              '<div style="max-width:420px;margin:40px auto;padding:24px;background:#fff;border:1px solid #E7E5DF;border-radius:16px;text-align:center">' +
+              '<h2 style="margin:0 0 8px;font-size:19px">The store could not open</h2>' +
+              '<p style="margin:0 0 14px;font-size:14px;color:#55534E">Store nahi khul saka. Pehle "Reload" dabayein. Phir bhi na khule to Chrome update karein.</p>' +
+              '<button onclick="location.reload()" style="display:block;width:100%;padding:13px;border:0;border-radius:10px;background:#0E7A43;color:#fff;font-weight:bold;font-size:15px">Reload</button>' +
+              '<a href="https://play.google.com/store/apps/details?id=com.android.chrome" style="display:block;margin-top:10px;padding:11px;border-radius:10px;border:1px solid #DCD9D2;color:#141413;text-decoration:none;font-size:14px">Update Chrome</a>' +
+              '<p id="anokha-fail-why" style="margin:14px 0 0;font-size:11px;color:#8A8780;word-break:break-word"></p>' +
+              '</div>';
+            document.body.appendChild(f);
+            document.getElementById('anokha-fail-why').textContent = 'Chrome ' + (chrome || '?') + ' · ' + why;
+          };
+          setTimeout(check, 15000);
+
+          // Too old to run the app at all
+          var modules = 'noModule' in document.createElement('script');
           var seen = false;
           try { seen = sessionStorage.getItem('oldBrowserOk') === '1'; } catch (e) {}
-          if ((modernJs && layers) || seen) return;
+          if (modules || seen) return;
           var box = document.createElement('div');
           box.setAttribute('style', 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:99999;background:#F6F5F1;font-family:Arial,sans-serif;color:#141413;overflow:auto');
           box.innerHTML =

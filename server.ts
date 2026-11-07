@@ -2175,6 +2175,34 @@ app.get('/api/store/capabilities', (req, res) => {
   });
 });
 
+// Phones whose browser fails to open the store send the error here (from index.html), so a problem on
+// an old phone can be seen without the phone: .private/client-errors.log (last ~200 KB, 1 report per
+// phone per minute, nothing personal: browser name, page and error text only)
+const clientErrorSeen = new Map<string, number>();
+app.post('/api/client-error', express.text({ type: '*/*', limit: '8kb' }), (req, res) => {
+  try {
+    const ip = String(req.headers['cf-connecting-ip'] || req.ip || '');
+    const now = Date.now();
+    if (now - (clientErrorSeen.get(ip) || 0) < 60_000) return res.status(204).end();
+    clientErrorSeen.set(ip, now);
+    if (clientErrorSeen.size > 2000) clientErrorSeen.clear();
+    let body: any = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = { msg: body }; }
+    }
+    const clip = (v: any, n: number) => String(v ?? '').replace(/[\r\n]+/g, ' ').slice(0, n);
+    const line = `${new Date().toISOString()} | ${clip(body?.kind, 20)} | ${clip(body?.ua || req.headers['user-agent'], 200)} | ${clip(body?.page, 120)} | ${clip(body?.msg, 1500)}\n`;
+    const dir = path.join(process.cwd(), '.private');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'client-errors.log');
+    try {
+      if (fs.statSync(file).size > 200_000) fs.writeFileSync(file, fs.readFileSync(file, 'utf8').slice(-100_000));
+    } catch { /* new file */ }
+    fs.appendFileSync(file, line);
+  } catch { /* never fail the phone */ }
+  res.status(204).end();
+});
+
 // 2. GET /api/payment-capabilities
 app.get('/api/payment-capabilities', (req, res) => {
   const customerCountry = String(req.query.country || 'PK').toUpperCase().trim();
