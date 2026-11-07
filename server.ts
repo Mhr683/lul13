@@ -508,11 +508,14 @@ app.use('/api/payments/verifone/ipn', express.raw({ type: () => true, limit: '1m
 app.use('/api/payments/payoneer/notify', express.raw({ type: () => true, limit: '1mb' }));
 // Old phones (Chrome below 100 on Android): every file they ask for is noted in
 // .private/old-phone.log, to see how far the store gets on them when it does not open
+// (no addresses or personal data, only the file and the browser name)
 app.use((req, _res, next) => {
   try {
     const ua = String(req.headers['user-agent'] || '');
     const v = Number((ua.match(/Chrome\/(\d+)/) || [])[1] || 0);
-    if (/Android/.test(ua) && v > 0 && v < 100) {
+    // While .private/log-android exists: every Android phone (to follow an installed app that fails)
+    const all = fs.existsSync(path.join(process.cwd(), '.private', 'log-android'));
+    if (/Android/.test(ua) && v > 0 && (v < 100 || all)) {
       const file = path.join(process.cwd(), '.private', 'old-phone.log');
       try {
         if (fs.statSync(file).size > 300_000) fs.writeFileSync(file, fs.readFileSync(file, 'utf8').slice(-150_000));
@@ -2198,15 +2201,16 @@ app.get('/api/store/capabilities', (req, res) => {
 const clientErrorSeen = new Map<string, number>();
 app.post('/api/client-error', express.text({ type: '*/*', limit: '8kb' }), (req, res) => {
   try {
-    const ip = String(req.headers['cf-connecting-ip'] || req.ip || '');
-    const now = Date.now();
-    if (now - (clientErrorSeen.get(ip) || 0) < 60_000) return res.status(204).end();
-    clientErrorSeen.set(ip, now);
-    if (clientErrorSeen.size > 2000) clientErrorSeen.clear();
     let body: any = req.body;
     if (typeof body === 'string') {
       try { body = JSON.parse(body); } catch { body = { msg: body }; }
     }
+    // One report of each kind per phone per minute
+    const ip = String(req.headers['cf-connecting-ip'] || req.ip || '') + '|' + String(body?.kind || '').slice(0, 20);
+    const now = Date.now();
+    if (now - (clientErrorSeen.get(ip) || 0) < 60_000) return res.status(204).end();
+    clientErrorSeen.set(ip, now);
+    if (clientErrorSeen.size > 2000) clientErrorSeen.clear();
     const clip = (v: any, n: number) => String(v ?? '').replace(/[\r\n]+/g, ' ').slice(0, n);
     const line = `${new Date().toISOString()} | ${clip(body?.kind, 20)} | ${clip(body?.ua || req.headers['user-agent'], 200)} | ${clip(body?.page, 120)} | ${clip(body?.msg, 1500)}\n`;
     const dir = path.join(process.cwd(), '.private');

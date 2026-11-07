@@ -44,6 +44,12 @@
           } catch (e) {}
         }
         w.__anokhaReport = report;
+        // The installed app (home-screen icon) says that it started, to see whether its page runs at all
+        try {
+          if (w.matchMedia && w.matchMedia('(display-mode: standalone)').matches && /Android/.test(navigator.userAgent)) {
+            report('app-start', 'installed app started');
+          }
+        } catch (e) {}
         w.addEventListener('error', function (e) {
           var root = document.getElementById('root');
           if (root && root.firstChild) return;
