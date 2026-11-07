@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { StoreSettings, Order } from '../types/store';
 import { OrderTimeline } from './OrderTimeline';
+import { OrderDownloads } from './OrderDownloads';
 import { RateSellerCard } from './RateSellerCard';
 import { ReturnRequestCard } from './ReturnRequestCard';
 import { PolicyDocument } from './PolicyDocument';
@@ -792,6 +793,9 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
 
                       {/* Live order progress, delivery reminder and tracking history */}
                       <OrderTimeline order={trackedOrder} />
+
+                      {/* Digital / software items: download links and licence keys once paid */}
+                      <OrderDownloads order={trackedOrder} />
 
                       {/* Delivered: let the buyer rate the seller */}
                       {trackedOrder.status === 'DELIVERED' && (

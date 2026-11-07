@@ -55,6 +55,9 @@ import type { DetectedAddressPayload } from './GoogleMapsAddressDetector';
 import { CustomerHelplineDrawer } from './CustomerHelplineDrawer';
 import { PWAInstallButton } from './PWAInstallButton';
 import { BrandLogo } from './BrandLogo';
+import { ProductTypeBadge, ProductTypeIcon } from './ProductTypeIcon';
+import { ProductTypePanel } from './ProductTypePanel';
+import { PRODUCT_TYPES, optionsKey, optionsSummary, productTypeOf, typeInfo, wholesaleUnitPrice, type LineOptions, type ProductType } from '../services/productTypes';
 import { SellerShopPage } from './SellerShopPage';
 import { ProductReactions } from './ProductReactions';
 import { ProductRatingBadge, SellerRatingBadge, SellerScoreCards, useShopInfo, rankScore } from './SellerRating';
@@ -441,6 +444,8 @@ export const StorefrontView: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('ALL');
   const [activeSubcategory, setActiveSubcategory] = useState<string>('ALL');
   const [activeCollection, setActiveCollection] = useState<'ALL' | 'NEW_ARRIVALS' | 'BEST_SELLERS' | 'OFFERS'>('ALL');
+  // "Shop by type": physical, digital downloads, services, wholesale, rent, ... (src/services/productTypes.ts)
+  const [activeType, setActiveType] = useState<ProductType | 'ALL'>('ALL');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileExpandedSection, setMobileExpandedSection] = useState<string | null>(null);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
@@ -457,6 +462,15 @@ export const StorefrontView: React.FC = () => {
   const detailPrice = selectedProduct ? variantPrice(selectedProduct.price, detailVariant) : 0;
   const detailStock = selectedProduct ? (detailHasVariants ? detailVariant?.stock ?? 0 : selectedProduct.stock) : 0;
   const [detailQty, setDetailQty] = useState<number>(1);
+  // The kind of product (src/services/productTypes.ts): the customer's choices (rental days, text to
+  // print, job details) and the smallest quantity (wholesale minimum)
+  const detailType: ProductType = productTypeOf(selectedProduct);
+  const [detailOptions, setDetailOptions] = useState<LineOptions>({});
+  const detailMinQty = detailType === 'WHOLESALE' ? selectedProduct?.typeDetails?.minOrderQty || 1 : 1;
+  useEffect(() => {
+    setDetailOptions({});
+    setDetailQty(selectedProduct && productTypeOf(selectedProduct) === 'WHOLESALE' ? selectedProduct.typeDetails?.minOrderQty || 1 : 1);
+  }, [selectedProduct?.id]);
   // Products this browser opened (saved on the device; shown on the home and product pages)
   const recentlyViewed = useRecentlyViewed();
 
@@ -665,7 +679,9 @@ export const StorefrontView: React.FC = () => {
   const isNationalPakistan = selectedCountryRecord.isNational;
 
   // Checkout Payment Gateways: Only Cash on Delivery & Manual Bank / NayaPay / Raast with TID
-  const isCodAvailable = Boolean(isNationalPakistan && (settings.codEnabled ?? true));
+  // Downloads, services, software and subscriptions in the bag are paid first (no COD for the checkout)
+  const cartPayFirst = cart.filter((i) => !typeInfo(i.productType).cod);
+  const isCodAvailable = Boolean(isNationalPakistan && (settings.codEnabled ?? true) && cartPayFirst.length === 0);
   const isRaastAvailable = Boolean((settings.raastEnabled ?? true) || isNationalPakistan);
   const isNayaPayAvailable = Boolean(settings.nayapayEnabled ?? true);
   const isManualQuoteAvailable = Boolean(!isNationalPakistan && settings.allowInternationalManualQuotes);
@@ -979,6 +995,9 @@ export const StorefrontView: React.FC = () => {
         if (activeCollection === 'BEST_SELLERS' && !p.bestSeller) return false;
         if (activeCollection === 'OFFERS' && !(p.compareAtPrice && p.compareAtPrice > p.price)) return false;
 
+        // Kind of product (physical, digital, service, ...) from the "Shop by type" icons
+        if (activeType !== 'ALL' && productTypeOf(p) !== activeType) return false;
+
         // Brand filter
         if (activeBrand !== 'ALL' && p.brand.trim().toLowerCase() !== activeBrand.trim().toLowerCase()) return false;
         if (p.price > priceCeiling) return false;
@@ -1021,7 +1040,23 @@ export const StorefrontView: React.FC = () => {
         if (sortBy === 'NEWEST') return b.createdAt.localeCompare(a.createdAt);
         return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
       });
-  }, [products, activeCategory, activeSubcategory, activeCollection, activeBrand, priceCeiling, inStockOnly, searchQuery, sortBy, visitorCountry]);
+  }, [products, activeCategory, activeSubcategory, activeCollection, activeType, activeBrand, priceCeiling, inStockOnly, searchQuery, sortBy, visitorCountry]);
+  // Kinds that have at least one live product (the others get no icon on the store)
+  const typesInStore = useMemo(() => {
+    const count = new Map<ProductType, number>();
+    for (const p of products) if (p.status === 'ACTIVE') count.set(productTypeOf(p), (count.get(productTypeOf(p)) || 0) + 1);
+    return count;
+  }, [products]);
+  const openType = (t: ProductType | 'ALL') => {
+    setActiveType(t);
+    setActiveCategory('ALL');
+    setActiveSubcategory('ALL');
+    setActiveCollection('ALL');
+    setSearchQuery('');
+    setSubView('CATALOG');
+    window.history.pushState({ inSite: true, y: 0 }, '', '#catalog');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // The catalog grid shows products in steps so phones never render thousands of cards at once
   const CATALOG_STEP = 24;
@@ -1992,6 +2027,35 @@ export const StorefrontView: React.FC = () => {
                   ))}
               </div>
             </div>
+            {/* Shop by type: one icon per kind of product (physical, digital, services, wholesale, ...) */}
+            <section className="max-w-[1400px] mx-auto px-3 sm:px-6 pt-5">
+              <div className="flex items-baseline justify-between mb-2.5">
+                <h2 className="text-lg sm:text-xl font-display font-semibold text-[#141413]">Shop by type</h2>
+                <span className="text-[11px] text-[#6B6963]">Physical, digital, services and more</span>
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 sm:gap-3">
+                {PRODUCT_TYPES.map((t) => {
+                  const n = typesInStore.get(t.id) || 0;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => openType(t.id)}
+                      className="group flex flex-col items-center gap-1.5 p-2 sm:p-3 rounded-2xl bg-white border border-black/[0.07] hover:border-black/20 hover:shadow-sm transition-all cursor-pointer"
+                    >
+                      <span
+                        className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center group-hover:scale-105 transition-transform"
+                        style={{ backgroundColor: t.bg, color: t.color }}
+                      >
+                        <ProductTypeIcon type={t.id} className="w-5 h-5 sm:w-6 sm:h-6" />
+                      </span>
+                      <span className="text-[10.5px] sm:text-xs font-semibold text-[#141413] text-center leading-tight">{t.label}</span>
+                      <span className="text-[9.5px] text-[#8A8780]">{n ? `${n} item${n === 1 ? '' : 's'}` : 'Coming soon'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
             {/* Every customer is invited to open their own shop */}
             <BecomeSellerBanner settings={settings} />
             <TrendingTicker products={products} onOpen={handleSelectProduct} renderImage={(src, alt, className) => <ProductImage src={src} alt={alt} className={className} />} />
@@ -2125,6 +2189,7 @@ export const StorefrontView: React.FC = () => {
                         >
                           {product.name}
                         </h3>
+                        <ProductTypeBadge type={product.productType} className="mt-1" />
                         {product.stock <= (product.lowStockThreshold || 5) && (
                           <div className="lg:hidden text-[10px] text-red-700 font-bold mt-0.5">Only {product.stock} left</div>
                         )}
@@ -2306,21 +2371,48 @@ export const StorefrontView: React.FC = () => {
                     ? 'Best Sellers'
                     : activeCollection === 'OFFERS'
                     ? 'Special Offers & Archive Sale'
+                    : activeType !== 'ALL' && activeCategory === 'ALL'
+                    ? typeInfo(activeType).label + (activeType === 'SERVICE' ? 's' : '')
                     : activeCategory === 'ALL'
                     ? 'Complete Archive & Collection'
                     : `${activeCategory} Collection`}
                 </h1>
+                {/* Kind of product: physical, digital, services, ... */}
+                <div className="flex gap-1.5 overflow-x-auto pb-1 mt-3 -mx-1 px-1">
+                  {(['ALL', ...PRODUCT_TYPES.map((t) => t.id)] as Array<ProductType | 'ALL'>).map((id) => {
+                    const on = activeType === id;
+                    const t = id === 'ALL' ? null : typeInfo(id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setActiveType(id)}
+                        className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11.5px] font-semibold cursor-pointer transition-colors ${
+                          on ? 'border-[#141413] bg-[#141413] text-white' : 'border-black/15 bg-white text-[#3A3936] hover:border-black/40'
+                        }`}
+                      >
+                        {t && (
+                          <span style={{ color: on ? '#fff' : t.color }}>
+                            <ProductTypeIcon type={id} className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                        {t ? t.label : 'All types'}
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="flex flex-wrap items-center gap-2 mt-2.5">
                   <span className="text-xs text-neutral-500 font-mono">
                     Showing {filteredProducts.length} piece{filteredProducts.length === 1 ? '' : 's'}
                   </span>
-                  {(activeCategory !== 'ALL' || activeSubcategory !== 'ALL' || activeCollection !== 'ALL' || searchQuery) && (
+                  {(activeCategory !== 'ALL' || activeSubcategory !== 'ALL' || activeCollection !== 'ALL' || activeType !== 'ALL' || searchQuery) && (
                     <button
                       type="button"
                       onClick={() => {
                         setActiveCategory('ALL');
                         setActiveSubcategory('ALL');
                         setActiveCollection('ALL');
+                        setActiveType('ALL');
                         setSearchQuery('');
                       }}
                       className="ml-2 text-xs font-medium text-neutral-800 hover:text-black underline underline-offset-4 cursor-pointer"
@@ -2542,6 +2634,7 @@ export const StorefrontView: React.FC = () => {
                             >
                               {product.name}
                             </h3>
+                            <ProductTypeBadge type={product.productType} className="mt-1" />
                             <ProductRatingBadge rating={product.rating} reviewCount={product.reviewCount} size={9} className="mt-1 !text-[9px] lg:!text-[11px]" />
                             <span className="hidden lg:inline">
                               <ShipsBadge product={product} className="mt-1 ml-1" />
@@ -2701,7 +2794,8 @@ export const StorefrontView: React.FC = () => {
                   <h1 className="text-3xl font-display font-medium text-[#141413]">
                     {selectedProduct.name}
                   </h1>
-                  <ShipsBadge product={selectedProduct} detailed className="!text-[11px]" />
+                  <ProductTypeBadge type={selectedProduct.productType} />
+                  {typeInfo(detailType).ships && <ShipsBadge product={selectedProduct} detailed className="!text-[11px]" />}
                   <div className="text-xs text-[#575653] flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>
                       Sold &amp; shipped by{' '}
@@ -2758,7 +2852,22 @@ export const StorefrontView: React.FC = () => {
                         )}
                     </div>
                     <LocalPrice pkr={detailPrice} className="!text-sm" />
+                    {detailType === 'RENTAL' && <div className="text-[11px] text-[#575653] font-sans">per day</div>}
+                    {detailType === 'SUBSCRIPTION' && (
+                      <div className="text-[11px] text-[#575653] font-sans">
+                        per {selectedProduct.typeDetails?.billingPeriod === 'YEARLY' ? 'year' : 'month'}
+                      </div>
+                    )}
                   </div>
+
+                  {/* What kind of product this is and what the customer must choose for it */}
+                  <ProductTypePanel
+                    product={selectedProduct}
+                    basePrice={detailPrice}
+                    qty={detailQty}
+                    options={detailOptions}
+                    onChange={setDetailOptions}
+                  />
 
                   {detailHasVariants && (
                     <div className="space-y-2">
@@ -2799,9 +2908,11 @@ export const StorefrontView: React.FC = () => {
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-[#575653]">Availability</span>
                       <span className="font-mono tabular-nums font-medium text-[#141413]">
-                        {detailStock > 0
-                          ? `${detailStock} pieces ready for dispatch`
-                          : 'Out of Stock'}
+                        {detailStock <= 0
+                          ? 'Out of Stock'
+                          : !typeInfo(detailType).countsStock
+                          ? 'Available'
+                          : `${detailStock} pieces ready for dispatch`}
                       </span>
                     </div>
 
@@ -2813,7 +2924,7 @@ export const StorefrontView: React.FC = () => {
                       <div className="flex items-center border border-black/20 bg-[#FBFBF9]">
                         <button
                           type="button"
-                          onClick={() => setDetailQty((q) => Math.max(1, q - 1))}
+                          onClick={() => setDetailQty((q) => Math.max(detailMinQty, q - 1))}
                           className="p-3 text-[#141413] hover:bg-black/5 cursor-pointer"
                         >
                           <Minus className="w-3.5 h-3.5" />
@@ -2835,7 +2946,7 @@ export const StorefrontView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() =>
-                          addToCart(selectedProduct, detailQty, selectedVariant)
+                          addToCart(selectedProduct, detailQty, selectedVariant, detailOptions)
                         }
                         disabled={detailStock <= 0}
                         className="flex-1 py-3.5 px-6 bg-[#141413] text-[#FBFBF9] text-xs font-semibold uppercase tracking-widest hover:bg-[#2A2A28] disabled:opacity-40 transition-colors cursor-pointer"
@@ -2860,7 +2971,12 @@ export const StorefrontView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        addToCart(selectedProduct, detailQty, selectedVariant);
+                        // Services and custom prints need the customer's details first
+                        if ((detailType === 'SERVICE' || detailType === 'CUSTOM') && !(detailOptions.note || '').trim()) {
+                          addToCart(selectedProduct, detailQty, selectedVariant, detailOptions);
+                          return;
+                        }
+                        addToCart(selectedProduct, detailQty, selectedVariant, detailOptions);
                         setConfirmedOrderNumber(null);
                         setCheckoutStep(1);
                         setSubView('CHECKOUT');
@@ -2876,8 +2992,14 @@ export const StorefrontView: React.FC = () => {
                     <div className="flex items-center gap-2.5">
                       <Truck className="w-4 h-4 text-[#8C6D46] shrink-0" />
                       <span>
-                        {settings.deliveryPromiseText ||
-                          'Delivery across Pakistan by courier, usually in 3–6 working days. Cash on Delivery available.'}
+                        {!typeInfo(detailType).ships
+                          ? detailType === 'SERVICE'
+                            ? 'No delivery charge: the seller does the work and sends it to you.'
+                            : detailType === 'SUBSCRIPTION'
+                            ? 'No delivery charge: the seller gives you access after your payment.'
+                            : 'No delivery charge: you download it after your payment is confirmed.'
+                          : settings.deliveryPromiseText ||
+                            'Delivery across Pakistan by courier, usually in 3–6 working days. Cash on Delivery available.'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2.5">
@@ -4051,6 +4173,14 @@ export const StorefrontView: React.FC = () => {
                       </span>
                     </div>
 
+                    {cartPayFirst.length > 0 && isNationalPakistan && (
+                      <div className="p-3 rounded border border-sky-300 bg-sky-50 text-xs text-sky-900 leading-relaxed">
+                        <strong>Cash on Delivery is not available for this order:</strong>{' '}
+                        {cartPayFirst.map((i) => i.name).slice(0, 3).join(', ')}
+                        {cartPayFirst.length > 3 ? ' and more' : ''} {cartPayFirst.length === 1 ? 'is' : 'are'} paid in advance (download, service or
+                        subscription). Pay by bank transfer / NayaPay and you get access as soon as the payment is confirmed.
+                      </div>
+                    )}
                     {/* Payment Method Selector Tabs */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       {/* 1. Cash on Delivery (COD) */}
@@ -4548,7 +4678,7 @@ export const StorefrontView: React.FC = () => {
                   <div className="divide-y divide-black/[0.06] max-h-80 overflow-y-auto">
                     {cart.map((item) => (
                       <div
-                        key={`${item.productId}-${item.variantLabel}`}
+                        key={`${item.productId}-${item.variantLabel}-${optionsKey(item.options)}`}
                         className="py-3 flex items-center justify-between gap-4"
                       >
                         <div className="flex items-center gap-3 min-w-0">
@@ -4562,6 +4692,11 @@ export const StorefrontView: React.FC = () => {
                             <div className="text-[11px] text-[#787774]">
                               {item.variantLabel} · Qty {item.quantity}
                             </div>
+                            {item.productType && item.options && (
+                              <div className="text-[11px] text-[#575653] break-words">
+                                {optionsSummary(item.productType, item.options, products.find((p) => p.id === item.productId)?.typeDetails)}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="text-xs font-mono tabular-nums font-semibold text-right">
@@ -5066,7 +5201,7 @@ export const StorefrontView: React.FC = () => {
               ) : (
                 cart.map((item) => (
                   <div
-                    key={`${item.productId}-${item.variantLabel}`}
+                    key={`${item.productId}-${item.variantLabel}-${optionsKey(item.options)}`}
                     className="py-4 flex gap-4"
                   >
                     <div className="w-16 h-16 bg-[#F3F2EE] shrink-0 overflow-hidden">
@@ -5078,13 +5213,23 @@ export const StorefrontView: React.FC = () => {
                           {item.name}
                         </h4>
                         <button
-                          onClick={() => removeFromCart(item.productId, item.variantLabel)}
+                          onClick={() => removeFromCart(item.productId, item.variantLabel, item.options)}
                           className="text-[#787774] hover:text-[#141413] cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                       <div className="text-[11px] text-[#787774] mt-0.5">{item.variantLabel}</div>
+                      {item.productType && (
+                        <div className="mt-1 space-y-0.5">
+                          <ProductTypeBadge type={item.productType} />
+                          {item.options && (
+                            <div className="text-[11px] text-[#575653] break-words">
+                              {optionsSummary(item.productType, item.options, products.find((p) => p.id === item.productId)?.typeDetails)}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="flex items-center justify-between mt-3">
                         <div className="flex items-center border border-black/15 bg-white">
                           <button
@@ -5092,7 +5237,8 @@ export const StorefrontView: React.FC = () => {
                               updateCartQuantity(
                                 item.productId,
                                 item.quantity - 1,
-                                item.variantLabel
+                                item.variantLabel,
+                                item.options
                               )
                             }
                             className="px-2 py-1 text-xs cursor-pointer"
@@ -5107,7 +5253,8 @@ export const StorefrontView: React.FC = () => {
                               updateCartQuantity(
                                 item.productId,
                                 item.quantity + 1,
-                                item.variantLabel
+                                item.variantLabel,
+                                item.options
                               )
                             }
                             className="px-2 py-1 text-xs cursor-pointer"

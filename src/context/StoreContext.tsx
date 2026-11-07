@@ -13,6 +13,7 @@ import {
 } from 'firebase/auth';
 import { portalFromLocation } from '../portalBranding';
 import { findVariant, hasVariants, variantPrice } from '../services/productVariants';
+import { cleanLineOptions, linePrice, optionsKey, productTypeOf, typeInfo, type LineOptions } from '../services/productTypes';
 
 export interface AuthResult {
   ok: boolean;
@@ -192,9 +193,10 @@ interface StoreContextValue {
   cart: CartItem[];
   wishlist: string[];
   appliedCoupon: Coupon | null;
-  addToCart: (product: Product, quantity?: number, variantLabel?: string) => void;
-  removeFromCart: (productId: string, variantLabel?: string) => void;
-  updateCartQuantity: (productId: string, quantity: number, variantLabel?: string) => void;
+  /** options: the customer's choices for the kind of product (rental days, text to print, ...) */
+  addToCart: (product: Product, quantity?: number, variantLabel?: string, options?: LineOptions) => void;
+  removeFromCart: (productId: string, variantLabel?: string, options?: LineOptions) => void;
+  updateCartQuantity: (productId: string, quantity: number, variantLabel?: string, options?: LineOptions) => void;
   clearCart: () => void;
   applyCouponCode: (code: string) => { success: boolean; message: string };
   removeCoupon: () => void;
@@ -885,7 +887,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   // Cart & Wishlist Actions
-  const addToCart = (product: Product, quantity = 1, variantLabel = 'Standard Edition') => {
+  // A cart line is one product + variant + the customer's choices for its kind (rental days, text to print)
+  const sameLine = (item: CartItem, productId: string, variantLabel: string, options?: LineOptions) =>
+    item.productId === productId && item.variantLabel === variantLabel && optionsKey(item.options) === optionsKey(options);
+
+  const addToCart = (product: Product, quantity = 1, variantLabel = 'Standard Edition', rawOptions?: LineOptions) => {
     // A product with variants (colour, size, ...) is bought as one of them: its own price and stock
     const variant = hasVariants(product) ? findVariant(product, variantLabel) : undefined;
     if (hasVariants(product) && !variant) {
@@ -897,14 +903,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       showToast(`${product.name}${variant ? ` (${variant.name})` : ''} is currently out of stock.`);
       return;
     }
+    // The kind of product (src/services/productTypes.ts): wholesale starts at its minimum quantity,
+    // services and custom prints need the customer's details (asked on the product page)
+    const ptype = productTypeOf(product);
+    const options = cleanLineOptions(ptype, rawOptions, product.typeDetails);
+    if (ptype === 'WHOLESALE') quantity = Math.max(quantity, product.typeDetails?.minOrderQty || 1);
+    const priced = linePrice(product, variantPrice(product.price, variant), quantity, options);
+    if ('error' in priced) {
+      showToast((ptype === 'SERVICE' || ptype === 'CUSTOM') && !rawOptions ? `Open "${product.name}" and fill in the details first.` : priced.error);
+      return;
+    }
+    const hasOptions = Object.keys(options).length > 0;
     setCart((prev) => {
-      const idx = prev.findIndex(
-        (item) => item.productId === product.id && item.variantLabel === variantLabel
-      );
+      const idx = prev.findIndex((item) => sameLine(item, product.id, variantLabel, hasOptions ? options : undefined));
       if (idx > -1) {
         const updated = [...prev];
         const nextQty = Math.min(available, updated[idx].quantity + quantity);
-        updated[idx] = { ...updated[idx], quantity: nextQty };
+        const again = linePrice(product, variantPrice(product.price, variant), nextQty, options);
+        updated[idx] = { ...updated[idx], quantity: nextQty, ...('price' in again ? { price: again.price } : {}) };
         return updated;
       }
       return [
@@ -913,43 +929,51 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           productId: product.id,
           sku: variant?.sku || product.sku,
           name: product.name,
-          price: variantPrice(product.price, variant),
+          price: priced.price,
           quantity: Math.min(available, quantity),
           variantLabel,
           primaryImage: product.primaryImage,
           category: product.category,
+          ...(ptype !== 'PHYSICAL' ? { productType: ptype } : {}),
+          ...(hasOptions ? { options } : {}),
         },
       ];
     });
     track.addToCart(product.id, quantity);
-    showToast(`Added ${product.name} to shopping bag.`);
+    showToast(
+      typeInfo(ptype).cod
+        ? `Added ${product.name} to shopping bag.`
+        : `Added ${product.name}. It is paid in advance (no Cash on Delivery).`
+    );
   };
 
-  const removeFromCart = (productId: string, variantLabel = 'Standard Edition') => {
-    setCart((prev) =>
-      prev.filter(
-        (item) => !(item.productId === productId && item.variantLabel === variantLabel)
-      )
-    );
+  const removeFromCart = (productId: string, variantLabel = 'Standard Edition', options?: LineOptions) => {
+    setCart((prev) => prev.filter((item) => !sameLine(item, productId, variantLabel, options)));
   };
 
   const updateCartQuantity = (
     productId: string,
     quantity: number,
-    variantLabel = 'Standard Edition'
+    variantLabel = 'Standard Edition',
+    options?: LineOptions
   ) => {
     if (quantity <= 0) {
-      removeFromCart(productId, variantLabel);
+      removeFromCart(productId, variantLabel, options);
       return;
     }
     const product = products.find((p) => p.id === productId);
     const maxStock = product ? product.stock : 99;
+    // Wholesale never goes below its minimum; its price per piece follows the quantity
+    const min = product && productTypeOf(product) === 'WHOLESALE' ? product.typeDetails?.minOrderQty || 1 : 1;
+    const qty = Math.max(min, Math.min(maxStock, quantity));
     setCart((prev) =>
-      prev.map((item) =>
-        item.productId === productId && item.variantLabel === variantLabel
-          ? { ...item, quantity: Math.min(maxStock, quantity) }
-          : item
-      )
+      prev.map((item) => {
+        if (!sameLine(item, productId, variantLabel, options)) return item;
+        if (!product) return { ...item, quantity: qty };
+        const v = hasVariants(product) ? findVariant(product, variantLabel) : undefined;
+        const priced = linePrice(product, variantPrice(product.price, v), qty, item.options);
+        return { ...item, quantity: qty, ...('price' in priced ? { price: priced.price } : {}) };
+      })
     );
   };
 
@@ -1070,7 +1094,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
-        items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, variant: i.variantLabel })),
+        items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, variant: i.variantLabel, ...(i.options ? { options: i.options } : {}) })),
         couponCode: appliedCoupon?.code,
         referralCode: getReferralCode() || undefined,
         // which ad / channel brought this customer (Traffic & Conversion → ads and ROAS)

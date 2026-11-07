@@ -165,7 +165,35 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Jitne piece aap foran bhej sakte hain, utne likhein.',
       'Variants (rang / size) lagaye hon to stock har variant mein alag likhein; yahan total khud ban jata hai.',
       'Stock 0 ho jaye to product "out of stock" dikhta hai aur order nahi aata.',
+      'Digital download, software, service aur subscription mein stock nahi likhna parta: yeh jitne chahein bik sakte hain.',
     ],
+  },
+  'seller.product.type': {
+    title: 'Aap kya bech rahe hain? (product ki qisam)',
+    what: 'Naya product daalte waqt pehle us ki qisam chunein. Har qisam ka apna form hai, aur customer ko store par wahi icon dikhta hai.',
+    steps: [
+      'Physical product: asli cheez jo courier se jaye (kapre, electronics). COD chalta hai.',
+      'Digital download: e-book, PDF, course, template, pattern. Customer pehle payment karta hai, phir use download link milta hai. Courier nahi.',
+      'Software & apps: download link + har customer ke liye alag license key. Keys ek line mein ek likhein.',
+      'Service: web design, logo, tuition, repairing. Kitne din mein kaam hoga aur kitni dafa tabdeeli (revisions) likhein. Customer order par apni zaroorat likhta hai.',
+      'Wholesale: dukaandaron ke liye. Kam az kam kitne piece, aur zyada lene par sasti qeemat ke steps.',
+      'Rent: qeemat ek din ki. Kam se kam / zyada se zyada din, aur wapsi wali zamanat (deposit) likhein.',
+      'Print on demand / custom: customer ka naam ya text chhaap kar (shirt, mug). Customer order par text likhta hai.',
+      'Subscription: mahine ya saal ki fees (paid group, classes). Payment pehle hoti hai.',
+      'Ghalat qisam chun li ho to form ke upar "Change" dabayein.',
+    ],
+    tips: ['Download, software, service aur subscription par COD nahi hota aur delivery charge bhi nahi lagta.'],
+  },
+  'seller.product.delivery': {
+    title: 'Customer ko payment ke baad kya milega (download)',
+    what: 'Digital aur software products ki file ya link. Yeh sirf un customers ko dikhta hai jin ki payment confirm ho chuki ho.',
+    steps: [
+      'Google Drive ya Dropbox ka link daalein (sharing "Anyone with the link" par ho), ya "Upload file" se file daalein.',
+      'Neeche chahein to download / install karne ka tareeqa ya ZIP ka password likh dein.',
+      'Software: license keys ek line mein ek likhein. Har order par agli key khud chali jati hai, aur bachi hui keys ki ginti neeche dikhti hai.',
+      'Payment confirm hote hi customer apne order ke safhe par "Download" button aur key dekh leta hai.',
+    ],
+    tips: ['Keys khatam hone se pehle nayi keys daal dein, warna customer ko key nahi milegi.'],
   },
   'seller.product.variants': {
     title: 'Variants (rang, size waghera)',
@@ -242,6 +270,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     title: 'Naya product daalna',
     steps: [
       '"New product" dabayein.',
+      'Chunein aap kya bech rahe hain (Physical, Digital, Software, Service, Wholesale, Rent, Print on demand, Subscription).',
       'Naam, category, qeemat, stock, brand bharein (* wale zaroori hain).',
       'Tasveerein lagayein.',
       'Description khud likhein ya AI se likhwayein.',

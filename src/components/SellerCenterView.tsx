@@ -56,6 +56,9 @@ import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 import { HelpDot } from './HelpDot';
 import { FormSection, MoreMenu, OrderSteps, SegTabs, ui } from './SellerUi';
+import { ProductTypeChosen, ProductTypeFields, ProductTypePicker, priceLabelFor, type DeliveryForm } from './SellerProductType';
+import { ProductTypeBadge } from './ProductTypeIcon';
+import { typeInfo, type ProductType, type ProductTypeDetails } from '../services/productTypes';
 import { SellerShell } from './SellerShell';
 import { SellerLanding } from './SellerLanding';
 import { AdminAiKeysPanel } from './AdminAiKeysPanel';
@@ -101,7 +104,7 @@ type SellerOrder = Order & {
   supplierItems?: SupplierItem[];
   supplierCost?: number;
 };
-type ListProduct = Pick<Product, 'id' | 'sku' | 'name' | 'price' | 'stock' | 'category' | 'status' | 'primaryImage'> & {
+type ListProduct = Pick<Product, 'id' | 'sku' | 'name' | 'price' | 'stock' | 'category' | 'status' | 'primaryImage' | 'productType'> & {
   compareAtPrice?: number;
   adminHidden?: boolean;
   adminHiddenReason?: string;
@@ -1666,6 +1669,11 @@ const SellerOrderCard: React.FC<{
                       {it.quantity} × {it.name}
                       {it.variant ? <span className="text-[#6B6963]"> ({it.variant})</span> : null}
                     </div>
+                    {/* Kind of product and what the customer chose / wrote (text to print, rental days, job details) */}
+                    {it.productType && <ProductTypeBadge type={it.productType} className="mt-0.5" />}
+                    {it.optionsText && (
+                      <div className="mt-1 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-[12px] text-amber-950 break-words">{it.optionsText}</div>
+                    )}
                     <span
                       className={`${ui.chip} mt-0.5 ${
                         source === DIRECT_SOURCE ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-violet-50 border-violet-300 text-violet-900'
@@ -1924,6 +1932,11 @@ const emptyProduct = {
   supplierProductUrl: '',
   supplierSku: '',
   adminHiddenReason: '',
+  // Kind of product (chosen first; '' = not chosen yet) and its own fields (src/services/productTypes.ts)
+  productType: '' as ProductType | '',
+  typeDetails: {} as ProductTypeDetails,
+  // Downloads: link / instructions / licence keys the buyer gets after paying (private)
+  delivery: { link: '', note: '', keys: '' } as DeliveryForm,
 };
 
 type ProductFilter = 'ALL' | 'ACTIVE' | 'DRAFT' | 'OUT' | 'ARCHIVED';
@@ -1994,7 +2007,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
   const openEditor = async (p: ListProduct) => {
     setOpening(p.id);
     try {
-      const { product: full, supplier, brandProofUrl } = await api(`/api/seller/products/${encodeURIComponent(p.id)}`);
+      const { product: full, supplier, brandProofUrl, delivery } = await api(`/api/seller/products/${encodeURIComponent(p.id)}`);
       const flashLive = Number(full.flashPrice) > 0 && full.flashEndsAt && Date.parse(full.flashEndsAt) > Date.now();
       setEditing({
         brandProofUrl: brandProofUrl || '',
@@ -2034,6 +2047,13 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
         })),
         variantTitle: full.variantTitle || '',
         status: full.status === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
+        productType: (full.productType as ProductType) || 'PHYSICAL',
+        typeDetails: full.typeDetails || {},
+        delivery: {
+          link: delivery?.link || '',
+          note: delivery?.note || '',
+          keys: Array.isArray(delivery?.keys) ? delivery.keys.join('\n') : '',
+        },
       });
     } catch (err: any) {
       showToast(err.message);
@@ -2053,15 +2073,22 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
   const save = async () => {
     if (!editing) return;
     if (!editing.info.brandType) return showToast('Choose "Branded" or "No brand" for this product.');
-    const variants = editing.variants.filter((v) => v.name.trim());
+    const ptype = (editing.productType || 'PHYSICAL') as ProductType;
+    const kind = typeInfo(ptype);
+    const isDownload = ptype === 'DIGITAL' || ptype === 'SOFTWARE';
+    if (isDownload && editing.status === 'ACTIVE' && !editing.delivery.link.trim() && !editing.delivery.keys.trim() && !editing.delivery.note.trim()) {
+      return showToast('Add the download link (or the licence keys) the customer gets after paying.');
+    }
+    // Downloads, services and subscriptions have no colours / sizes
+    const variants = kind.countsStock ? editing.variants.filter((v) => v.name.trim()) : [];
     if (editing.variants.some((v) => !v.name.trim() && (v.price || v.sku))) return showToast('Give every variant a name, or remove the empty row.');
     setSaving(true);
     try {
       // Shipping is cleared, as every product is delivered in the customer's own country with the
       // store's rates. The source (direct seller / Oshi / YourMart / ...) is private: only the seller
       // and the store team see it, on the product and on its orders.
-      const { shipping, ...fields } = editing;
-      const direct = isDirectSource(editing.supplierName);
+      const { shipping, delivery, ...fields } = editing;
+      const direct = isDirectSource(editing.supplierName) || !kind.ships;
       const { product, heldForProof } = await api('/api/seller/products', {
         method: 'POST',
         body: JSON.stringify({
@@ -2078,6 +2105,9 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           weightKg: Number(editing.weightKg),
           variants,
           variantTitle: variants.length ? editing.variantTitle || 'Option' : '',
+          productType: ptype,
+          typeDetails: editing.typeDetails,
+          ...(isDownload ? { delivery: { link: delivery.link.trim(), note: delivery.note, keys: delivery.keys } } : {}),
         }),
       });
       showToast(
@@ -2168,9 +2198,33 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
     }
   };
 
+  // New product: first choose what kind of product it is (each kind has its own form)
+  if (editing && !editing.productType) {
+    return (
+      <ProductTypePicker
+        onCancel={() => setEditing(null)}
+        onPick={(t) =>
+          setEditing((p) =>
+            p
+              ? {
+                  ...p,
+                  productType: t,
+                  typeDetails: t === 'WHOLESALE' ? { minOrderQty: 10 } : t === 'RENTAL' ? { minDays: 1, maxDays: 30 } : t === 'SERVICE' ? { deliveryDays: 3, revisions: 2 } : {},
+                  // Downloads, services and subscriptions are not a brand's goods
+                  info: typeInfo(t).ships ? p.info : { ...p.info, brandType: p.info.brandType || 'NONE' },
+                }
+              : p
+          )
+        }
+      />
+    );
+  }
+
   if (editing) {
     const nameSuggestions = suggestCategories(editing.name);
-    const withVariants = editing.variants.length > 0;
+    const ptype = (editing.productType || 'PHYSICAL') as ProductType;
+    const kind = typeInfo(ptype);
+    const withVariants = kind.countsStock && editing.variants.length > 0;
     return (
       <div className="bg-white border border-black/10 p-4 sm:p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#EFEDE8]">
@@ -2191,7 +2245,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormSection n={1} title="Basic information" hint="Name, price, stock, category and brand" />
+          <ProductTypeChosen type={ptype} onChange={() => setEditing((p) => (p ? { ...p, productType: '' } : p))} />
+          <FormSection n={1} title="Basic information" hint={kind.countsStock ? 'Name, price, stock, category and brand' : 'Name, price, category'} />
           <div className="sm:col-span-2">
             <label className={labelCls}>Name * <HelpDot id="seller.product.name" /></label>
             <input
@@ -2211,7 +2266,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             />
           </div>
           <div>
-            <label className={labelCls}>Price (PKR) * <HelpDot id="seller.product.price" /></label>
+            <label className={labelCls}>{priceLabelFor(ptype, editing.typeDetails)} * <HelpDot id="seller.product.price" /></label>
             <input className={inputCls} value={editing.price} onChange={set('price')} inputMode="decimal" />
           </div>
           <div>
@@ -2220,7 +2275,9 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           </div>
           <div>
             <label className={labelCls}>Stock * <HelpDot id="seller.product.stock" /></label>
-            {withVariants ? (
+            {!kind.countsStock ? (
+              <div className={`${inputCls} bg-[#F4F3EF] text-[#575653]`}>No stock count needed (sells any number)</div>
+            ) : withVariants ? (
               <div className={`${inputCls} bg-[#F4F3EF] text-[#575653]`}>
                 {editing.variants.reduce((s, v) => s + Math.max(0, Math.floor(Number(v.stock) || 0)), 0)} (sum of the variants below)
               </div>
@@ -2273,7 +2330,22 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               </p>
             )}
           </div>
-          <FormSection n={2} title="Photos & video" hint="The first photo is the main one customers see" />
+          {ptype !== 'PHYSICAL' && (
+            <>
+              <FormSection n={1} title={`${kind.label} details`} hint="What only this kind of product needs" />
+              <ProductTypeFields
+                type={ptype}
+                details={editing.typeDetails}
+                onDetails={(typeDetails) => setEditing((p) => (p ? { ...p, typeDetails } : p))}
+                delivery={editing.delivery}
+                onDelivery={(delivery) => setEditing((p) => (p ? { ...p, delivery } : p))}
+                price={editing.price}
+                upload={uploadMedia}
+                onError={showToast}
+              />
+            </>
+          )}
+          <FormSection n={2} title="Photos & video" hint={kind.ships ? 'The first photo is the main one customers see' : 'A cover picture: book cover, app screen, sample of your work'} />
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9]">
             <ProductMediaEditor
               images={editing.images}
@@ -2283,14 +2355,17 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               onError={showToast}
             />
           </div>
-          <FormSection n={3} title="Variants & deals" hint="Colours / sizes with their own stock, and a short-time deal price" />
+          <FormSection n={3} title={kind.countsStock ? 'Variants & deals' : 'Deals'} hint={kind.countsStock ? 'Colours / sizes with their own stock, and a short-time deal price' : 'A short-time deal price'} />
           {editing.id && <FlashDealBox productId={editing.id} price={Number(editing.price) || 0} current={editing.flashPrice ? { price: editing.flashPrice, endsAt: editing.flashEndsAt } : null} />}
-          <VariantsEditor
-            title={editing.variantTitle}
-            rows={editing.variants}
-            basePrice={editing.price}
-            onChange={({ title, rows }) => setEditing((p) => (p ? { ...p, variantTitle: title, variants: rows } : p))}
-          />
+          {kind.countsStock && (
+            <VariantsEditor
+              title={editing.variantTitle}
+              rows={editing.variants}
+              basePrice={editing.price}
+              onChange={({ title, rows }) => setEditing((p) => (p ? { ...p, variantTitle: title, variants: rows } : p))}
+            />
+          )}
+          {!kind.countsStock && !editing.id && <p className="sm:col-span-2 text-[11.5px] text-[#6B6963]">A deal price can be set after the first save.</p>}
           {/* Only branded products need the proof; "No brand" hides it */}
           {editing.info.brandType === 'BRANDED' && (
           <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
@@ -2373,11 +2448,13 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             />
             <span className="block mt-1 text-[11px] text-[#575653]">Each line is shown as a bullet point on the product page.</span>
           </div>
-          <FormSection n={5} title="Shipping & visibility" hint="Parcel weight for the delivery charge, and Live or Draft" />
-          <div>
-            <label className={labelCls}>Weight (kg) <HelpDot id="seller.product.weight" /></label>
-            <input className={inputCls} value={editing.weightKg} onChange={set('weightKg')} inputMode="decimal" />
-          </div>
+          <FormSection n={5} title={kind.ships ? 'Shipping & visibility' : 'Visibility'} hint={kind.ships ? 'Parcel weight for the delivery charge, and Live or Draft' : 'Live or Draft (no courier, no delivery charge)'} />
+          {kind.ships && (
+            <div>
+              <label className={labelCls}>Weight (kg) <HelpDot id="seller.product.weight" /></label>
+              <input className={inputCls} value={editing.weightKg} onChange={set('weightKg')} inputMode="decimal" />
+            </div>
+          )}
           <div>
             <label className={labelCls}>Status <HelpDot id="seller.product.status" /></label>
             <select className={inputCls} value={editing.status} onChange={set('status')}>
@@ -2394,8 +2471,9 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             upload={uploadMedia}
             onError={showToast}
           />
-          <FormSection n={7} title="Where you get it (private)" hint="Only you and the store team see this" />
-          {/* Private: customers never see where the product comes from */}
+          {kind.ships && <FormSection n={7} title="Where you get it (private)" hint="Only you and the store team see this" />}
+          {/* Private: customers never see where the product comes from (only for things that ship) */}
+          {kind.ships && (
           <div className="sm:col-span-2 p-3 border border-violet-300 bg-violet-50/60 space-y-2">
             <div>
               <div className="text-xs font-bold text-[#141413]">Product source (only you and the store team see this) <HelpDot id="seller.product.source" /></div>
@@ -2439,6 +2517,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               </div>
             )}
           </div>
+          )}
         </div>
         <div className="sticky bottom-[68px] lg:bottom-0 z-20 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-3 bg-white/95 backdrop-blur border-t border-[#E7E5DF] flex items-center justify-between gap-2 rounded-b-[14px]">
           <span className="text-[11.5px] text-[#8A8780] hidden sm:block">Fields with * are required.</span>
@@ -2548,6 +2627,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               </div>
               <div className="min-w-0 flex-1 flex flex-col">
                 <div className="font-semibold text-[13px] leading-snug line-clamp-2">{p.name}</div>
+                <ProductTypeBadge type={p.productType} className="mt-1" />
                 <div className="mt-1 flex items-baseline gap-2">
                   <span className="text-[14px] font-bold">{formatPKR(p.price)}</span>
                   {Number((p as any).compareAtPrice) > Number(p.price) && (

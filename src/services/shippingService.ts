@@ -7,6 +7,7 @@ import {
   StoreSettings,
 } from '../types/store';
 import { originOf, sellerFeeFor, shipsToCountry } from './productShipping';
+import { productTypeOf, typeInfo } from './productTypes';
 
 export interface ShippingCalculationRequest {
   destinationCountryIso: string;
@@ -142,6 +143,26 @@ export class ShippingCalculationService {
    * Calculate comprehensive shipment metrics
    */
   static calculate(req: ShippingCalculationRequest): ShippingCalculationResponse {
+    // Downloads, services and subscriptions do not go by courier (src/services/productTypes.ts): only
+    // the other items count, and a parcel with nothing to ship has no delivery charge
+    const kindShips = (productId: string) => typeInfo(productTypeOf((req.catalogProducts || []).find((p) => p.id === productId))).ships;
+    const shipItems = (req.items || []).filter((it) => kindShips(it.productId));
+    if ((req.items || []).length && !shipItems.length) {
+      const none = this.calculateStoreRate({ ...req, items: [] });
+      return {
+        ...none,
+        actualWeightKg: 0,
+        volumetricWeightKg: 0,
+        billableWeightKg: 0,
+        baseFee: 0,
+        additionalWeightFee: 0,
+        finalShippingFee: 0,
+        freeShippingApplied: false,
+        requiresManualQuote: false,
+        estimatedDelivery: 'No delivery needed',
+      };
+    }
+    if (shipItems.length !== (req.items || []).length) req = { ...req, items: shipItems };
     const store = this.calculateStoreRate(req);
     const destIso = store.destinationCountryIso;
     const products = (req.items || [])

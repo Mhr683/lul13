@@ -241,6 +241,8 @@ export const AdminOrdersOverview: React.FC = () => {
                           <div key={i}>
                             {it.quantity} × {it.name}
                             {it.variant ? ` (${it.variant})` : ''}{' '}
+                            {it.productType && it.productType !== 'PHYSICAL' ? <span className="text-[10px] font-bold text-sky-800">[{it.productType}] </span> : null}
+                            {it.optionsText ? <span className="text-[11px] text-amber-900">· {it.optionsText} </span> : null}
                             {/* Source of the product (admin-only data merged from order_private) */}
                             <span
                               className={`inline-block px-1.5 py-0.5 border text-[10px] font-bold ${

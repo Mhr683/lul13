@@ -8,6 +8,7 @@ import { famousBrandIn } from '../src/services/brandRules';
 import { cleanProductShipping, type ProductShipping } from '../src/services/productShipping';
 import { cleanVariants } from '../src/services/productVariants';
 import { normalizeSource } from '../src/services/productSource';
+import { OPEN_STOCK, PRODUCT_TYPES, cleanDelivery, cleanTypeDetails, typeInfo, type ProductType } from '../src/services/productTypes';
 import type { ProductVariant } from '../src/types/store';
 import { KYC_LABELS, KYC_MAX_BYTES, idDocTypeFor, requiredKyc, type KycKind } from '../src/services/sellerOnboarding';
 import { checkVendorApplication } from '../src/services/vendorRules';
@@ -551,6 +552,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     stock: p.stock,
     category: p.category,
     status: p.status,
+    productType: p.productType || 'PHYSICAL',
     primaryImage: p.primaryImage || '',
     likes: Number(p.likes) || 0,
     dislikes: Number(p.dislikes) || 0,
@@ -631,6 +633,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           supplierSku: p.supplierSku || '',
         },
         brandProofUrl: p.brandProofUrl || '',
+        // Download link / instructions / licence keys still to hand out (digital and software)
+        delivery: p.delivery || {},
         needsBrandProof: needsBrandProof(product),
       });
     } catch (err) {
@@ -694,13 +698,31 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (checked.error) return { error: checked.error };
       shipping = checked.value || null;
     }
+    // Kind of product (physical, digital, service, ...) and its own details: only when the form sends
+    // them (a CSV row keeps them; src/services/productTypes.ts)
+    let productType: ProductType | undefined;
+    let typeDetails: any;
+    if (b.productType !== undefined) {
+      productType = PRODUCT_TYPES.some((t) => t.id === b.productType) ? (b.productType as ProductType) : 'PHYSICAL';
+      const checked = cleanTypeDetails(productType, b.typeDetails, price);
+      if ('error' in checked) return { error: checked.error };
+      typeDetails = checked.details;
+    }
+    // Downloads, services and subscriptions are not counted in pieces
+    const openStock = productType !== undefined && !typeInfo(productType).countsStock;
     return {
       fields: {
         name,
         shipping,
         price,
+        productType,
+        typeDetails,
         compareAtPrice: money(b.compareAtPrice),
-        stock: variants?.length ? variants.reduce((s, v) => s + v.stock, 0) : Math.max(0, Math.floor(Number(b.stock) || 0)),
+        stock: openStock
+          ? OPEN_STOCK
+          : variants?.length
+          ? variants.reduce((s, v) => s + v.stock, 0)
+          : Math.max(0, Math.floor(Number(b.stock) || 0)),
         variants,
         variantTitle: variants === undefined ? undefined : variants.length ? str(b.variantTitle, 40) || 'Option' : '',
         category,
@@ -798,6 +820,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     };
     // The seller cleared the shipping settings: the store's rates apply again
     if (f.shipping === null) delete product.shipping;
+    if (f.productType !== undefined) {
+      product.productType = f.productType;
+      product.typeDetails = f.typeDetails || {};
+      // Nothing goes by courier for downloads, services and subscriptions
+      if (!typeInfo(f.productType).ships) delete product.shipping;
+    }
     if (f.variants !== undefined) {
       if (f.variants.length) {
         product.variants = f.variants;
@@ -1022,6 +1050,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       batch.set(adminDb.collection('products').doc(id), product);
       const privateData: Record<string, any> = supplier ? supplierDoc(id, supplier) : {};
       if (b.brandProofUrl !== undefined) privateData.brandProofUrl = proofUrl;
+      // Download link / instructions / licence keys: private until the customer has paid
+      if (b.delivery !== undefined) privateData.delivery = cleanDelivery(b.delivery);
+      const t = product.productType || 'PHYSICAL';
+      if ((t === 'DIGITAL' || t === 'SOFTWARE') && product.status === 'ACTIVE') {
+        const del = b.delivery !== undefined ? privateData.delivery : d.supplierOf(id)?.delivery;
+        if (b.delivery !== undefined && !del?.link && !del?.keys?.length && !del?.note) {
+          return res.status(400).json({ error: 'Add the download link (or the licence keys) the customer gets after paying.' });
+        }
+      }
       if (Object.keys(privateData).length) {
         batch.set(adminDb.collection('product_private').doc(id), { productId: id, ...privateData, updatedAt: new Date().toISOString() }, { merge: true });
       }

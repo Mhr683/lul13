@@ -374,6 +374,8 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     title: 'Naya product daalna',
     steps: [
       'Products page par hara "New product" dabayein.',
+      'Pehle chunein aap kya bech rahe hain: Physical, Digital download, Software, Service, Wholesale, Rent, Print on demand ya Subscription (har ek ka apna icon). Har qisam ka form us ke hisaab se badal jata hai.',
+      'Physical ke ilawa har qisam ke liye "… details" ka alag hissa aata hai (download link, service ke din, wholesale qeematein, kiraye ke din waghera).',
       'Form 7 hisson mein hai: 1 Basic information, 2 Photos & video, 3 Variants & deals, 4 Description, 5 Shipping & visibility, 6 More details, 7 Where you get it.',
       '1: naam, qeemat, stock, category aur brand (* wale zaroori).',
       '2: tasveerein (pehli tasveer main hoti hai) aur video.',

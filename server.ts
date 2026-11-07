@@ -55,6 +55,7 @@ import { createAnalytics } from './server/analytics';
 import { createAds } from './server/ads';
 import { effectivePrice, isFlashActive, welcomeOf, referralOf, DEFAULT_NEW_SELLER_FREE_DAYS } from './src/services/promotions';
 import { findVariant, hasVariants, variantPrice } from './src/services/productVariants';
+import { cleanLineOptions, linePrice, optionsKey, optionsSummary, productTypeOf, typeInfo, type LineOptions } from './src/services/productTypes';
 import { withKeyPool, aiKeyStatus } from './server/aiFallback';
 import {
   PAYMENT_SECRET_FIELDS,
@@ -2987,6 +2988,10 @@ const cardPayments = setupCardPayments(app, {
 });
 
 // 6.1. POST /api/orders/create (Atomic Server-Side Order Placement)
+// A problem the customer can fix (pay in advance, wholesale minimum, missing details): answered with
+// the message instead of being treated as a database failure
+const orderUserError = (message: string) => Object.assign(new Error(message), { orderUserError: true });
+
 app.post('/api/orders/create', async (req, res) => {
   try {
     const {
@@ -3181,7 +3186,12 @@ app.post('/api/orders/create', async (req, res) => {
           return res.status(400).json({ error: `Only ${Number(p.stock) || 0} of "${p.name}" left. Please change the quantity.` });
         }
         const v = typeof it.variant === 'string' && hasVariants(p) ? findVariant(p, it.variant) : undefined;
-        lines.push({ p, it, price: variantPrice(Number(p.price) || 0, v) });
+        if (paymentMethod === 'COD' && !typeInfo(productTypeOf(p)).cod) {
+          return res.status(400).json({ error: `"${p.name}" must be paid in advance. Please choose bank transfer or NayaPay.` });
+        }
+        const priced = linePrice(p, variantPrice(Number(p.price) || 0, v), Number(it.quantity || 0), cleanLineOptions(productTypeOf(p), it.options, p.typeDetails));
+        if ('error' in priced) return res.status(400).json({ error: priced.error });
+        lines.push({ p, it, price: priced.price });
       }
       const sellersInCart = Array.from(new Set(lines.map((l) => String(l.p.sellerId || HOUSE_SELLER_ID))));
       const numbers: Record<string, string> = {};
@@ -3255,14 +3265,16 @@ app.post('/api/orders/create', async (req, res) => {
         for (const item of items) {
           qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.quantity);
         }
-        // Cart lines per product + variant ("Red / Large"); products without variants have one line
-        const lines = new Map<string, { productId: string; variant: string; quantity: number }>();
+        // Cart lines per product + variant ("Red / Large") + the customer's choices (rental days, text
+        // to print, ...); products without variants have one line
+        const lines = new Map<string, { productId: string; variant: string; quantity: number; rawOptions: any }>();
         for (const item of items) {
           const variant = typeof item.variant === 'string' ? item.variant.trim().slice(0, 60) : '';
-          const key = `${item.productId}\n${variant.toLowerCase()}`;
+          const raw = item.options && typeof item.options === 'object' ? item.options : undefined;
+          const key = `${item.productId}\n${variant.toLowerCase()}\n${optionsKey(raw as LineOptions)}`;
           const line = lines.get(key);
           if (line) line.quantity += item.quantity;
-          else lines.set(key, { productId: item.productId, variant, quantity: item.quantity });
+          else lines.set(key, { productId: item.productId, variant, quantity: item.quantity, rawOptions: raw });
         }
         const productDocs: Array<{ ref: FirebaseFirestore.DocumentReference; data: any; privateData: any; reqQty: number }> = [];
         for (const [productId, reqQty] of qtyByProduct) {
@@ -3299,9 +3311,20 @@ app.post('/api/orders/create', async (req, res) => {
             .reduce((s, l) => s + l.quantity, 0);
           if (v.stock < wanted) throw new Error(`Insufficient stock for "${p.data.name} (${v.name})". Available: ${v.stock}, Requested: ${wanted}.`);
         }
+        // Downloads, services and subscriptions are paid first: no Cash on Delivery for them
+        // (src/services/productTypes.ts)
+        if (paymentMethod === 'COD') {
+          const payFirst = productDocs.filter((p) => !typeInfo(productTypeOf(p.data)).cod);
+          if (payFirst.length) {
+            throw orderUserError(
+              `${payFirst.map((p) => `"${p.data.name}"`).join(', ')} must be paid in advance (it is a ${typeInfo(productTypeOf(payFirst[0].data)).label.toLowerCase()}). Please choose bank transfer, NayaPay or card.`
+            );
+          }
+        }
         // Sellers choose where each product ships; one that does not ship to this country cannot be ordered
+        // (nothing ships for downloads, services and subscriptions)
         const shipDest = isDomestic ? 'PK' : String(destCountryIso || 'PK').toUpperCase();
-        const notShipped = productDocs.filter((p) => !shipsToCountry(p.data, shipDest));
+        const notShipped = productDocs.filter((p) => typeInfo(productTypeOf(p.data)).ships && !shipsToCountry(p.data, shipDest));
         if (notShipped.length) {
           throw new Error(
             `${notShipped.map((p) => `"${p.data.name}"`).join(', ')} ${notShipped.length === 1 ? 'does' : 'do'} not ship to your country. Please remove ${notShipped.length === 1 ? 'it' : 'them'} from your cart.`
@@ -3390,8 +3413,15 @@ app.post('/api/orders/create', async (req, res) => {
           // A live flash deal is the price (src/services/promotions.ts, same as the store shows); a
           // variant with its own price costs that
           const v = line.variant ? findVariant(p.data, line.variant) : undefined;
-          const price = variantPrice(effectivePrice(p.data), v);
+          // The kind of product sets the final price: wholesale steps, rental days (+ deposit), and
+          // services / custom prints need the customer's details (src/services/productTypes.ts)
+          const ptype = productTypeOf(p.data);
+          const opts = cleanLineOptions(ptype, line.rawOptions, p.data.typeDetails);
+          const priced = linePrice(p.data, variantPrice(effectivePrice(p.data), v), line.quantity, opts);
+          if ('error' in priced) throw orderUserError(priced.error);
+          const price = priced.price;
           merchandiseSubtotal += price * line.quantity;
+          const optsText = optionsSummary(ptype, opts, p.data.typeDetails);
           const item: OrderItem = {
             productId: p.data.id || p.ref.id,
             name: p.data.name,
@@ -3399,6 +3429,9 @@ app.post('/api/orders/create', async (req, res) => {
             price,
             quantity: line.quantity,
             ...(v ? { variant: v.name } : {}),
+            ...(ptype !== 'PHYSICAL' ? { productType: ptype } : {}),
+            ...(Object.keys(opts).length ? { options: opts } : {}),
+            ...(optsText ? { optionsText: optsText } : {}),
             image: p.data.primaryImage,
             supplierName: p.privateData.supplierName || 'Own Stock',
             supplierSku: p.privateData.supplierSku || p.data.sku || '',
@@ -3465,15 +3498,21 @@ app.post('/api/orders/create', async (req, res) => {
           // What the customer saves on this parcel (coupon + store promotions)
           const groupDiscount = Number((groupCoupon + groupPromo).toFixed(2));
           const groupProducts = productDocs.filter((p) => String(p.data.sellerId || HOUSE_SELLER_ID) === sid).map((p) => p.data);
-          const calc = ShippingCalculationService.calculate({
+          // Only things that go by courier count for the delivery charge; a parcel of downloads /
+          // services / subscriptions only has no delivery charge at all
+          const shipItems = groupItems.filter((it) => typeInfo(it.productType || 'PHYSICAL').ships);
+          const baseCalc = ShippingCalculationService.calculate({
             destinationCountryIso: isDomestic ? 'PK' : (destCountryIso || 'PK'),
-            items: groupItems as any,
+            items: (shipItems.length ? shipItems : groupItems) as any,
             catalogProducts: groupProducts,
             settings: (storeSettings as any) || DEFAULT_SETTINGS,
             hasFreeShippingCoupon,
             merchandiseSubtotalPkr: groupSubtotal,
             discountPkr: groupDiscount,
           });
+          const calc = shipItems.length
+            ? baseCalc
+            : { ...baseCalc, finalShippingFee: 0, baseFee: 0, additionalWeightFee: 0, requiresManualQuote: false, estimatedDelivery: 'No delivery needed' };
           const groupShipping = isQuoteRequest ? 0 : Number(calc.finalShippingFee.toFixed(2));
           const groupTaxable = Math.max(0, groupSubtotal - groupDiscount);
           const groupTax = Number(((groupTaxable * taxRate) / 100).toFixed(2));
@@ -3564,12 +3603,34 @@ app.post('/api/orders/create', async (req, res) => {
           );
         }
 
+        // Downloads and software: the link / instructions and one licence key per piece are put aside for
+        // the order now (private); the customer sees them once the payment is confirmed
+        const keysLeft = new Map<string, string[]>();
+        const keysTaken = new Set<string>();
+        const deliveriesFor = (groupItems: OrderItem[]) => {
+          const out: Array<{ productId: string; name: string; link?: string; note?: string; keys?: string[] }> = [];
+          for (const it of groupItems) {
+            if (it.productType !== 'DIGITAL' && it.productType !== 'SOFTWARE') continue;
+            const del = docById.get(it.productId)?.privateData?.delivery || {};
+            let keys: string[] | undefined;
+            if (Array.isArray(del.keys) && del.keys.length) {
+              const pool = keysLeft.get(it.productId) || [...del.keys];
+              keys = pool.splice(0, it.quantity);
+              keysLeft.set(it.productId, pool);
+              keysTaken.add(it.productId);
+            }
+            out.push({ productId: it.productId, name: it.name, ...(del.link ? { link: del.link } : {}), ...(del.note ? { note: del.note } : {}), ...(keys?.length ? { keys } : {}) });
+          }
+          return out;
+        };
+
         const created: Array<{ order: Order; ownerOrder: Order }> = [];
         for (const g of groups) {
           const orderNumber = replay?.numbers?.[g.sellerId] || `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
           const orderId = `ord-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
           // Supplier name/cost per item is admin-only and goes to order_private
           const { publicItems, privateItems } = splitOrderItemsPrivate(g.items);
+          const deliveries = deliveriesFor(g.items);
 
           const orderData: Order = {
             id: orderId,
@@ -3637,10 +3698,15 @@ app.post('/api/orders/create', async (req, res) => {
             commissionPercent: g.commissionPercent,
             commissionAmount: g.commissionAmount,
             sellerEarning: g.sellerEarning,
+            ...(deliveries.length ? { deliveries } : {}),
             updatedAt: now,
           });
           // Full item details (with supplier info) are used only for the store owner's email
           created.push({ order: orderData, ownerOrder: { ...orderData, items: g.items } });
+        }
+        // Licence keys handed out are taken off the product's list
+        for (const pid of keysTaken) {
+          transaction.set(adminDb.collection('product_private').doc(pid), { delivery: { keys: keysLeft.get(pid) || [] } }, { merge: true });
         }
 
         return {
@@ -3661,7 +3727,8 @@ app.post('/api/orders/create', async (req, res) => {
         txnError?.message?.includes('seller in your cart') ||
         txnError?.message?.includes('not ship to your country') ||
         txnError?.message?.includes('card payment is not possible') ||
-        txnError?.message?.includes("only for a customer's first order");
+        txnError?.message?.includes("only for a customer's first order") ||
+        txnError?.orderUserError === true;
 
       if (isValidationError) {
         return res.status(400).json({ error: txnError.message });
@@ -3930,10 +3997,23 @@ app.get('/api/orders/track', async (req, res) => {
       }
     }
 
+    // Downloads / licence keys of a paid order (one extra read, only for such orders)
+    let deliveries: any[] | undefined;
+    const hasDownloads = (orderData.items || []).some((i) => i.productType === 'DIGITAL' || i.productType === 'SOFTWARE');
+    if (hasDownloads && orderData.paymentStatus === 'PAID' && !['CANCELLED', 'REFUNDED'].includes(orderData.status)) {
+      try {
+        const priv = await adminDb.collection('order_private').doc(String(orderData.id)).get();
+        deliveries = Array.isArray(priv.data()?.deliveries) ? priv.data()!.deliveries : [];
+      } catch (delErr) {
+        console.warn('[track] deliveries lookup failed:', delErr);
+      }
+    }
+
     res.json({
       relatedOrders,
       success: true,
       order: {
+        ...(hasDownloads ? { deliveries: deliveries || null } : {}),
         id: orderData.id,
         orderNumber: orderData.orderNumber,
         status: orderData.status,

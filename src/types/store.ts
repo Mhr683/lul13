@@ -156,6 +156,9 @@ export interface Product {
   variants?: ProductVariant[];
   /** What the choices are, e.g. "Colour" or "Size" */
   variantTitle?: string;
+  /** Kind of product (absent = PHYSICAL) and its own details (src/services/productTypes.ts) */
+  productType?: import('../services/productTypes').ProductType;
+  typeDetails?: import('../services/productTypes').ProductTypeDetails;
   createdAt: string;
   updatedAt?: string;
 }
@@ -205,6 +208,9 @@ export interface CartItem {
   variantLabel?: string;
   primaryImage?: string;
   category: string;
+  /** Kind of product and the customer's choices for it (rental days, text to print, ...) */
+  productType?: import('../services/productTypes').ProductType;
+  options?: import('../services/productTypes').LineOptions;
 }
 
 export type OrderStatus =
@@ -276,6 +282,10 @@ export interface OrderItem {
   image?: string;
   /** The variant the customer chose, e.g. "Red / Large" */
   variant?: string;
+  /** Kind of product, the customer's choices and the same in words (src/services/productTypes.ts) */
+  productType?: import('../services/productTypes').ProductType;
+  options?: import('../services/productTypes').LineOptions;
+  optionsText?: string;
   // Dropshipping fields
   supplierName?: SupplierName | string;
   supplierSku?: string;
