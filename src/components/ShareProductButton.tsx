@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Copy, Facebook, MessageCircle, Share2 } from 'lucide-react';
 
 // Share one product: WhatsApp, Facebook, copy link, or the phone's own share menu. The link is
@@ -60,16 +61,40 @@ export const ShareProductButton: React.FC<{
 }) => {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // The menu is drawn on the page itself (not inside the card), at the button's place: cards can cut off
+  // what sticks out of them (overflow, content-visibility), which hid the menu in Seller Center
+  const [menuPos, setMenuPos] = useState<React.CSSProperties>({});
+  const toggle = () => {
+    if (!open && boxRef.current) {
+      const r = boxRef.current.getBoundingClientRect();
+      const width = 192;
+      const left = Math.max(8, Math.min(window.innerWidth - width - 8, align === 'left' ? r.left : r.right - width));
+      // Opens upwards when there is no room below (e.g. above a phone's bottom bar)
+      const below = window.innerHeight - r.bottom > 260;
+      setMenuPos(below ? { left, top: r.bottom + 4, width } : { left, bottom: window.innerHeight - r.top + 4, width });
+    }
+    setOpen((o) => !o);
+  };
   const url = productShareUrl(productId);
   const text = `${productName}${price ? ` - PKR ${Number(price).toLocaleString('en-PK')}` : ''}`;
 
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!boxRef.current?.contains(t) && !menuRef.current?.contains(t)) setOpen(false);
     };
+    // The menu stays where it opened, so it closes when the page moves
+    const closeNow = () => setOpen(false);
     document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
+    window.addEventListener('scroll', closeNow, true);
+    window.addEventListener('resize', closeNow);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', closeNow, true);
+      window.removeEventListener('resize', closeNow);
+    };
   }, [open]);
 
   const copy = async () => {
@@ -98,7 +123,7 @@ export const ShareProductButton: React.FC<{
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            setOpen((o) => !o);
+            toggle();
           }}
           aria-haspopup="menu"
           aria-expanded={open}
@@ -114,7 +139,7 @@ export const ShareProductButton: React.FC<{
       ) : (
         <button
           type="button"
-          onClick={() => setOpen((o) => !o)}
+          onClick={toggle}
           aria-haspopup="menu"
           aria-expanded={open}
           className={className || 'px-3 py-1.5 border border-black/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer hover:border-black bg-white'}
@@ -122,10 +147,13 @@ export const ShareProductButton: React.FC<{
           <Share2 className="w-3.5 h-3.5" /> {label}
         </button>
       )}
-      {open && (
+      {open && createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className={`absolute z-40 ${align === 'left' ? 'left-0' : 'right-0'} mt-1 w-48 bg-white border border-black/15 shadow-lg py-1`}
+          style={menuPos}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-[120] bg-white border border-black/15 rounded-lg shadow-xl py-1"
         >
           <a
             role="menuitem"
@@ -155,7 +183,8 @@ export const ShareProductButton: React.FC<{
               <Share2 className="w-4 h-4" /> More apps...
             </button>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
