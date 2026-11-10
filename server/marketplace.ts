@@ -807,6 +807,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
             return main ? [main, ...old.filter((u) => u !== main)].slice(0, MAX_PRODUCT_IMAGES) : old;
           })(),
       videoUrl: f.videoUrl !== undefined ? f.videoUrl : existing?.videoUrl || '',
+      // "AI video" tag on the product page: kept only while the AI-made video is still the one shown
+      videoAi: Boolean(existing?.videoAi) && (f.videoUrl === undefined || f.videoUrl === existing?.videoUrl),
       rating: existing?.rating ?? 0,
       reviewCount: existing?.reviewCount ?? 0,
       weightKg: Math.max(0.05, Number(b.weightKg) || existing?.weightKg || 0.5),
@@ -2194,7 +2196,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
-  const EDITABLE = ['name', 'price', 'compareAtPrice', 'stock', 'status', 'shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords', 'videoUrl'];
+  const EDITABLE = ['name', 'price', 'compareAtPrice', 'stock', 'status', 'shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords', 'videoUrl', 'videoAi'];
   /** Applies field changes to the seller's own products; anything not theirs is skipped */
   const applyProductPatches = async (uid: string, patches: Array<Record<string, any> & { id: string }>) => {
     const skipped: { id: string; name?: string; reason: string }[] = [];
@@ -2230,6 +2232,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         if (Number(current.compareAtPrice) > 0 && Number(current.compareAtPrice) <= patch.price && patch.compareAtPrice === undefined) patch.compareAtPrice = 0;
       }
       if (patch.stock !== undefined) patch.stock = Math.max(0, Math.floor(Number(patch.stock) || 0));
+      if (patch.videoAi !== undefined) patch.videoAi = patch.videoAi === true;
       // Product video (e.g. the one Shop Coach made): only a file on this store or an https link
       if (patch.videoUrl !== undefined) {
         patch.videoUrl = str(patch.videoUrl, 980);

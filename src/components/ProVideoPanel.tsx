@@ -46,6 +46,27 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
   const [seconds, setSeconds] = useState(8);
   const [shape, setShape] = useState<'16:9' | '9:16'>('16:9');
   const [agree, setAgree] = useState(false);
+  // someone who talks about the product: an AI woman / man, or the person in the seller's photo
+  const [presenter, setPresenter] = useState<'NONE' | 'AI_WOMAN' | 'AI_MAN' | 'PHOTO'>('NONE');
+  const [lang, setLang] = useState<'UR' | 'EN'>('UR');
+  const [photo, setPhoto] = useState<{ data: string; preview: string } | null>(null);
+  const [consent, setConsent] = useState(false);
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      // made smaller (max 1024 px, JPG) before sending; it is used only for this video and not saved
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * k);
+      c.height = Math.round(bmp.height * k);
+      c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+      const url = c.toDataURL('image/jpeg', 0.88);
+      setPhoto({ data: url.split(',')[1], preview: url });
+    } catch {
+      setError('This photo could not be opened. Use a JPG or PNG picture.');
+    }
+  };
   const [jobId, setJobId] = useState(savedJob(product.id));
   const [job, setJob] = useState<{ status: 'RUNNING' | 'DONE' | 'FAILED'; url?: string; error?: string } | null>(null);
   const [error, setError] = useState('');
@@ -95,7 +116,17 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
     try {
       const d = await call<{ jobId: string }>('/api/seller/coach/pro-video', {
         method: 'POST',
-        body: JSON.stringify({ productId: product.id, prompt, seconds, shape, agree }),
+        body: JSON.stringify({
+          productId: product.id,
+          prompt,
+          seconds,
+          shape,
+          agree,
+          presenter,
+          lang,
+          consent,
+          personPhoto: presenter === 'PHOTO' ? photo?.data || '' : '',
+        }),
       });
       keepJob(product.id, d.jobId);
       setJobId(d.jobId);
@@ -206,7 +237,7 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
         <label className="space-y-1">
           <span className="font-semibold">Length</span>
           <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white">
-            {[4, 6, 8, 10].map((s) => (
+            {[4, 6, 8, 10, 12, 15].map((s) => (
               <option key={s} value={s}>
                 {s} seconds
               </option>
@@ -221,6 +252,45 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
           </select>
         </label>
       </div>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <label className="space-y-1">
+          <span className="font-semibold">Someone talking about it</span>
+          <select value={presenter} onChange={(e) => setPresenter(e.target.value as any)} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white">
+            <option value="NONE">No one (music only)</option>
+            <option value="AI_WOMAN">AI woman</option>
+            <option value="AI_MAN">AI man</option>
+            <option value="PHOTO">A person from my photo</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="font-semibold">They speak</span>
+          <select value={lang} disabled={presenter === 'NONE'} onChange={(e) => setLang(e.target.value as any)} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white disabled:opacity-50">
+            <option value="UR">Urdu</option>
+            <option value="EN">English</option>
+          </select>
+        </label>
+      </div>
+      {presenter !== 'NONE' && (
+        <p className="text-[11px] text-[#575653]">
+          They hold the product, look at the camera and tell its features and price, with natural lips, eyes and hand movement. Choose 8 seconds or more so they have time to talk.
+        </p>
+      )}
+      {presenter === 'PHOTO' && (
+        <div className="p-2.5 border border-black/15 rounded space-y-2 text-xs">
+          <div className="flex items-center gap-3">
+            {photo ? <img src={photo.preview} alt="Presenter" className="w-16 h-16 object-cover rounded-full border border-black/10" /> : null}
+            <label className="px-3 py-1.5 border border-black/30 rounded font-semibold cursor-pointer">
+              {photo ? 'Change photo' : 'Choose a photo'}
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => pickPhoto(e.target.files?.[0])} />
+            </label>
+          </div>
+          <p className="text-[11px] text-[#575653]">A clear, front-facing photo of one adult, face well lit. The photo is used only to make this video and is not saved.</p>
+          <label className="flex items-start gap-2">
+            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5" />
+            <span>This is me, or this person has allowed me to use their photo for this advert. (Never use a famous person or someone without permission.)</span>
+          </label>
+        </div>
+      )}
       <div className="p-2.5 bg-amber-50 border border-amber-300 rounded text-xs space-y-1.5">
         <div>
           Google charges <strong>your own card</strong> about <strong>${usd.toFixed(2)} (≈ PKR {Math.round(usd * PKR_PER_USD)})</strong> for this video. The store does not take anything.
@@ -234,7 +304,7 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
       {error && <p className="text-xs text-rose-700">{error}</p>}
       <button
         type="button"
-        disabled={!agree || busy || hasKey === null}
+        disabled={!agree || busy || hasKey === null || (presenter === 'PHOTO' && (!photo || !consent))}
         onClick={start}
         className="w-full py-2.5 bg-[#0E7A43] text-white font-bold text-sm rounded cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
       >

@@ -139,6 +139,8 @@ export interface Product {
   images?: string[];
   /** Optional product video (uploaded file or https link, e.g. YouTube) */
   videoUrl?: string;
+  /** The video was made by AI (Shop Coach); the product page marks it "AI video" */
+  videoAi?: boolean;
   /** Flash deal: this price applies between flashStartsAt and flashEndsAt (src/services/promotions.ts) */
   flashPrice?: number;
   flashStartsAt?: string;

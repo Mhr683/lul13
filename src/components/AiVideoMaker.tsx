@@ -9,7 +9,7 @@ import { askForAiKey } from './AiKeyNudge';
 // 12-15 second ad with music, records it (canvas + MediaRecorder) and adds it to the listing.
 // No paid video AI: the only AI cost is one short text call.
 
-import { FPS, SIZE, cutOut, drawFrame, pickMime, startMusic, totalSeconds, type Frame, type Plan } from '../services/videoRender';
+import { FPS, SIZE, VOICE_START, cutOut, decodeVoice, drawFrame, pickMime, startMusic, totalSeconds, type Frame, type Plan } from '../services/videoRender';
 import { ProVideoPanel } from './ProVideoPanel';
 
 /** A small JPEG of the main picture (base64, no prefix) for the AI to look at */
@@ -79,6 +79,10 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
   const [keyNote, setKeyNote] = useState(false);
   // FREE: made here from the pictures; PRO: Google's video AI on the seller's own (paid) key
   const [mode, setMode] = useState<'FREE' | 'PRO'>('FREE');
+  // voice-over: a woman's or man's voice telling the product's features
+  const [voice, setVoice] = useState<'NONE' | 'FEMALE' | 'MALE'>('FEMALE');
+  const [lang, setLang] = useState<'UR' | 'EN'>('UR');
+  const [voiceNote, setVoiceNote] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stopRef = useRef(false);
   const supported = Boolean(pickMime()) && typeof HTMLCanvasElement !== 'undefined' && 'captureStream' in HTMLCanvasElement.prototype;
@@ -93,6 +97,7 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
 
   const make = async () => {
     setError('');
+    setVoiceNote('');
     setStep('making');
     setProgress(0);
     stopRef.current = false;
@@ -110,20 +115,42 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
       setStatus('The AI is planning your video...');
       const r = await apiJson<{ plan: Plan; usedAi: boolean; aiKeyNeeded?: boolean; product: { shopName: string } }>('/api/seller/coach/video-plan', {
         method: 'POST',
-        body: JSON.stringify({ productId: product.id, prompt, thumb: thumbOf(pics[0]) }),
+        body: JSON.stringify({ productId: product.id, prompt, thumb: thumbOf(pics[0]), voice, lang }),
       });
       setKeyNote(Boolean(r.aiKeyNeeded));
+      // 3. the voice-over (a woman's or man's voice telling the features), if asked for
+      let voiceBuf: AudioBuffer | null = null;
+      if (voice !== 'NONE' && r.plan.voiceScript) {
+        setStatus('Recording the voice...');
+        try {
+          const v = await apiJson<{ audio: string; mime?: string; aiKeyNeeded?: boolean; error?: string }>('/api/seller/coach/voiceover', {
+            method: 'POST',
+            body: JSON.stringify({ script: r.plan.voiceScript, voice, lang }),
+          });
+          if (v.aiKeyNeeded) setKeyNote(true);
+          if (v.audio) {
+            const bin = atob(v.audio);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            voiceBuf = await decodeVoice(bytes.buffer, v.mime);
+          }
+          if (!voiceBuf) setVoiceNote(v.error || 'The voice could not be made this time; the video has music only.');
+        } catch {
+          setVoiceNote('The voice could not be made this time; the video has music only.');
+        }
+      }
       // scenes may only point at the pictures that exist
       const plan: Plan = { ...r.plan, scenes: r.plan.scenes.map((s) => ({ ...s, image: Math.min(s.image, pics.length - 1) })) };
       const canvas = canvasRef.current!;
       const ctx = canvas.getContext('2d')!;
-      const seconds = totalSeconds(plan);
+      // the video lasts at least as long as the voice
+      const seconds = Math.max(totalSeconds(plan), voiceBuf ? VOICE_START + voiceBuf.duration + 1.2 : 0);
       const frame: Frame = { pics, plan, shopName: r.product.shopName, cuts };
       drawFrame(ctx, frame, 0);
 
       setStatus(r.usedAi ? 'Making your video... keep this screen open' : 'Making your video (ready-made style, the AI is busy)... keep this screen open');
       const stream: MediaStream = (canvas as any).captureStream(FPS);
-      const audio = music ? startMusic(plan, seconds) : null;
+      const audio = startMusic(plan, seconds, { music, voice: voiceBuf });
       if (audio?.track) stream.addTrack(audio.track);
       const mime = pickMime();
       const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
@@ -269,6 +296,23 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
                     </button>
                   ))}
                 </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className="space-y-1">
+                    <span className="font-semibold">Voice telling the features</span>
+                    <select value={voice} onChange={(e) => setVoice(e.target.value as any)} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white">
+                      <option value="FEMALE">Woman's voice</option>
+                      <option value="MALE">Man's voice</option>
+                      <option value="NONE">No voice</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="font-semibold">Language</span>
+                    <select value={lang} disabled={voice === 'NONE'} onChange={(e) => setLang(e.target.value as any)} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white disabled:opacity-50">
+                      <option value="UR">Urdu</option>
+                      <option value="EN">English</option>
+                    </select>
+                  </label>
+                </div>
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" checked={music} onChange={(e) => setMusic(e.target.checked)} /> Add background music
                 </label>
@@ -292,6 +336,7 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
             {(step === 'done' || step === 'saving') && video && (
               <div className="space-y-2">
                 <video src={video.url} controls autoPlay loop playsInline className="w-full aspect-square rounded-xl bg-black" />
+                {voiceNote && <p className="text-[11px] p-2 bg-amber-50 border border-amber-300 rounded">{voiceNote}</p>}
                 {keyNote && (
                   <div className="text-[11px] p-2 bg-amber-50 border border-amber-300 rounded flex flex-wrap items-center gap-2">
                     <span className="flex-1 min-w-[180px]">

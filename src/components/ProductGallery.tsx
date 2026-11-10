@@ -47,7 +47,9 @@ export const ProductGallery: React.FC<{
   fallback: React.ReactNode;
   /** Shown on the top-left corner of the big picture (e.g. the share button) */
   overlay?: React.ReactNode;
-}> = ({ images, primaryImage, videoUrl, alt, fallback, overlay }) => {
+  /** The video was made by AI: a small "AI video" tag is shown on it */
+  videoAi?: boolean;
+}> = ({ images, primaryImage, videoUrl, alt, fallback, overlay, videoAi }) => {
   const slides = useMemo<Slide[]>(() => {
     const pics = Array.from(new Set([...(images || []), ...(primaryImage ? [primaryImage] : [])].filter(Boolean))).slice(0, 8);
     const list: Slide[] = pics.map((src) => ({ kind: 'image', src }));
@@ -104,6 +106,11 @@ export const ProductGallery: React.FC<{
           />
         ) : (
           video(current)
+        )}
+        {current.kind === 'video' && videoAi && (
+          <span className="absolute top-3 right-3 z-10 px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px] font-semibold pointer-events-none">
+            AI video
+          </span>
         )}
         {overlay && <div className="absolute top-3 left-3 z-10">{overlay}</div>}
         {slides.length > 1 && (

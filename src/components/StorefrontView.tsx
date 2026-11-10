@@ -2753,6 +2753,7 @@ export const StorefrontView: React.FC = () => {
                     images={selectedProduct.images}
                     primaryImage={selectedProduct.primaryImage}
                     videoUrl={selectedProduct.videoUrl}
+                    videoAi={selectedProduct.videoAi}
                     alt={selectedProduct.name}
                     overlay={
                       <ShareProductButton

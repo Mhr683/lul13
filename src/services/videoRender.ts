@@ -15,6 +15,8 @@ export type Plan = {
   motion?: 'ROAD' | 'TURNTABLE' | 'FLOAT' | 'SKY' | 'NONE';
   /** Which way the product's front points in the picture (a car drives that way) */
   facing?: 'LEFT' | 'RIGHT';
+  /** What the voice-over says (empty: no voice) */
+  voiceScript?: string;
 };
 
 export const SIZE = 720;
@@ -605,17 +607,63 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame, time: number)
 }
 
 // ------------------------------------------------------------------ music (made here, no files)
-export function startMusic(plan: Plan, seconds: number) {
+/** When the voice-over starts in the video (seconds) */
+export const VOICE_START = 0.8;
+
+/** Turns the voice-over file (WAV, or raw 16-bit PCM at 24 kHz) into sound the video can play */
+export async function decodeVoice(bytes: ArrayBuffer, mime = 'audio/wav'): Promise<AudioBuffer | null> {
   const AC: typeof AudioContext | undefined = (window as any).AudioContext || (window as any).webkitAudioContext;
   if (!AC) return null;
   const ac = new AC();
+  try {
+    if (/L16|pcm/i.test(mime)) {
+      const rate = Number(/rate=(\d+)/.exec(mime)?.[1]) || 24000;
+      const pcm = new Int16Array(bytes.slice(0, bytes.byteLength - (bytes.byteLength % 2)));
+      const buf = ac.createBuffer(1, pcm.length, rate);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+      return buf;
+    }
+    return await ac.decodeAudioData(bytes.slice(0));
+  } catch {
+    return null;
+  } finally {
+    ac.close().catch(() => {});
+  }
+}
+
+/** The video's sound: music made here (optional) and the voice-over (optional, music goes quiet under it) */
+export function startMusic(plan: Plan, seconds: number, opts: { music?: boolean; voice?: AudioBuffer | null } = {}) {
+  const AC: typeof AudioContext | undefined = (window as any).AudioContext || (window as any).webkitAudioContext;
+  if (!AC) return null;
+  const music = opts.music !== false;
+  if (!music && !opts.voice) return null;
+  const ac = new AC();
   const dest = ac.createMediaStreamDestination();
+  const t0 = ac.currentTime + 0.05;
+  if (opts.voice) {
+    const src = ac.createBufferSource();
+    src.buffer = opts.voice;
+    const vg = ac.createGain();
+    vg.gain.value = 1.1;
+    src.connect(vg).connect(dest);
+    src.start(t0 + VOICE_START);
+  }
+  if (!music) return { ac, track: dest.stream.getAudioTracks()[0] };
   const master = ac.createGain();
   master.gain.value = 0.0001;
   master.connect(dest);
-  const t0 = ac.currentTime + 0.05;
-  master.gain.exponentialRampToValueAtTime(0.5, t0 + 0.6);
-  master.gain.setValueAtTime(0.5, t0 + seconds - 1.2);
+  // quieter music while the voice speaks
+  const level = opts.voice ? 0.16 : 0.5;
+  master.gain.exponentialRampToValueAtTime(level, t0 + 0.6);
+  if (opts.voice) {
+    const end = t0 + VOICE_START + opts.voice.duration;
+    if (end + 0.6 < t0 + seconds - 1.2) {
+      master.gain.setValueAtTime(level, end);
+      master.gain.linearRampToValueAtTime(0.5, end + 0.6);
+    }
+  }
+  master.gain.setValueAtTime(opts.voice && t0 + VOICE_START + opts.voice.duration + 0.6 >= t0 + seconds - 1.2 ? level : 0.5, t0 + seconds - 1.2);
   master.gain.exponentialRampToValueAtTime(0.0001, t0 + seconds);
   const bpm = plan.style === 'BOLD_SALE' || plan.style === 'PLAYFUL' ? 118 : plan.style === 'TECH' ? 110 : 92;
   const beat = 60 / bpm;

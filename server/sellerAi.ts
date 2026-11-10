@@ -765,7 +765,16 @@ Be the seller's coach and partner: when they ask about performance, details or a
       colors: { background: '#141413', accent: '#C5A059', text: '#FFFFFF' },
       motion: guessMotion(p, wish),
       facing: 'RIGHT' as 'LEFT' | 'RIGHT',
+      voiceScript: '',
     };
+  };
+  /** A plain voice-over when the AI could not write one */
+  const plainVoice = (p: any, lang: 'UR' | 'EN') => {
+    const price = Math.round(Number(p.price) || 0).toLocaleString('en-PK');
+    const name = String(p.name).slice(0, 70);
+    return lang === 'UR'
+      ? `${name}۔ بہترین کوالٹی، شاندار انداز۔ صرف ${price} روپے میں۔ آج ہی آرڈر کریں، کیش آن ڈیلیوری کے ساتھ۔`
+      : `${name}. Great quality, great style. Just ${price} rupees. Order today with cash on delivery.`;
   };
   const cleanPlan = (raw: any, p: any, pictures: number, wish = '') => {
     const base = plainPlan(p, pictures, wish);
@@ -794,6 +803,7 @@ Be the seller's coach and partner: when they ask about performance, details or a
       },
       motion: VIDEO_MOTIONS.includes(raw?.motion) ? (raw.motion as (typeof VIDEO_MOTIONS)[number]) : base.motion,
       facing: (raw?.facing === 'LEFT' ? 'LEFT' : 'RIGHT') as 'LEFT' | 'RIGHT',
+      voiceScript: str(raw?.voiceScript, 400),
     };
   };
 
@@ -812,6 +822,10 @@ Be the seller's coach and partner: when they ask about performance, details or a
       // A small copy of the main picture (sent by the browser) lets the AI see the product: which
       // way a car faces, what kind of movement suits it
       const thumb = typeof req.body?.thumb === 'string' && /^[A-Za-z0-9+/=]{100,280000}$/.test(req.body.thumb) ? req.body.thumb : '';
+      // Voice-over: a woman's or man's voice tells the product's features (Urdu or English)
+      const wantsVoice = req.body?.voice === 'FEMALE' || req.body?.voice === 'MALE';
+      const lang: 'UR' | 'EN' = req.body?.lang === 'EN' ? 'EN' : 'UR';
+      if (wantsVoice) plan.voiceScript = plainVoice(p, lang);
       // Without the seller's own key and with today's free uses finished, the video still gets made
       // with the ready-made plan, and the app asks for the key
       const gate = d.takeAi(uid);
@@ -828,7 +842,11 @@ Be the seller's coach and partner: when they ask about performance, details or a
                 ...(thumb ? [{ inlineData: { mimeType: 'image/jpeg', data: thumb } }] : []),
                 {
                   text: `You are an ad director for a Pakistani online shop. Plan a 12-15 second product video ad made ONLY from the product's own ${pictures.length} picture(s) (numbered 0 to ${pictures.length - 1}), with animated words on screen.${thumb ? ' The attached image is picture 0.' : ''}
-Motion: the app cuts the product out of its picture and animates it. Choose "motion": ROAD if it is a vehicle (car, bike, cycle, toy car) or the seller wants it driving / on a road; SKY for things that fly (drone, plane, kite) or if the seller wants it flying; FLOAT for light items (cosmetics, perfume, jewellery, small gadgets); TURNTABLE for most other products (turning on a lit stand); NONE only if no movement fits. The seller's wish about movement wins. "facing": which way the front of the product points in picture 0 (LEFT or RIGHT; RIGHT if unclear).
+Motion: the app cuts the product out of its picture and animates it. Choose "motion": ROAD if it is a vehicle (car, bike, cycle, toy car) or the seller wants it driving / on a road; SKY for things that fly (drone, plane, kite) or if the seller wants it flying; FLOAT for light items (cosmetics, perfume, jewellery, small gadgets); TURNTABLE for most other products (turning on a lit stand); NONE only if no movement fits. The seller's wish about movement wins. "facing": which way the front of the product points in picture 0 (LEFT or RIGHT; RIGHT if unclear).${
+                    wantsVoice
+                      ? `\nVoice-over: also write "voiceScript", what a ${req.body.voice === 'FEMALE' ? 'woman' : 'man'} says over the video: 22 to 32 words, warm and exciting like a TV advert, telling the product's real features from the details below, ending with the price (PKR ${p.price}) and "order today, cash on delivery". ${lang === 'UR' ? 'Write it in Urdu script (اردو), natural spoken Pakistani Urdu; English product words may stay in English.' : 'Write it in simple English.'} Same honesty rules as below.`
+                      : ''
+                  }
 Product: "${String(p.name).slice(0, 190)}". Category: ${p.category}. Price: PKR ${p.price}. Shop: ${String(seller?.shopName || '').slice(0, 60)}.
 About it: ${String(p.shortDescription || p.description || '').slice(0, 900)}
 What the seller wants: ${wish || 'a beautiful, eye-catching ad that makes customers want to buy'}
@@ -845,6 +863,7 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
                 style: { type: Type.STRING, enum: [...VIDEO_STYLES] },
                 motion: { type: Type.STRING, enum: [...VIDEO_MOTIONS] },
                 facing: { type: Type.STRING, enum: ['LEFT', 'RIGHT'] },
+                voiceScript: { type: Type.STRING },
                 headline: { type: Type.STRING },
                 tagline: { type: Type.STRING },
                 scenes: {
@@ -868,6 +887,8 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
         });
         const j = JSON.parse(r.text || '{}');
         plan = cleanPlan(j, p, pictures.length, wish);
+        if (wantsVoice && !plan.voiceScript) plan.voiceScript = plainVoice(p, lang);
+        if (!wantsVoice) plan.voiceScript = '';
         usedAi = true;
       } catch (err: any) {
         console.warn('[video-plan] AI not available, using the ready-made plan:', err?.message);
@@ -888,6 +909,36 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
   // One picture of the seller's own product, sent from this server so the browser may draw it into the
   // video (pictures on other websites cannot be recorded by the browser otherwise). Only pictures of
   // the seller's own products, only https, at most 8 MB.
+  // The voice-over for the free video: Google's speech AI reads the script in a woman's or man's voice
+  // and sends back a short WAV, which the browser mixes into the video with the music. One AI use.
+  const TTS_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
+  const VOICES = { FEMALE: 'Kore', MALE: 'Puck' } as const;
+  app.post('/api/seller/coach/voiceover', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
+    const script = str(req.body?.script, 400);
+    const voice = req.body?.voice === 'MALE' ? 'MALE' : 'FEMALE';
+    if (script.length < 5) return res.status(400).json({ error: 'Nothing to say.' });
+    if (!d.takeAi(uid).granted) return res.json({ success: true, audio: '', aiKeyNeeded: true });
+    let lastErr = '';
+    for (const model of TTS_MODELS) {
+      try {
+        const r: any = await d.getAI(uid).models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: [{ text: `Say this as a warm, lively TV advert, clearly and not too fast:\n${script}` }] }],
+          config: { responseModalities: ['AUDIO'] as any, speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICES[voice] } } } },
+        });
+        const part = (r.candidates?.[0]?.content?.parts || []).find((x: any) => x.inlineData?.data);
+        if (part) return res.json({ success: true, audio: part.inlineData.data, mime: part.inlineData.mimeType || 'audio/wav' });
+        lastErr = 'no audio';
+      } catch (err: any) {
+        lastErr = String(err?.message || '');
+      }
+    }
+    console.warn('[voiceover] failed:', lastErr.slice(0, 200));
+    res.json({ success: true, audio: '', error: 'The voice could not be made right now; the video is made with music only.' });
+  });
+
   /** One product picture's bytes: a file on this store (/media/...) or an https picture elsewhere
    * (never this computer or the home network), at most 8 MB */
   const fetchPicture = async (url: string): Promise<{ buf: Buffer; type: string } | null> => {
@@ -960,7 +1011,15 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
     return null;
   };
 
-  const runProVideo = async (job: ProJob, keys: string[], picture: { buf: Buffer; type: string }, prompt: string, seconds: number, shape: string) => {
+  const runProVideo = async (
+    job: ProJob,
+    keys: string[],
+    picture: { buf: Buffer; type: string },
+    prompt: string,
+    seconds: number,
+    shape: string,
+    person: { buf: Buffer; type: string } | null = null
+  ) => {
     let lastErr = '';
     for (const key of keys) {
       try {
@@ -974,6 +1033,8 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
             model: PRO_MODEL,
             input: [
               { type: 'image', data: picture.buf.toString('base64'), mime_type: picture.type },
+              // the presenter's photo (given by the seller, with that person's permission)
+              ...(person ? [{ type: 'image', data: person.buf.toString('base64'), mime_type: person.type }] : []),
               { type: 'text', text: prompt },
             ],
             response_format: { type: 'video', aspect_ratio: shape, resolution: '720p', duration: `${seconds}s` },
@@ -1043,14 +1104,34 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
       const picture = first ? await fetchPicture(first).catch(() => null) : null;
       if (!picture) return res.status(400).json({ error: 'The main picture of this product could not be opened. Check it shows on the product page.' });
       const wish = str(req.body?.prompt, 600) || 'a short, exciting advert that shows the product in use';
-      const seconds = Math.max(4, Math.min(10, Math.round(Number(req.body?.seconds) || 8)));
+      const seconds = Math.max(4, Math.min(15, Math.round(Number(req.body?.seconds) || 8)));
       const shape = req.body?.shape === '9:16' ? '9:16' : '16:9';
-      const prompt = `A short, realistic, cinematic product advert video. The product is exactly the one in the picture: "${String(p.name).slice(0, 150)}". Keep its shape, colours and details exactly as in the picture. What should happen: ${wish}. Smooth professional camera movement, good lighting, the product is the hero of every shot. No text, no captions, no logos and no brand names on screen.`;
+      // A presenter who talks about the product: an AI woman / man, or the person in the seller's photo
+      const presenter = ['AI_WOMAN', 'AI_MAN', 'PHOTO'].includes(req.body?.presenter) ? (req.body.presenter as string) : 'NONE';
+      const lang = req.body?.lang === 'EN' ? 'English' : 'Urdu (natural spoken Pakistani Urdu)';
+      let person: { buf: Buffer; type: string } | null = null;
+      if (presenter === 'PHOTO') {
+        if (req.body?.consent !== true) return res.status(400).json({ error: 'Please confirm the person in the photo is you, or has given permission.' });
+        const raw = String(req.body?.personPhoto || '');
+        if (!/^[A-Za-z0-9+/=]{1000,5600000}$/.test(raw)) return res.status(400).json({ error: 'Add a clear photo of the person (JPG).' });
+        person = { buf: Buffer.from(raw, 'base64'), type: 'image/jpeg' };
+        if (!(person.buf[0] === 0xff && person.buf[1] === 0xd8)) return res.status(400).json({ error: 'The photo must be a JPG picture.' });
+      }
+      const facts = String(p.shortDescription || p.description || '').slice(0, 500);
+      const talk =
+        presenter === 'NONE'
+          ? 'No people speaking; background music only.'
+          : `${
+              presenter === 'PHOTO'
+                ? 'The presenter is exactly the person in the second picture: keep their face, hair, skin tone and clothes the same.'
+                : `The presenter is a friendly, well-dressed Pakistani ${presenter === 'AI_WOMAN' ? 'woman' : 'man'} in their late 20s.`
+            } They hold or stand next to the product, look into the camera and speak to the viewer in ${lang}, naturally and warmly like a TV advert: real lip movement matching every word, natural blinking and eye contact, relaxed hand gestures and small body movements. What they say (about ${Math.max(10, seconds * 2)} words): the product's best real features from these details: "${facts}", then the price PKR ${p.price} and "order today, cash on delivery". Never claim anything that is not in these details. Clear voice, light background music.`;
+      const prompt = `A short, realistic, cinematic product advert video. The product is exactly the one in the first picture: "${String(p.name).slice(0, 150)}". Keep its shape, colours and details exactly as in the picture. What should happen: ${wish}. ${talk} Smooth professional camera movement, good lighting, the product is clearly shown. No text, no captions, no logos and no brand names on screen.`;
       proToday.set(uid, { day: today, n: n + 1 });
       const jobId = crypto.randomBytes(9).toString('hex');
       const job: ProJob = { uid, productId: p.id, status: 'RUNNING', startedAt: Date.now() };
       proJobs.set(jobId, job);
-      runProVideo(job, keys, picture, prompt, seconds, shape).catch((err) => {
+      runProVideo(job, keys, picture, prompt, seconds, shape, person).catch((err) => {
         job.status = 'FAILED';
         job.error = 'Google could not make the video right now. Please try again in a few minutes.';
         console.warn('[pro-video] crashed:', err?.message);
@@ -1068,7 +1149,8 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
     const videoUrl = str(req.body?.videoUrl, 980);
     if (!/^\/media\/[a-zA-Z0-9_.-]+$/.test(videoUrl) && !/^https:\/\//i.test(videoUrl)) return res.status(400).json({ error: 'The video link is not valid.' });
     try {
-      const result = await d.sellerData.applyProductPatches(uid, [{ id: str(req.body?.productId, 128), videoUrl }]);
+      // Every video made here is AI-made: the product page marks it "AI video" so customers know
+      const result = await d.sellerData.applyProductPatches(uid, [{ id: str(req.body?.productId, 128), videoUrl, videoAi: true }]);
       if (!result.updated) return res.status(400).json({ error: result.skipped[0]?.reason || 'Could not add the video.' });
       d.sellerData.forgetCoach(uid);
       res.json({ success: true });
