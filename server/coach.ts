@@ -13,9 +13,9 @@ export type CoachIssue = {
   fix: string;
   tab?: string;
   /** A one-click fix the Seller Center can run (e.g. rewrite every short description) */
-  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES';
+  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES' | 'MAKE_VIDEOS';
   /** The products this issue is about (for "Fix it myself": each opens in the product form) */
-  products?: { id: string; name: string; brand: string }[];
+  products?: { id: string; name: string; brand: string; image?: string }[];
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -191,6 +191,25 @@ export function buildCoach(input: {
       impact: 'Products with several real pictures and a video get more clicks and fewer returns.',
       fix: 'Open each product and add more pictures (front, back, size, packing) and a short video.',
       tab: 'PRODUCTS',
+    });
+  }
+  // Live products with pictures but no video: Shop Coach can make one from the pictures ("Self fix")
+  const noVideo = live.filter((p) => !String(p.videoUrl || '').trim() && (Array.isArray(p.images) ? p.images.length : p.primaryImage ? 1 : 0) > 0);
+  if (noVideo.length) {
+    issues.push({
+      level: 'YELLOW',
+      title: `${noVideo.length} product${noVideo.length > 1 ? 's have' : ' has'} no video`,
+      detail: 'A short video shows the product moving, from every side, like an ad.',
+      impact: 'Listings with a video get more clicks, look more trusted and sell more. Without one, customers often buy from a shop that shows it.',
+      fix: 'Upload your own video, or press "Self fix": tell the AI what kind of video you want and it makes one from your product pictures and adds it to the listing.',
+      tab: 'PRODUCTS',
+      action: 'MAKE_VIDEOS',
+      products: noVideo.slice(0, 60).map((p) => ({
+        id: p.id,
+        name: String(p.name).slice(0, 90),
+        brand: '',
+        image: String(p.primaryImage || (Array.isArray(p.images) ? p.images[0] : '') || ''),
+      })),
     });
   }
   const thin = live.filter((p) => String(p.description || '').length < 120);

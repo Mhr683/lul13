@@ -62,6 +62,7 @@ import { typeInfo, type ProductType, type ProductTypeDetails } from '../services
 import { SellerShell } from './SellerShell';
 import { SellerLanding } from './SellerLanding';
 import { AdminAiKeysPanel } from './AdminAiKeysPanel';
+import { VideoFixActions, VideoMakerModal } from './AiVideoMaker';
 
 // Seller Center (/seller): marketplace sellers apply, then manage their own products, orders,
 // shipping/tracking and earnings. Everything goes through the /api/seller/* server routes.
@@ -1430,6 +1431,15 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
                     onGo('PRODUCTS' as Tab);
                   }}
                 />
+              ) : action === 'MAKE_VIDEOS' ? (
+                <VideoFixActions
+                  products={issue.products || []}
+                  onDone={() => loadCoach(true)}
+                  onEdit={(id) => {
+                    pendingEditId = id;
+                    onGo('PRODUCTS' as Tab);
+                  }}
+                />
               ) : null
             }
           />
@@ -1946,6 +1956,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
   const [products, setProducts] = useState<ListProduct[] | null>(() => readCache<ListProduct[]>(PRODUCTS_CACHE_KEY, uid));
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState<typeof emptyProduct | null>(null);
+  // The AI video maker window for the product being edited
+  const [videoFor, setVideoFor] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2354,6 +2366,28 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               upload={uploadMedia}
               onError={showToast}
             />
+            {/* Shop Coach's video maker: an ad made from the saved pictures (needs the product saved once) */}
+            {!editing.videoUrl && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11.5px]">
+                {editing.id && editing.images.length ? (
+                  <button type="button" onClick={() => setVideoFor(true)} className="px-3 py-1.5 bg-[#0E7A43] text-white font-bold cursor-pointer">
+                    ✨ No video? Make one with AI
+                  </button>
+                ) : (
+                  <span className="text-[#6B6963]">No video? Add pictures and save once, then the AI can make a video from them.</span>
+                )}
+                <HelpDot id="seller.product.video" />
+              </div>
+            )}
+            {videoFor && editing.id && (
+              <VideoMakerModal
+                product={{ id: editing.id, name: editing.name, brand: '' }}
+                onClose={(added, url) => {
+                  if (added && url) setEditing((p) => (p ? { ...p, videoUrl: url } : p));
+                  setVideoFor(false);
+                }}
+              />
+            )}
           </div>
           <FormSection n={3} title={kind.countsStock ? 'Variants & deals' : 'Deals'} hint={kind.countsStock ? 'Colours / sizes with their own stock, and a short-time deal price' : 'A short-time deal price'} />
           {editing.id && <FlashDealBox productId={editing.id} price={Number(editing.price) || 0} current={editing.flashPrice ? { price: editing.flashPrice, endsAt: editing.flashEndsAt } : null} />}

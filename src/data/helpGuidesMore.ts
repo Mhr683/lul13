@@ -337,6 +337,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Dashboard ke 4 dabbe: "Orders to ship" (peela ho to bhejna baqi hai), "On the way", "Ready for payout", "Paid out so far". Kisi dabbe par click se us ka page khulta hai.',
       '"Running low": jin products ka stock 5 ya kam hai; waqt par barha dein.',
       '"Shop Coach": dukaan ki sehat aur kya behtar karna hai; "Refresh" se nayi report.',
+      'Coach "products have no video" bataye to "✨ Self fix" dabayein: likhein kaisi video chahiye, AI aap ki tasveeron se video bana kar listing mein laga deta hai. Ya "Upload my own video" se apni video daalein.',
     ],
     tips: ['Har page ke upar us ka naam, ek line ka matlab aur rangeen ? hota hai.', 'Roz ek dafa Dashboard zaroor dekhein taa ke koi order late na ho.'],
   },

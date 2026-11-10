@@ -13,9 +13,9 @@ export type CoachIssue = {
   tab?: string;
   key?: string;
   /** A fix the app can run for the seller */
-  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES';
+  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES' | 'MAKE_VIDEOS';
   /** The products the issue is about */
-  products?: { id: string; name: string; brand: string }[];
+  products?: { id: string; name: string; brand: string; image?: string }[];
 };
 
 export type Coach = {

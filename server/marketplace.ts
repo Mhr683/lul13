@@ -2169,7 +2169,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     }
   });
 
-  const EDITABLE = ['name', 'price', 'compareAtPrice', 'stock', 'status', 'shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords'];
+  const EDITABLE = ['name', 'price', 'compareAtPrice', 'stock', 'status', 'shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords', 'videoUrl'];
   /** Applies field changes to the seller's own products; anything not theirs is skipped */
   const applyProductPatches = async (uid: string, patches: Array<Record<string, any> & { id: string }>) => {
     const skipped: { id: string; name?: string; reason: string }[] = [];
@@ -2205,6 +2205,14 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         if (Number(current.compareAtPrice) > 0 && Number(current.compareAtPrice) <= patch.price && patch.compareAtPrice === undefined) patch.compareAtPrice = 0;
       }
       if (patch.stock !== undefined) patch.stock = Math.max(0, Math.floor(Number(patch.stock) || 0));
+      // Product video (e.g. the one Shop Coach made): only a file on this store or an https link
+      if (patch.videoUrl !== undefined) {
+        patch.videoUrl = str(patch.videoUrl, 980);
+        if (patch.videoUrl && !/^https:\/\//i.test(patch.videoUrl) && !/^\/media\/[a-zA-Z0-9_.-]+$/.test(patch.videoUrl)) {
+          skipped.push({ id: snap.id, name: current.name, reason: 'The video link is not valid.' });
+          continue;
+        }
+      }
       if (patch.status !== undefined) {
         if (!['ACTIVE', 'DRAFT'].includes(patch.status)) delete patch.status;
         else if (patch.status === 'ACTIVE' && current.adminHidden) {

@@ -699,6 +699,173 @@ Be the seller's coach and partner: when they ask about performance, details or a
     }
   });
 
+  // ---------------------------------------------------------------- product video (Shop Coach "Self fix")
+  // The seller says what kind of video they want; the AI (one cheap text call) writes the plan: the
+  // words on screen, the order of the pictures, the colours and the motion. The seller's browser then
+  // turns the product's own pictures into the video (no paid video AI, nothing to pay per video) and
+  // uploads it like any other product video. Without the AI a ready-made plan is used.
+  const VIDEO_STYLES = ['PREMIUM', 'BOLD_SALE', 'FRESH', 'PLAYFUL', 'ELEGANT', 'TECH'] as const;
+  const pkrText = (n: number) => `PKR ${Math.round(Number(n) || 0).toLocaleString('en-PK')}`;
+  const ownProduct = async (uid: string, id: string) => (await d.sellerData.productsOf(uid)).find((p) => p.id === id && p.status !== 'ARCHIVED');
+  const picturesOf = (p: any): string[] =>
+    (Array.isArray(p.images) && p.images.length ? p.images : p.primaryImage ? [p.primaryImage] : []).filter((u: unknown) => typeof u === 'string' && u).slice(0, 8);
+  const plainPlan = (p: any, pictures: number) => {
+    const words = String(p.shortDescription || p.description || '')
+      .split(/[.\n•\-|]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 3 && s.length < 48)
+      .slice(0, 3);
+    const lines = words.length ? words : ['Top quality', 'Made to last', 'Loved by customers'];
+    const compare = Number(p.compareAtPrice) > Number(p.price) ? Number(p.compareAtPrice) : 0;
+    return {
+      style: compare ? 'BOLD_SALE' : 'PREMIUM',
+      headline: String(p.name).slice(0, 42),
+      tagline: 'Now at Anokha Shopping Hub',
+      scenes: Array.from({ length: Math.min(5, Math.max(1, pictures)) }, (_, i) => ({ image: i, caption: lines[i % lines.length], sub: '' })),
+      priceLine: compare ? `${pkrText(p.price)}  (was ${pkrText(compare)})` : pkrText(p.price),
+      badge: compare ? `${Math.round((1 - Number(p.price) / compare) * 100)}% OFF` : '',
+      cta: 'Order now · Cash on Delivery',
+      colors: { background: '#141413', accent: '#C5A059', text: '#FFFFFF' },
+    };
+  };
+  const cleanPlan = (raw: any, p: any, pictures: number) => {
+    const base = plainPlan(p, pictures);
+    const hex = (v: unknown, fb: string) => (/^#[0-9a-f]{6}$/i.test(String(v)) ? String(v) : fb);
+    const scenes = (Array.isArray(raw?.scenes) ? raw.scenes : [])
+      .slice(0, 6)
+      .map((s: any, i: number) => ({
+        image: Math.max(0, Math.min(pictures - 1, Math.floor(Number(s?.image)) || 0)),
+        caption: str(s?.caption, 46) || base.scenes[i % base.scenes.length].caption,
+        sub: str(s?.sub, 60),
+      }))
+      .filter((s: any) => s.caption);
+    return {
+      style: VIDEO_STYLES.includes(raw?.style) ? raw.style : base.style,
+      headline: str(raw?.headline, 46) || base.headline,
+      tagline: str(raw?.tagline, 60) || base.tagline,
+      scenes: scenes.length ? scenes : base.scenes,
+      // price and discount always come from the listing itself, never from the AI
+      priceLine: base.priceLine,
+      badge: base.badge || str(raw?.badge, 16),
+      cta: str(raw?.cta, 40) || base.cta,
+      colors: {
+        background: hex(raw?.colors?.background, base.colors.background),
+        accent: hex(raw?.colors?.accent, base.colors.accent),
+        text: hex(raw?.colors?.text, base.colors.text),
+      },
+    };
+  };
+
+  app.post('/api/seller/coach/video-plan', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const seller = (req as any).seller;
+    if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
+    try {
+      const p = await ownProduct(uid, str(req.body?.productId, 128));
+      if (!p) return res.status(404).json({ error: 'Product not found.' });
+      const pictures = picturesOf(p);
+      if (!pictures.length) return res.status(400).json({ error: 'Add at least one picture to this product first: the video is made from its pictures.' });
+      const wish = str(req.body?.prompt, 600);
+      let plan = plainPlan(p, pictures.length);
+      let usedAi = false;
+      try {
+        const r = await d.getAI(uid).models.generateContent({
+          model: FALLBACK_MODEL, // the light model: a short plan does not need more, and it has the biggest free limit
+          contents: `You are an ad director for a Pakistani online shop. Plan a 12-15 second product video ad made ONLY from the product's own ${pictures.length} picture(s) (numbered 0 to ${pictures.length - 1}), with animated words on screen.
+Product: "${String(p.name).slice(0, 190)}". Category: ${p.category}. Price: PKR ${p.price}. Shop: ${String(seller?.shopName || '').slice(0, 60)}.
+About it: ${String(p.shortDescription || p.description || '').slice(0, 900)}
+What the seller wants: ${wish || 'a beautiful, eye-catching ad that makes customers want to buy'}
+Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a short punchy caption (max 5 words) and an optional sub line (max 8 words). headline max 6 words. Write in the language the seller used (English, Urdu in Roman letters, or Urdu script); if unclear, English. Be honest: never invent features, warranties, certificates, delivery times, prices or discounts that are not in the details above. Do not call it "original" or "genuine" or use a famous brand's name unless the product name already is that brand. Pick colours (hex) that suit the product and the wish, with strong contrast between text and background.`,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                style: { type: Type.STRING, enum: [...VIDEO_STYLES] },
+                headline: { type: Type.STRING },
+                tagline: { type: Type.STRING },
+                scenes: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: { image: { type: Type.INTEGER }, caption: { type: Type.STRING }, sub: { type: Type.STRING } },
+                    required: ['image', 'caption'],
+                  },
+                },
+                cta: { type: Type.STRING },
+                colors: {
+                  type: Type.OBJECT,
+                  properties: { background: { type: Type.STRING }, accent: { type: Type.STRING }, text: { type: Type.STRING } },
+                },
+              },
+              required: ['style', 'headline', 'scenes'],
+            },
+            temperature: 0.8,
+          },
+        });
+        const j = JSON.parse(r.text || '{}');
+        plan = cleanPlan(j, p, pictures.length);
+        usedAi = true;
+      } catch (err: any) {
+        console.warn('[video-plan] AI not available, using the ready-made plan:', err?.message);
+      }
+      res.json({
+        success: true,
+        usedAi,
+        plan,
+        product: { id: p.id, name: p.name, pictures, shopName: seller?.shopName || '' },
+      });
+    } catch (err: any) {
+      console.error('[video-plan] failed:', err?.message);
+      res.status(503).json({ error: 'Could not prepare the video. Please try again.' });
+    }
+  });
+
+  // One picture of the seller's own product, sent from this server so the browser may draw it into the
+  // video (pictures on other websites cannot be recorded by the browser otherwise). Only pictures of
+  // the seller's own products, only https, at most 8 MB.
+  app.get('/api/seller/coach/video-image', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    try {
+      const p = await ownProduct(uid, str(req.query.productId, 128));
+      const url = p ? picturesOf(p)[Math.floor(Number(req.query.i)) || 0] : '';
+      if (!url || !/^https:\/\//i.test(url)) return res.status(404).json({ error: 'Picture not found.' });
+      // never this computer or the home network
+      const host = new URL(url).hostname.toLowerCase();
+      if (/^(localhost|.*\.local|.*\.internal)$/.test(host) || /^(\[|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(host)) {
+        return res.status(404).json({ error: 'Picture not found.' });
+      }
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12_000);
+      const r = await fetch(url, { signal: ctrl.signal, redirect: 'follow' }).finally(() => clearTimeout(timer));
+      const type = String(r.headers.get('content-type') || '');
+      if (!r.ok || !type.startsWith('image/')) return res.status(404).json({ error: 'Picture not found.' });
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'Picture too large.' });
+      res.setHeader('Content-Type', type);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.send(buf);
+    } catch {
+      res.status(404).json({ error: 'Picture not found.' });
+    }
+  });
+
+  // Puts the finished video on the listing (the file itself was uploaded with /api/seller/media/upload)
+  app.post('/api/seller/coach/video-save', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const videoUrl = str(req.body?.videoUrl, 980);
+    if (!/^\/media\/[a-zA-Z0-9_.-]+$/.test(videoUrl) && !/^https:\/\//i.test(videoUrl)) return res.status(400).json({ error: 'The video link is not valid.' });
+    try {
+      const result = await d.sellerData.applyProductPatches(uid, [{ id: str(req.body?.productId, 128), videoUrl }]);
+      if (!result.updated) return res.status(400).json({ error: result.skipped[0]?.reason || 'Could not add the video.' });
+      d.sellerData.forgetCoach(uid);
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('[video-save] failed:', err?.message);
+      res.status(503).json({ error: 'Could not add the video. Please try again.' });
+    }
+  });
+
   // What "Fix now" would do (no AI calls, no changes)
   app.get('/api/seller/coach/autofix', d.requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;

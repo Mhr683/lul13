@@ -195,6 +195,22 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     ],
     tips: ['Keys khatam hone se pehle nayi keys daal dein, warna customer ko key nahi milegi.'],
   },
+  'seller.product.video': {
+    title: 'AI se product ki video banayein',
+    what: 'Jis product ki video nahi, us ki tasveeron se AI ek 15 second ki ad jaisi video banata hai: chalti tasveerein, likhe hue alfaaz, qeemat aur music. Muft hai, koi paid video service nahi lagti.',
+    steps: [
+      'Dashboard par Shop Coach mein "✨ Self fix" dabayein, ya product form mein "Photos & video" ke neeche "✨ No video? Make one with AI".',
+      'Box mein likhein kaisi video chahiye (kisi bhi zabaan mein), jaise "Eid sale, sunehra rang, naram aur aaraam deh dikhao". Neeche ke buttons se idea bhi jod sakte hain.',
+      '"Make my video" dabayein aur screen khuli rakhein. Takreeban 20 second mein video ban jati hai.',
+      'Video dekh lein. Pasand ho to "Add to my listing" dabayein, customers ko foran nazar aayegi. Pasand na ho to "Change and make again".',
+      '"Save to phone" se video WhatsApp / Facebook par lagane ke liye bhi rakh sakte hain.',
+    ],
+    tips: [
+      'Video product ki apni save ki hui tasveeron se banti hai: pehle achi aur zyada tasveerein daal kar product save karein.',
+      'Qeemat aur discount hamesha listing se aate hain; AI apni taraf se koi feature ya offer nahi likhta.',
+      'Behtareen nateeja Google Chrome mein aata hai.',
+    ],
+  },
   'seller.product.variants': {
     title: 'Variants (rang, size waghera)',
     what: 'Ek hi product ke kai options, jaise Red / Blue ya S / M / L.',
