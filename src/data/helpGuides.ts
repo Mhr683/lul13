@@ -210,6 +210,10 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Qeemat aur discount hamesha listing se aate hain; AI apni taraf se koi feature ya offer nahi likhta.',
       'Behtareen nateeja Google Chrome mein aata hai.',
       'Apni AI key ke baghair roz 3 muft AI kaam hain. Woh khatam hon to video phir bhi banti hai, magar tayyar design se; apni key lagayein to AI har video aap ke alfaaz se design karta hai.',
+      'Muft video mein product khud harkat karta hai: car sadak par chalti hai, joota ghoomte stand par, drone aasman mein. Is ke liye tasveer ka background saada (safed / ek rang) hona chahiye; bhari background wali tasveer sirf zoom hoti hai.',
+      '"Pro AI video ✨" tab: Google ki video AI asli chalti hui video banati hai (jaise car highway par daurti hui). Yeh muft nahi: Google aap ke apne card se takreeban PKR 20 fi second kaatta hai (8 second = takreeban PKR 160). Store kuch nahi leta.',
+      'Pro video sirf aap ki apni AI key se banti hai, aur us key ke Google project par billing ON honi chahiye (AI Studio mein "Set up billing"; card aap khud daalein). Roz 10 Pro videos ki had hai taa ke ghalti se zyada paise na katen.',
+      'Pro video banne mein 1 se 3 minute lagte hain. Khidki band kar sakte hain; usi product ki video khidki dobara kholein to video wahin milegi.',
     ],
   },
   'seller.product.variants': {

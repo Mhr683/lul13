@@ -21,6 +21,12 @@ export interface SellerAiDeps {
   takeAi: (uid: string, want?: number) => { hasKey: boolean; granted: number; freeLeft: number };
   /** The answer when the free uses are finished (code AI_KEY_NEEDED: the app asks for the seller's key) */
   aiKeyNeeded: { code: string; error: string };
+  /** The seller's own Gemini keys only (paid Pro video never runs on the store's keys) */
+  sellerOwnKeys: (uid: string) => string[];
+  /** Saves a file (the finished Pro video) and returns its URL */
+  storeMedia: (buf: Buffer, ext: string, contentType: string) => Promise<string>;
+  /** This server's own address, to read pictures stored under /media */
+  localOrigin: string;
   sellerData: {
     productsOf: (uid: string) => Promise<any[]>;
     ordersOf: (uid: string) => Promise<any[]>;
@@ -726,11 +732,21 @@ Be the seller's coach and partner: when they ask about performance, details or a
   // turns the product's own pictures into the video (no paid video AI, nothing to pay per video) and
   // uploads it like any other product video. Without the AI a ready-made plan is used.
   const VIDEO_STYLES = ['PREMIUM', 'BOLD_SALE', 'FRESH', 'PLAYFUL', 'ELEGANT', 'TECH'] as const;
+  // How the product itself moves in the free video (the browser cuts it out of a plain background):
+  // ROAD = drives along a road (cars, bikes, cycles, toy cars), TURNTABLE = turns on a lit stand,
+  // FLOAT = floats and bobs, SKY = flies through clouds (drones, planes, kites), NONE = picture only
+  const VIDEO_MOTIONS = ['ROAD', 'TURNTABLE', 'FLOAT', 'SKY', 'NONE'] as const;
+  const guessMotion = (p: any, wish: string): (typeof VIDEO_MOTIONS)[number] => {
+    const t = `${p.name} ${p.category} ${wish}`.toLowerCase();
+    if (/\b(car|bike|motorbike|motorcycle|scooter|cycle|bicycle|truck|jeep|rickshaw|vehicle|road|drive|gaari|gari)\b/.test(t)) return 'ROAD';
+    if (/\b(drone|plane|aeroplane|kite|helicopter|fly|udta|udti)\b/.test(t)) return 'SKY';
+    return 'TURNTABLE';
+  };
   const pkrText = (n: number) => `PKR ${Math.round(Number(n) || 0).toLocaleString('en-PK')}`;
   const ownProduct = async (uid: string, id: string) => (await d.sellerData.productsOf(uid)).find((p) => p.id === id && p.status !== 'ARCHIVED');
   const picturesOf = (p: any): string[] =>
     (Array.isArray(p.images) && p.images.length ? p.images : p.primaryImage ? [p.primaryImage] : []).filter((u: unknown) => typeof u === 'string' && u).slice(0, 8);
-  const plainPlan = (p: any, pictures: number) => {
+  const plainPlan = (p: any, pictures: number, wish = '') => {
     const words = String(p.shortDescription || p.description || '')
       .split(/[.\n•\-|]+/)
       .map((s) => s.trim())
@@ -747,10 +763,12 @@ Be the seller's coach and partner: when they ask about performance, details or a
       badge: compare ? `${Math.round((1 - Number(p.price) / compare) * 100)}% OFF` : '',
       cta: 'Order now · Cash on Delivery',
       colors: { background: '#141413', accent: '#C5A059', text: '#FFFFFF' },
+      motion: guessMotion(p, wish),
+      facing: 'RIGHT' as 'LEFT' | 'RIGHT',
     };
   };
-  const cleanPlan = (raw: any, p: any, pictures: number) => {
-    const base = plainPlan(p, pictures);
+  const cleanPlan = (raw: any, p: any, pictures: number, wish = '') => {
+    const base = plainPlan(p, pictures, wish);
     const hex = (v: unknown, fb: string) => (/^#[0-9a-f]{6}$/i.test(String(v)) ? String(v) : fb);
     const scenes = (Array.isArray(raw?.scenes) ? raw.scenes : [])
       .slice(0, 6)
@@ -774,6 +792,8 @@ Be the seller's coach and partner: when they ask about performance, details or a
         accent: hex(raw?.colors?.accent, base.colors.accent),
         text: hex(raw?.colors?.text, base.colors.text),
       },
+      motion: VIDEO_MOTIONS.includes(raw?.motion) ? (raw.motion as (typeof VIDEO_MOTIONS)[number]) : base.motion,
+      facing: (raw?.facing === 'LEFT' ? 'LEFT' : 'RIGHT') as 'LEFT' | 'RIGHT',
     };
   };
 
@@ -787,8 +807,11 @@ Be the seller's coach and partner: when they ask about performance, details or a
       const pictures = picturesOf(p);
       if (!pictures.length) return res.status(400).json({ error: 'Add at least one picture to this product first: the video is made from its pictures.' });
       const wish = str(req.body?.prompt, 600);
-      let plan = plainPlan(p, pictures.length);
+      let plan = plainPlan(p, pictures.length, wish);
       let usedAi = false;
+      // A small copy of the main picture (sent by the browser) lets the AI see the product: which
+      // way a car faces, what kind of movement suits it
+      const thumb = typeof req.body?.thumb === 'string' && /^[A-Za-z0-9+/=]{100,280000}$/.test(req.body.thumb) ? req.body.thumb : '';
       // Without the seller's own key and with today's free uses finished, the video still gets made
       // with the ready-made plan, and the app asks for the key
       const gate = d.takeAi(uid);
@@ -798,17 +821,30 @@ Be the seller's coach and partner: when they ask about performance, details or a
       try {
         const r = await d.getAI(uid).models.generateContent({
           model: FALLBACK_MODEL, // the light model: a short plan does not need more, and it has the biggest free limit
-          contents: `You are an ad director for a Pakistani online shop. Plan a 12-15 second product video ad made ONLY from the product's own ${pictures.length} picture(s) (numbered 0 to ${pictures.length - 1}), with animated words on screen.
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                ...(thumb ? [{ inlineData: { mimeType: 'image/jpeg', data: thumb } }] : []),
+                {
+                  text: `You are an ad director for a Pakistani online shop. Plan a 12-15 second product video ad made ONLY from the product's own ${pictures.length} picture(s) (numbered 0 to ${pictures.length - 1}), with animated words on screen.${thumb ? ' The attached image is picture 0.' : ''}
+Motion: the app cuts the product out of its picture and animates it. Choose "motion": ROAD if it is a vehicle (car, bike, cycle, toy car) or the seller wants it driving / on a road; SKY for things that fly (drone, plane, kite) or if the seller wants it flying; FLOAT for light items (cosmetics, perfume, jewellery, small gadgets); TURNTABLE for most other products (turning on a lit stand); NONE only if no movement fits. The seller's wish about movement wins. "facing": which way the front of the product points in picture 0 (LEFT or RIGHT; RIGHT if unclear).
 Product: "${String(p.name).slice(0, 190)}". Category: ${p.category}. Price: PKR ${p.price}. Shop: ${String(seller?.shopName || '').slice(0, 60)}.
 About it: ${String(p.shortDescription || p.description || '').slice(0, 900)}
 What the seller wants: ${wish || 'a beautiful, eye-catching ad that makes customers want to buy'}
 Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a short punchy caption (max 5 words) and an optional sub line (max 8 words). headline max 6 words. Write in the language the seller used (English, Urdu in Roman letters, or Urdu script); if unclear, English. Be honest: never invent features, warranties, certificates, delivery times, prices or discounts that are not in the details above. Do not call it "original" or "genuine" or use a famous brand's name unless the product name already is that brand. Pick colours (hex) that suit the product and the wish, with strong contrast between text and background.`,
+                },
+              ],
+            },
+          ],
           config: {
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
               properties: {
                 style: { type: Type.STRING, enum: [...VIDEO_STYLES] },
+                motion: { type: Type.STRING, enum: [...VIDEO_MOTIONS] },
+                facing: { type: Type.STRING, enum: ['LEFT', 'RIGHT'] },
                 headline: { type: Type.STRING },
                 tagline: { type: Type.STRING },
                 scenes: {
@@ -825,13 +861,13 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
                   properties: { background: { type: Type.STRING }, accent: { type: Type.STRING }, text: { type: Type.STRING } },
                 },
               },
-              required: ['style', 'headline', 'scenes'],
+              required: ['style', 'motion', 'headline', 'scenes'],
             },
             temperature: 0.8,
           },
         });
         const j = JSON.parse(r.text || '{}');
-        plan = cleanPlan(j, p, pictures.length);
+        plan = cleanPlan(j, p, pictures.length, wish);
         usedAi = true;
       } catch (err: any) {
         console.warn('[video-plan] AI not available, using the ready-made plan:', err?.message);
@@ -852,29 +888,177 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
   // One picture of the seller's own product, sent from this server so the browser may draw it into the
   // video (pictures on other websites cannot be recorded by the browser otherwise). Only pictures of
   // the seller's own products, only https, at most 8 MB.
+  /** One product picture's bytes: a file on this store (/media/...) or an https picture elsewhere
+   * (never this computer or the home network), at most 8 MB */
+  const fetchPicture = async (url: string): Promise<{ buf: Buffer; type: string } | null> => {
+    let target = '';
+    if (/^\/media\/[a-zA-Z0-9_.-]+$/.test(url)) target = `${d.localOrigin}${url}`;
+    else if (/^https:\/\//i.test(url)) {
+      const host = new URL(url).hostname.toLowerCase();
+      if (/^(localhost|.*\.local|.*\.internal)$/.test(host) || /^(\[|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(host)) return null;
+      target = url;
+    } else return null;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12_000);
+    try {
+      const r = await fetch(target, { signal: ctrl.signal, redirect: 'follow' });
+      const type = String(r.headers.get('content-type') || '').split(';')[0];
+      if (!r.ok || !type.startsWith('image/')) return null;
+      const buf = Buffer.from(await r.arrayBuffer());
+      return buf.length > 8 * 1024 * 1024 ? null : { buf, type };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   app.get('/api/seller/coach/video-image', d.requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     try {
       const p = await ownProduct(uid, str(req.query.productId, 128));
       const url = p ? picturesOf(p)[Math.floor(Number(req.query.i)) || 0] : '';
-      if (!url || !/^https:\/\//i.test(url)) return res.status(404).json({ error: 'Picture not found.' });
-      // never this computer or the home network
-      const host = new URL(url).hostname.toLowerCase();
-      if (/^(localhost|.*\.local|.*\.internal)$/.test(host) || /^(\[|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(host)) {
-        return res.status(404).json({ error: 'Picture not found.' });
-      }
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 12_000);
-      const r = await fetch(url, { signal: ctrl.signal, redirect: 'follow' }).finally(() => clearTimeout(timer));
-      const type = String(r.headers.get('content-type') || '');
-      if (!r.ok || !type.startsWith('image/')) return res.status(404).json({ error: 'Picture not found.' });
-      const buf = Buffer.from(await r.arrayBuffer());
-      if (buf.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'Picture too large.' });
-      res.setHeader('Content-Type', type);
+      const pic = url && /^https:\/\//i.test(url) ? await fetchPicture(url) : null;
+      if (!pic) return res.status(404).json({ error: 'Picture not found.' });
+      res.setHeader('Content-Type', pic.type);
       res.setHeader('Cache-Control', 'private, max-age=3600');
-      res.send(buf);
+      res.send(pic.buf);
     } catch {
       res.status(404).json({ error: 'Picture not found.' });
+    }
+  });
+
+  // ---------------------------------------------------------------- Pro AI video (paid by the seller)
+  // A real AI video (the product really moves: a car driving on a road...) made by Google's video
+  // model from the product's main picture and the seller's words. Google charges per second of video
+  // with no free limit, so it runs ONLY on the seller's own keys (their Google project needs billing
+  // on) and never on the store's keys. One video at a time per seller; the result is kept on this
+  // server and shown to the seller before it is added to the listing.
+  const PRO_MODEL = 'gemini-omni-1.2-flash';
+  type ProJob = { uid: string; productId: string; status: 'RUNNING' | 'DONE' | 'FAILED'; startedAt: number; url?: string; error?: string };
+  const proJobs = new Map<string, ProJob>();
+  const proToday = new Map<string, { day: string; n: number }>();
+  const PRO_PER_DAY = 10; // protects the seller's card from repeated presses
+
+  const proErrorText = (status: number, msg: string) => {
+    if (/billing|free tier|not available|FAILED_PRECONDITION|RESOURCE_EXHAUSTED|quota/i.test(msg) || status === 429)
+      return 'Your AI key cannot make Pro videos yet: in Google AI Studio turn on billing for this key\'s project ("Set up billing"), then try again. Your free videos still work.';
+    if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg) || status === 403) return 'Google did not accept your AI key. Check "My AI keys" in the AI Assistant page.';
+    if (/safety|blocked|prohibited|person|people|minor|SAFETY/i.test(msg))
+      return 'Google refused this video under its safety rules (for example pictures with people or children). Try another picture or other words.';
+    if (status === 404) return 'Google\'s video AI is not available for your key right now. Please try again later.';
+    return 'Google could not make the video right now. Please try again in a few minutes.';
+  };
+
+  /** Finds the video in Google's answer (inline base64 or a file link), in any of its shapes */
+  const findVideo = (o: any, depth = 0): { data?: string; uri?: string } | null => {
+    if (!o || typeof o !== 'object' || depth > 8) return null;
+    if (o.output_video?.data) return { data: o.output_video.data };
+    if ((o.type === 'video' || /^video\//.test(String(o.mime_type || o.mimeType || ''))) && (o.data || o.uri)) return { data: o.data, uri: o.uri };
+    for (const v of Array.isArray(o) ? o : Object.values(o)) {
+      const hit = findVideo(v, depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  const runProVideo = async (job: ProJob, keys: string[], picture: { buf: Buffer; type: string }, prompt: string, seconds: number, shape: string) => {
+    let lastErr = '';
+    for (const key of keys) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 9 * 60_000);
+        const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify({
+            model: PRO_MODEL,
+            input: [
+              { type: 'image', data: picture.buf.toString('base64'), mime_type: picture.type },
+              { type: 'text', text: prompt },
+            ],
+            response_format: { type: 'video', aspect_ratio: shape, resolution: '720p', duration: `${seconds}s` },
+          }),
+        }).finally(() => clearTimeout(timer));
+        const text = await r.text();
+        let body: any = {};
+        try {
+          body = JSON.parse(text);
+        } catch {}
+        if (!r.ok) {
+          lastErr = proErrorText(r.status, String(body?.error?.message || body?.error?.status || text).slice(0, 400));
+          console.warn(`[pro-video] key ••••${key.slice(-4)} failed (${r.status}):`, String(body?.error?.message || text).slice(0, 300));
+          continue;
+        }
+        const v = findVideo(body);
+        let buf: Buffer | null = v?.data ? Buffer.from(v.data, 'base64') : null;
+        if (!buf && v?.uri) {
+          const dl = await fetch(v.uri, { headers: { 'x-goog-api-key': key }, redirect: 'follow' });
+          if (dl.ok) buf = Buffer.from(await dl.arrayBuffer());
+        }
+        if (!buf || buf.length < 10_000) {
+          lastErr = 'Google answered without a video (it may have been blocked by its safety rules). Try other words or another picture.';
+          console.warn('[pro-video] no video in answer:', text.slice(0, 300));
+          break;
+        }
+        job.url = await d.storeMedia(buf, 'mp4', 'video/mp4');
+        job.status = 'DONE';
+        return;
+      } catch (err: any) {
+        lastErr = err?.name === 'AbortError' ? 'Google took too long to make the video. Please try again.' : proErrorText(0, String(err?.message || ''));
+        console.warn('[pro-video] failed:', err?.message);
+      }
+    }
+    job.status = 'FAILED';
+    job.error = lastErr || 'Google could not make the video right now. Please try again in a few minutes.';
+    // a failed try does not count towards the seller's daily Pro limit
+    const c = proToday.get(job.uid);
+    if (c && c.n > 0) c.n--;
+  };
+
+  app.get('/api/seller/coach/pro-video', d.requireSeller, (req, res) => {
+    const uid = (req as any).user.uid as string;
+    res.setHeader('Cache-Control', 'no-store');
+    const job = proJobs.get(str(req.query.job, 40));
+    if (!job || job.uid !== uid) return res.json({ success: true, hasKey: d.sellerOwnKeys(uid).length > 0, job: null });
+    res.json({ success: true, job: { status: job.status, url: job.url, error: job.error, productId: job.productId } });
+  });
+
+  app.post('/api/seller/coach/pro-video', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const keys = d.sellerOwnKeys(uid);
+    if (!keys.length) return res.status(400).json({ code: 'PRO_KEY_NEEDED', error: 'Pro AI video runs on your own AI key (with billing on). Add your key in "My AI keys" first.' });
+    if (req.body?.agree !== true) return res.status(400).json({ error: 'Please confirm that Google will charge your own card for this video.' });
+    for (const [id, j] of proJobs) {
+      if (j.uid === uid && j.status === 'RUNNING') return res.json({ success: true, jobId: id, running: true });
+      if (Date.now() - j.startedAt > 6 * 3600_000) proJobs.delete(id);
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const c = proToday.get(uid);
+    const n = c?.day === today ? c.n : 0;
+    if (n >= PRO_PER_DAY) return res.status(429).json({ error: `You made ${PRO_PER_DAY} Pro videos today (limit to protect your card). Please continue tomorrow.` });
+    try {
+      const p = await ownProduct(uid, str(req.body?.productId, 128));
+      if (!p) return res.status(404).json({ error: 'Product not found.' });
+      const first = picturesOf(p)[0];
+      const picture = first ? await fetchPicture(first).catch(() => null) : null;
+      if (!picture) return res.status(400).json({ error: 'The main picture of this product could not be opened. Check it shows on the product page.' });
+      const wish = str(req.body?.prompt, 600) || 'a short, exciting advert that shows the product in use';
+      const seconds = Math.max(4, Math.min(10, Math.round(Number(req.body?.seconds) || 8)));
+      const shape = req.body?.shape === '9:16' ? '9:16' : '16:9';
+      const prompt = `A short, realistic, cinematic product advert video. The product is exactly the one in the picture: "${String(p.name).slice(0, 150)}". Keep its shape, colours and details exactly as in the picture. What should happen: ${wish}. Smooth professional camera movement, good lighting, the product is the hero of every shot. No text, no captions, no logos and no brand names on screen.`;
+      proToday.set(uid, { day: today, n: n + 1 });
+      const jobId = crypto.randomBytes(9).toString('hex');
+      const job: ProJob = { uid, productId: p.id, status: 'RUNNING', startedAt: Date.now() };
+      proJobs.set(jobId, job);
+      runProVideo(job, keys, picture, prompt, seconds, shape).catch((err) => {
+        job.status = 'FAILED';
+        job.error = 'Google could not make the video right now. Please try again in a few minutes.';
+        console.warn('[pro-video] crashed:', err?.message);
+      });
+      res.json({ success: true, jobId });
+    } catch (err: any) {
+      console.error('[pro-video] start failed:', err?.message);
+      res.status(503).json({ error: 'Could not start the video. Please try again.' });
     }
   });
 

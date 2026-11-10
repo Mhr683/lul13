@@ -9,7 +9,24 @@ import { askForAiKey } from './AiKeyNudge';
 // 12-15 second ad with music, records it (canvas + MediaRecorder) and adds it to the listing.
 // No paid video AI: the only AI cost is one short text call.
 
-import { FPS, SIZE, drawFrame, pickMime, startMusic, totalSeconds, type Frame, type Plan } from '../services/videoRender';
+import { FPS, SIZE, cutOut, drawFrame, pickMime, startMusic, totalSeconds, type Frame, type Plan } from '../services/videoRender';
+import { ProVideoPanel } from './ProVideoPanel';
+
+/** A small JPEG of the main picture (base64, no prefix) for the AI to look at */
+function thumbOf(pic: HTMLImageElement | ImageBitmap): string {
+  try {
+    const iw = (pic as any).width as number;
+    const ih = (pic as any).height as number;
+    const k = Math.min(1, 384 / Math.max(iw, ih));
+    const c = document.createElement('canvas');
+    c.width = Math.round(iw * k);
+    c.height = Math.round(ih * k);
+    c.getContext('2d')!.drawImage(pic, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.75).split(',')[1] || '';
+  } catch {
+    return '';
+  }
+}
 
 type VideoProduct = { id: string; name: string; brand: string; image?: string };
 
@@ -60,6 +77,8 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
   const [added, setAdded] = useState(false);
   // made with the ready-made design because today's free AI uses are finished
   const [keyNote, setKeyNote] = useState(false);
+  // FREE: made here from the pictures; PRO: Google's video AI on the seller's own (paid) key
+  const [mode, setMode] = useState<'FREE' | 'PRO'>('FREE');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stopRef = useRef(false);
   const supported = Boolean(pickMime()) && typeof HTMLCanvasElement !== 'undefined' && 'captureStream' in HTMLCanvasElement.prototype;
@@ -78,21 +97,28 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
     setProgress(0);
     stopRef.current = false;
     try {
+      // 1. the product's saved pictures, and the product cut out of each (plain backgrounds only)
+      setStatus('Getting the pictures ready...');
+      const saved = await apiJson<{ product: { images?: string[]; primaryImage?: string } }>(`/api/seller/products/${encodeURIComponent(product.id)}`);
+      const urls = (saved.product.images?.length ? saved.product.images : saved.product.primaryImage ? [saved.product.primaryImage] : []).slice(0, 8);
+      const loaded = await Promise.all(urls.map((u, i) => loadPicture(product.id, u, i)));
+      if (!loaded[0]) throw new Error('The main product picture could not be opened. Check that it still shows on the product page.');
+      // pictures that failed to open are replaced by the main one, so the numbers still match
+      const pics = loaded.map((p) => p || loaded[0]!) as (HTMLImageElement | ImageBitmap)[];
+      const cuts = pics.map((p) => cutOut(p));
+      // 2. the AI sees a small copy of the main picture and plans the words, colours and movement
       setStatus('The AI is planning your video...');
-      const r = await apiJson<{ plan: Plan; usedAi: boolean; aiKeyNeeded?: boolean; product: { pictures: string[]; shopName: string } }>('/api/seller/coach/video-plan', {
+      const r = await apiJson<{ plan: Plan; usedAi: boolean; aiKeyNeeded?: boolean; product: { shopName: string } }>('/api/seller/coach/video-plan', {
         method: 'POST',
-        body: JSON.stringify({ productId: product.id, prompt }),
+        body: JSON.stringify({ productId: product.id, prompt, thumb: thumbOf(pics[0]) }),
       });
       setKeyNote(Boolean(r.aiKeyNeeded));
-      setStatus('Getting the pictures ready...');
-      const pics = (await Promise.all(r.product.pictures.map((u, i) => loadPicture(product.id, u, i)))).filter(Boolean) as (HTMLImageElement | ImageBitmap)[];
-      if (!pics.length) throw new Error('The product pictures could not be opened. Check that they still show on the product page.');
-      // scenes may only point at the pictures that opened
+      // scenes may only point at the pictures that exist
       const plan: Plan = { ...r.plan, scenes: r.plan.scenes.map((s) => ({ ...s, image: Math.min(s.image, pics.length - 1) })) };
       const canvas = canvasRef.current!;
       const ctx = canvas.getContext('2d')!;
       const seconds = totalSeconds(plan);
-      const frame: Frame = { pics, plan, shopName: r.product.shopName };
+      const frame: Frame = { pics, plan, shopName: r.product.shopName, cuts };
       drawFrame(ctx, frame, 0);
 
       setStatus(r.usedAi ? 'Making your video... keep this screen open' : 'Making your video (ready-made style, the AI is busy)... keep this screen open');
@@ -175,7 +201,37 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
           </button>
         </div>
 
-        {!supported ? (
+        {(step === 'ask' || mode === 'PRO') && (
+          <div className="grid grid-cols-2 gap-1 p-1 bg-[#F1F0EC] rounded-lg text-xs font-semibold" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'FREE'}
+              onClick={() => setMode('FREE')}
+              className={`py-2 rounded-md cursor-pointer ${mode === 'FREE' ? 'bg-white shadow-sm' : 'text-[#575653]'}`}
+            >
+              Free video
+              <span className="block text-[10px] font-normal text-[#575653]">your pictures, animated</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'PRO'}
+              onClick={() => setMode('PRO')}
+              className={`py-2 rounded-md cursor-pointer ${mode === 'PRO' ? 'bg-white shadow-sm' : 'text-[#575653]'}`}
+            >
+              Pro AI video ✨
+              <span className="block text-[10px] font-normal text-[#575653]">really moves · paid by you</span>
+            </button>
+          </div>
+        )}
+
+        {mode === 'PRO' ? (
+          <ProVideoPanel product={product} onAdded={(url) => {
+            setAdded(true);
+            onClose(true, url);
+          }} />
+        ) : !supported ? (
           <p className="text-xs p-3 bg-amber-50 border border-amber-300 rounded">
             This browser cannot make videos. Open Seller Center in Google Chrome (phone or computer) and try again, or upload your own video.
           </p>

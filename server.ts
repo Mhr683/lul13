@@ -4620,6 +4620,10 @@ registerSellerAiRoutes(app, {
   getAI: getGenAIClient,
   takeAi: takeSellerAi,
   aiKeyNeeded: AI_KEY_NEEDED,
+  // Pro AI video is paid by Google per video: it only ever uses the seller's OWN keys, never the store's
+  sellerOwnKeys: (uid) => sellerAiKeys.get(uid)?.keys || [],
+  storeMedia,
+  localOrigin: `http://127.0.0.1:${Number(process.env.PORT) || 3000}`,
   sellerData: marketplace.sellerData,
   setCoachViewedHook: marketplace.setCoachViewedHook,
 });

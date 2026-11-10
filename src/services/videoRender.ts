@@ -11,9 +11,89 @@ export type Plan = {
   badge: string;
   cta: string;
   colors: { background: string; accent: string; text: string };
+  /** How the cut-out product moves (ROAD: drives on a road; TURNTABLE; FLOAT; SKY: flies; NONE) */
+  motion?: 'ROAD' | 'TURNTABLE' | 'FLOAT' | 'SKY' | 'NONE';
+  /** Which way the product's front points in the picture (a car drives that way) */
+  facing?: 'LEFT' | 'RIGHT';
 };
 
 export const SIZE = 720;
+
+// ------------------------------------------------------------------ cutting the product out
+type Pic = HTMLImageElement | ImageBitmap;
+
+/**
+ * Cuts the product out of a plain (white / one-colour) background: the background is filled in from
+ * the edges, everything it does not reach is the product. Returns null for busy backgrounds (a room,
+ * a street), where only the full picture can be shown.
+ */
+export function cutOut(img: Pic): HTMLCanvasElement | null {
+  try {
+    const iw = (img as any).width as number;
+    const ih = (img as any).height as number;
+    const k = Math.min(1, 640 / Math.max(iw, ih));
+    const w = Math.max(8, Math.round(iw * k));
+    const h = Math.max(8, Math.round(ih * k));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true } as any) as CanvasRenderingContext2D;
+    ctx.drawImage(img, 0, 0, w, h);
+    const im = ctx.getImageData(0, 0, w, h);
+    const px = im.data;
+    // the edge colour: most edge pixels must be close to it, or the background is not plain
+    const edge: number[] = [];
+    for (let x = 0; x < w; x += 2) edge.push(x, (h - 1) * w + x);
+    for (let y = 0; y < h; y += 2) edge.push(y * w, y * w + w - 1);
+    const rs = edge.map((i) => px[i * 4]).sort((a, b) => a - b);
+    const gs = edge.map((i) => px[i * 4 + 1]).sort((a, b) => a - b);
+    const bs = edge.map((i) => px[i * 4 + 2]).sort((a, b) => a - b);
+    const mid = Math.floor(edge.length / 2);
+    const bg = [rs[mid], gs[mid], bs[mid]];
+    const far = (i: number, tol: number) => Math.abs(px[i * 4] - bg[0]) + Math.abs(px[i * 4 + 1] - bg[1]) + Math.abs(px[i * 4 + 2] - bg[2]) > tol;
+    const plain = edge.filter((i) => !far(i, 60)).length / edge.length;
+    if (plain < 0.85) return null;
+    // flood fill from every edge pixel that matches the background
+    const TOL = 70;
+    const isBg = new Uint8Array(w * h);
+    const stack: number[] = [];
+    for (const i of edge) if (!far(i, TOL) && !isBg[i]) (isBg[i] = 1), stack.push(i);
+    while (stack.length) {
+      const i = stack.pop()!;
+      const x = i % w;
+      const y = (i - x) / w;
+      const next = [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1];
+      for (const n of next) if (n >= 0 && !isBg[n] && !far(n, TOL)) (isBg[n] = 1), stack.push(n);
+    }
+    let minX = w, minY = h, maxX = -1, maxY = -1, count = 0;
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (isBg[i]) {
+          px[i * 4 + 3] = 0;
+          continue;
+        }
+        count++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        // soft edge next to the background
+        const nearBg = (x > 0 && isBg[i - 1]) || (x < w - 1 && isBg[i + 1]) || (y > 0 && isBg[i - w]) || (y < h - 1 && isBg[i + w]);
+        if (nearBg) px[i * 4 + 3] = 150;
+      }
+    const share = count / (w * h);
+    if (share < 0.04 || share > 0.97 || maxX < minX) return null;
+    ctx.putImageData(im, 0, 0);
+    const out = document.createElement('canvas');
+    out.width = maxX - minX + 1;
+    out.height = maxY - minY + 1;
+    out.getContext('2d')!.drawImage(c, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
+    return out;
+  } catch {
+    return null;
+  }
+}
 export const FPS = 30;
 const INTRO = 2.2;
 const SCENE = 2.4;
@@ -192,7 +272,211 @@ function drawBadge(ctx: CanvasRenderingContext2D, plan: Plan, text: string, time
   ctx.restore();
 }
 
-export type Frame = { pics: (HTMLImageElement | ImageBitmap)[]; plan: Plan; shopName: string };
+export type Frame = {
+  pics: (HTMLImageElement | ImageBitmap)[];
+  plan: Plan;
+  shopName: string;
+  /** The product cut out of each picture (null where the background is not plain) */
+  cuts?: (HTMLCanvasElement | null)[];
+};
+
+// ------------------------------------------------------------------ the product moving
+const hash = (n: number) => {
+  const s = Math.sin(n * 127.1) * 43758.5453;
+  return s - Math.floor(s);
+};
+const isDark = (hex: string) => {
+  const v = parseInt(hex.slice(1), 16);
+  return ((v >> 16) & 255) * 0.299 + ((v >> 8) & 255) * 0.587 + (v & 255) * 0.114 < 110;
+};
+/** Draws the cut-out product with its bottom centre at (cx, bottom), fitted into maxW x maxH */
+function placeCut(ctx: CanvasRenderingContext2D, cut: HTMLCanvasElement, cx: number, bottom: number, maxW: number, maxH: number, flip = false, rot = 0, sx = 1) {
+  const k = Math.min(maxW / cut.width, maxH / cut.height);
+  const w = cut.width * k;
+  const h = cut.height * k;
+  ctx.save();
+  ctx.translate(cx, bottom - h / 2);
+  ctx.rotate(rot);
+  ctx.scale((flip ? -1 : 1) * sx, 1);
+  ctx.shadowColor = 'rgba(0,0,0,0.35)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 10;
+  ctx.drawImage(cut, -w / 2, -h / 2, w, h);
+  ctx.restore();
+  return { w, h };
+}
+
+function drawRoad(ctx: CanvasRenderingContext2D, plan: Plan, cut: HTMLCanvasElement, time: number) {
+  // the scenery runs the opposite way to where the product points, so it looks like it drives forward
+  const dir = plan.facing === 'LEFT' ? 1 : -1;
+  const dusk = isDark(plan.colors.background);
+  const sky = ctx.createLinearGradient(0, 0, 0, 420);
+  sky.addColorStop(0, dusk ? '#1B2A4A' : '#7FB3E6');
+  sky.addColorStop(1, dusk ? '#F2A365' : '#E9F2FB');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, SIZE, 430);
+  // far city (slow)
+  ctx.fillStyle = dusk ? 'rgba(20,24,44,0.85)' : 'rgba(120,140,170,0.55)';
+  const far = (time * 50 * dir) % 90;
+  for (let i = -2; i < 12; i++) {
+    const x = i * 90 + far;
+    const hgt = 70 + hash(i + Math.floor((-time * 50 * dir) / 90)) * 120;
+    ctx.fillRect(x, 420 - hgt, 70, hgt);
+  }
+  // road
+  ctx.fillStyle = '#3B3D42';
+  ctx.fillRect(0, 420, SIZE, 150);
+  ctx.fillStyle = '#9A9DA3';
+  ctx.fillRect(0, 420, SIZE, 6);
+  ctx.fillStyle = '#2A2B2F';
+  ctx.fillRect(0, 562, SIZE, 8);
+  // lane marks (fast)
+  ctx.fillStyle = '#F4F1E8';
+  const lane = (time * 950 * dir) % 160;
+  for (let x = -160 + lane; x < SIZE + 160; x += 160) ctx.fillRect(x, 500, 90, 8);
+  // roadside poles (fastest, in front of the city)
+  const pole = (time * 700 * dir) % 300;
+  ctx.fillStyle = dusk ? '#0E1222' : '#5A6270';
+  for (let x = -300 + pole; x < SIZE + 300; x += 300) {
+    ctx.fillRect(x, 300, 8, 122);
+    ctx.fillRect(x - 18, 300, 44, 6);
+  }
+  // speed streaks
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 14; i++) {
+    const y = 120 + hash(i) * 380;
+    const len = 60 + hash(i + 9) * 120;
+    const x = ((hash(i + 3) * SIZE + time * 1400 * dir) % (SIZE + 300) + SIZE + 300) % (SIZE + 300) - 150;
+    ctx.globalAlpha = 0.25 + hash(i + 5) * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + len * (dir < 0 ? 1 : -1), y);
+    ctx.stroke();
+  }
+  ctx.restore();
+  // shadow, dust behind, and the product with a small road bounce
+  const cx = SIZE / 2 + Math.sin(time * 1.1) * 18;
+  const bottom = 548 + Math.sin(time * 24) * 1.6;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(cx, 550, 230, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  for (let i = 0; i < 16; i++) {
+    const age = (time * 2.2 + hash(i)) % 1;
+    // dust stays behind the product (the side opposite to where it points)
+    const bx = cx + (plan.facing === 'LEFT' ? 1 : -1) * (180 + age * 220);
+    ctx.globalAlpha = (1 - age) * 0.35;
+    ctx.fillStyle = '#CFC6B8';
+    ctx.beginPath();
+    ctx.arc(bx + hash(i + 2) * 30, 540 - age * 40 - hash(i + 4) * 20, 6 + age * 22, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  placeCut(ctx, cut, cx, bottom, 470, 250);
+}
+
+function drawStage(ctx: CanvasRenderingContext2D, plan: Plan, cut: HTMLCanvasElement, time: number) {
+  const g = ctx.createRadialGradient(SIZE / 2, 300, 40, SIZE / 2, 330, 520);
+  g.addColorStop(0, '#FFFFFF');
+  g.addColorStop(0.25, plan.colors.accent);
+  g.addColorStop(1, plan.colors.background);
+  ctx.fillStyle = g;
+  ctx.globalAlpha = 1;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = plan.colors.background;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.restore();
+  drawDecor(ctx, plan, time);
+  if (plan.motion === 'TURNTABLE') {
+    // lit stand with a turning ring of lights
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.ellipse(SIZE / 2, 540, 250, 46, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = plan.colors.accent;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + time * 1.4;
+      ctx.globalAlpha = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(a));
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(SIZE / 2 + Math.cos(a) * 240, 540 + Math.sin(a) * 42, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // turning: the product narrows and widens a little, as if it rotates on the stand
+    const turn = 0.9 + 0.1 * Math.cos(time * 1.8);
+    placeCut(ctx, cut, SIZE / 2, 536, 440, 400, false, Math.sin(time * 0.9) * 0.03, turn);
+  } else {
+    // FLOAT: bobbing up and down, the shadow grows and shrinks with it
+    const lift = Math.sin(time * 2.1) * 16;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(SIZE / 2, 548, 150 - lift * 2.5, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    for (let i = 0; i < 14; i++) {
+      const y = SIZE - ((time * (40 + hash(i) * 60) + hash(i + 1) * SIZE) % (SIZE + 40));
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(hash(i + 7) * SIZE, y, 4 + hash(i + 3) * 10, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+    placeCut(ctx, cut, SIZE / 2, 510 - 16 + lift, 440, 400, false, Math.sin(time * 1.3) * 0.05);
+  }
+}
+
+function drawSky(ctx: CanvasRenderingContext2D, plan: Plan, cut: HTMLCanvasElement, time: number) {
+  const dir = plan.facing === 'LEFT' ? 1 : -1;
+  const sky = ctx.createLinearGradient(0, 0, 0, SIZE);
+  sky.addColorStop(0, '#4D9BE6');
+  sky.addColorStop(1, '#CFE6FA');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  const cloud = (x: number, y: number, s: number, a: number) => {
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 70 * s, 26 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(x - 40 * s, y + 6 * s, 44 * s, 20 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + 44 * s, y + 8 * s, 48 * s, 18 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  ctx.save();
+  for (let i = 0; i < 9; i++) {
+    const speed = 120 + hash(i) * 380;
+    const s = 0.6 + hash(i + 1) * 1.1;
+    const x = ((hash(i + 2) * SIZE + time * speed * dir) % (SIZE + 400) + SIZE + 400) % (SIZE + 400) - 200;
+    cloud(x, 60 + hash(i + 3) * 520, s, 0.5 + hash(i + 4) * 0.4);
+  }
+  ctx.restore();
+  const cx = SIZE / 2 + Math.sin(time * 0.8) * 50;
+  const cy = 470 + Math.sin(time * 1.6) * 24;
+  placeCut(ctx, cut, cx, cy, 460, 330, false, Math.sin(time * 1.6 + 0.6) * 0.06);
+}
+
+/** One scene with the product itself moving; false when it cannot (no cut-out / no motion) */
+function drawMotion(ctx: CanvasRenderingContext2D, f: Frame, image: number, time: number) {
+  const m = f.plan.motion;
+  const cut = f.cuts?.[image];
+  if (!cut || !m || m === 'NONE') return false;
+  ctx.save();
+  if (m === 'ROAD') drawRoad(ctx, f.plan, cut, time);
+  else if (m === 'SKY') drawSky(ctx, f.plan, cut, time);
+  else drawStage(ctx, f.plan, cut, time);
+  ctx.restore();
+  return true;
+}
 
 export function totalSeconds(plan: Plan) {
   return INTRO + plan.scenes.length * SCENE + PRICE + OUTRO;
@@ -207,7 +491,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame, time: number)
     {
       len: INTRO,
       draw: (t, local) => {
-        drawPicture(ctx, pic(plan.scenes[0]?.image ?? 0), t, 1, plan, time, 0.6, 95);
+        if (!drawMotion(ctx, f, plan.scenes[0]?.image ?? 0, time)) drawPicture(ctx, pic(plan.scenes[0]?.image ?? 0), t, 1, plan, time, 0.6, 95);
         const k = ease(local / 0.9);
         ctx.save();
         ctx.globalAlpha = k;
@@ -228,7 +512,8 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame, time: number)
     ...plan.scenes.map((s, i) => ({
       len: SCENE,
       draw: (t: number) => {
-        drawPicture(ctx, pic(s.image), t, i % 2 ? -1 : 1, plan, time);
+        // the product itself moves (cut out of a plain background); otherwise the picture zooms
+        if (!drawMotion(ctx, f, s.image, time)) drawPicture(ctx, pic(s.image), t, i % 2 ? -1 : 1, plan, time);
         drawCaption(ctx, plan, s.caption, s.sub, t);
       },
     })),
