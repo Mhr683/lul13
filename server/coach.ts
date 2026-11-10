@@ -13,7 +13,7 @@ export type CoachIssue = {
   fix: string;
   tab?: string;
   /** A one-click fix the Seller Center can run (e.g. rewrite every short description) */
-  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES' | 'MAKE_VIDEOS';
+  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES' | 'MAKE_VIDEOS' | 'ADD_AI_KEY';
   /** The products this issue is about (for "Fix it myself": each opens in the product form) */
   products?: { id: string; name: string; brand: string; image?: string }[];
 };

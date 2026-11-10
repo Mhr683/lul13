@@ -209,6 +209,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Video product ki apni save ki hui tasveeron se banti hai: pehle achi aur zyada tasveerein daal kar product save karein.',
       'Qeemat aur discount hamesha listing se aate hain; AI apni taraf se koi feature ya offer nahi likhta.',
       'Behtareen nateeja Google Chrome mein aata hai.',
+      'Apni AI key ke baghair roz 3 muft AI kaam hain. Woh khatam hon to video phir bhi banti hai, magar tayyar design se; apni key lagayein to AI har video aap ke alfaaz se design karta hai.',
     ],
   },
   'seller.product.variants': {

@@ -14,6 +14,8 @@ export type ShopInfo = {
   followers?: number;
   /** Country the shop's orders ship from (ISO code) */
   shipsFromCountry?: string;
+  /** The seller added their own AI key ("AI Powered Shop" badge) */
+  aiPowered?: boolean;
   ratingAvg: number;
   ratingCount: number;
   positivePercent: number;

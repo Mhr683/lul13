@@ -17,6 +17,10 @@ export interface SellerAiDeps {
   requireSeller: Handler;
   /** The Gemini client; with a seller's uid, that seller's own keys are used first */
   getAI: (uid?: string) => GoogleGenAI;
+  /** Takes up to `want` AI uses: all with the seller's own key, else what is left of today's free uses */
+  takeAi: (uid: string, want?: number) => { hasKey: boolean; granted: number; freeLeft: number };
+  /** The answer when the free uses are finished (code AI_KEY_NEEDED: the app asks for the seller's key) */
+  aiKeyNeeded: { code: string; error: string };
   sellerData: {
     productsOf: (uid: string) => Promise<any[]>;
     ordersOf: (uid: string) => Promise<any[]>;
@@ -388,7 +392,8 @@ Be honest and clear (features, size/specs, what is in the box). Never invent war
     const prompt = str(req.body?.prompt, 2000);
     if (!prompt) return res.status(400).json({ error: 'Type what you want the assistant to do.' });
     if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
-    const history = (Array.isArray(req.body?.history) ? req.body.history : [])
+    if (!d.takeAi(uid).granted) return res.status(403).json(d.aiKeyNeeded);
+    const history =(Array.isArray(req.body?.history) ? req.body.history : [])
       .slice(-6)
       .map((m: any) => ({ role: m?.role === 'model' ? 'model' : 'user', parts: [{ text: str(m?.text, 1500) }] }))
       .filter((m: any) => m.parts[0].text);
@@ -610,22 +615,34 @@ Be the seller's coach and partner: when they ask about performance, details or a
     if (cur?.running) return res.json({ success: true, job: cur });
     const today = new Date().toISOString().slice(0, 10);
     const used = dayCount.get(uid)?.day === today ? dayCount.get(uid)!.n : 0;
-    const room = PER_DAY_REWRITES - used;
+    let room = PER_DAY_REWRITES - used;
     if (room <= 0) return res.status(429).json({ error: `Today's limit of ${PER_DAY_REWRITES} descriptions is reached. Please continue tomorrow.` });
     try {
       d.getAI(uid); // fails early with a clear message when the AI is not set up
       const products = await d.sellerData.productsOf(uid);
-      const list = products
-        .filter((p) => p.status === 'ACTIVE' && !p.adminHidden && String(p.description || '').length < THIN)
-        .slice(0, room);
-      if (!list.length) return res.json({ success: true, job: null, message: 'All live products already have good descriptions.' });
+      const all = products.filter((p) => p.status === 'ACTIVE' && !p.adminHidden && String(p.description || '').length < THIN);
+      if (!all.length) return res.json({ success: true, job: null, message: 'All live products already have good descriptions.' });
+      // Without the seller's own key: only as many as today's free AI uses
+      const gate = d.takeAi(uid, Math.min(room, all.length));
+      if (!gate.granted) return res.status(403).json(d.aiKeyNeeded);
+      room = gate.granted;
+      const list = all.slice(0, room);
       const job: Job = { total: list.length, done: 0, failed: 0, running: true, startedAt: new Date().toISOString() };
       jobs.set(uid, job);
       runRewriteAll(uid, seller, job, list).catch((err) => {
         job.running = false;
         job.error = String(err?.message || '').slice(0, 160);
       });
-      res.json({ success: true, job });
+      res.json({
+        success: true,
+        job,
+        ...(!gate.hasKey && list.length < all.length
+          ? {
+              aiKeyNeeded: true,
+              message: `Writing ${list.length} of ${all.length} today (free limit). Add your own free AI key to write them all.`,
+            }
+          : {}),
+      });
     } catch (err: any) {
       res.status(503).json({ error: String(err?.message || '').includes('GEMINI_API_KEY') ? 'The AI is not switched on yet.' : 'Could not start. Please try again.' });
     }
@@ -654,12 +671,16 @@ Be the seller's coach and partner: when they ask about performance, details or a
       } catch {
         aiOk = false;
       }
+      // Without the seller's own key, the AI rewrites only as many as today's free uses; the rest are
+      // fixed with the rules (still fixed, just plainer text)
+      let aiBudget = aiOk ? d.takeAi(uid, list.length).granted : 0;
+      const aiKeyNeeded = aiOk && aiBudget < list.length;
       let usedAi = false;
       const patches: Array<Record<string, any> & { id: string }> = [];
       for (const p of list) {
         const { brand, patch } = brandFixFor(p);
         const fixed: Record<string, any> & { id: string } = { id: p.id, ...patch };
-        if (aiOk) {
+        if (aiOk && aiBudget-- > 0) {
           try {
             const copy = await writeCopy(
               { ...p, name: patch.name },
@@ -692,7 +713,7 @@ Be the seller's coach and partner: when they ask about performance, details or a
           )
           .catch(() => {});
       }
-      res.json({ success: true, ...result, usedAi });
+      res.json({ success: true, ...result, usedAi, aiKeyNeeded });
     } catch (err: any) {
       console.error('[fix-brands] failed:', err?.message);
       res.status(503).json({ error: 'Could not fix the listings. Please try again.' });
@@ -768,6 +789,12 @@ Be the seller's coach and partner: when they ask about performance, details or a
       const wish = str(req.body?.prompt, 600);
       let plan = plainPlan(p, pictures.length);
       let usedAi = false;
+      // Without the seller's own key and with today's free uses finished, the video still gets made
+      // with the ready-made plan, and the app asks for the key
+      const gate = d.takeAi(uid);
+      if (!gate.granted) {
+        return res.json({ success: true, usedAi: false, aiKeyNeeded: true, plan, product: { id: p.id, name: p.name, pictures, shopName: seller?.shopName || '' } });
+      }
       try {
         const r = await d.getAI(uid).models.generateContent({
           model: FALLBACK_MODEL, // the light model: a short plan does not need more, and it has the biggest free limit
@@ -812,6 +839,7 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
       res.json({
         success: true,
         usedAi,
+        freeLeft: gate.hasKey ? null : gate.freeLeft,
         plan,
         product: { id: p.id, name: p.name, pictures, shopName: seller?.shopName || '' },
       });

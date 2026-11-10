@@ -429,7 +429,11 @@ function requireAdminOrSeller(req: express.Request, res: express.Response, next:
   return requireAuth(req, res, async () => {
     try {
       const shop = await adminDb.collection('sellers').doc((req as any).user.uid).get();
-      if (shop.exists && shop.data()?.status === 'APPROVED') return next();
+      if (shop.exists && shop.data()?.status === 'APPROVED') {
+        // marks a seller's request (sellers without their own AI key have a daily free limit)
+        (req as any).asSeller = true;
+        return next();
+      }
     } catch {}
     return requireAdmin(req, res, next);
   });
@@ -811,6 +815,33 @@ const sellerPools = new Map<string, { sig: string; client: GoogleGenAI }>();
     console.warn('[ai] seller keys not loaded:', err?.message);
   }
 })();
+
+// Sellers without their own key get a few AI uses a day on the store's keys; after that the app asks
+// them to add their own free key (Seller Center → AI Assistant → My AI keys). Counted in memory.
+const FREE_SELLER_AI_PER_DAY = 3;
+const freeSellerAi = new Map<string, { day: string; used: number }>();
+const sellerHasAiKey = (uid: string) => (sellerAiKeys.get(uid)?.keys || []).length > 0;
+function sellerAiState(uid: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const u = freeSellerAi.get(uid);
+  const used = u?.day === today ? u.used : 0;
+  return { hasKey: sellerHasAiKey(uid), freePerDay: FREE_SELLER_AI_PER_DAY, freeLeft: Math.max(0, FREE_SELLER_AI_PER_DAY - used) };
+}
+/** Takes up to `want` AI uses for a seller: all of them with their own key, else what is left of today's free uses */
+function takeSellerAi(uid: string, want = 1): { hasKey: boolean; granted: number; freeLeft: number } {
+  if (sellerHasAiKey(uid)) return { hasKey: true, granted: want, freeLeft: FREE_SELLER_AI_PER_DAY };
+  const today = new Date().toISOString().slice(0, 10);
+  const u = freeSellerAi.get(uid);
+  const used = u?.day === today ? u.used : 0;
+  const granted = Math.max(0, Math.min(want, FREE_SELLER_AI_PER_DAY - used));
+  freeSellerAi.set(uid, { day: today, used: used + granted });
+  if (freeSellerAi.size > 20000) freeSellerAi.clear();
+  return { hasKey: false, granted, freeLeft: FREE_SELLER_AI_PER_DAY - used - granted };
+}
+const AI_KEY_NEEDED = {
+  code: 'AI_KEY_NEEDED',
+  error: `Today's ${FREE_SELLER_AI_PER_DAY} free AI uses are finished. Add your own free AI key (2 minutes, no card) to get 150 a day.`,
+};
 
 /**
  * The Gemini client. With a seller's uid, that seller's own keys come first (then the store's).
@@ -1948,7 +1979,14 @@ app.post('/api/ai/generate-product-content', requireAdminOrSeller, async (req, r
     if (!name || typeof name !== 'string') {
       return res.status(400).json({ error: 'Product name is required.' });
     }
-    // A seller's own AI keys are used first (Seller Center → AI Assistant → My AI keys)
+    // A seller's own AI keys are used first (Seller Center → AI Assistant → My AI keys); without
+    // them, a plain draft once today's free AI uses are finished
+    if ((req as any).asSeller && !takeSellerAi((req as any).user.uid).granted) {
+      return res.json({
+        ...offlineProductContent({ name, category, brand, storeName: catalogStore.ready ? catalogStore.settings()?.storeName : undefined }),
+        aiKeyNeeded: true,
+      });
+    }
     const ai = getGenAIClient((req as any).user?.uid);
 
     const response = await ai.models.generateContent({
@@ -2029,6 +2067,7 @@ app.post('/api/ai/enrich-csv-rows', requireAdminOrSeller, async (req, res) => {
     }
 
     // A seller's own AI keys are used first (Seller Center → AI Assistant → My AI keys)
+    if ((req as any).asSeller && !takeSellerAi((req as any).user.uid).granted) return res.status(403).json(AI_KEY_NEEDED);
     const ai = getGenAIClient((req as any).user?.uid);
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
@@ -4480,6 +4519,7 @@ const marketplace = registerMarketplaceRoutes(app, {
   appendTrackingEvent,
   isInsufficientStockError: (err) => err instanceof InsufficientStockError,
   archiveImageUrls,
+  aiKeyState: sellerAiState,
   activeProductsOfSeller: (sellerId) => (catalogStore.ready ? catalogStore.productsOfSeller(sellerId, true) : null),
   allProductsOfSeller: (sellerId) => (catalogStore.ready ? catalogStore.productsOfSeller(sellerId) : null),
   supplierOf: (productId) => (catalogStore.privateReady ? catalogStore.supplierOf(productId) : undefined),
@@ -4578,6 +4618,8 @@ registerGrowthRoutes(app, {
 registerSellerAiRoutes(app, {
   requireSeller: marketplace.requireSeller,
   getAI: getGenAIClient,
+  takeAi: takeSellerAi,
+  aiKeyNeeded: AI_KEY_NEEDED,
   sellerData: marketplace.sellerData,
   setCoachViewedHook: marketplace.setCoachViewedHook,
 });
@@ -6330,6 +6372,11 @@ const saveSellerKeys = async (uid: string, keys: string[]) => {
   sellerAiKeys.set(uid, { keys, at: Date.now() });
   sellerPools.delete(uid);
 };
+// Has the seller added their own key, and how many free AI uses are left today (Seller Center nudges)
+app.get('/api/seller/ai-status', marketplace.requireSeller, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ success: true, ...sellerAiState((req as any).user.uid as string) });
+});
 app.get('/api/seller/ai-keys', marketplace.requireSeller, async (req, res) => {
   const uid = (req as any).user.uid as string;
   await loadSellerAiKeys(uid);

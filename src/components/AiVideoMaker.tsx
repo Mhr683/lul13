@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, Upload, X, RefreshCw, Check, Film, Download } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { useStore } from '../context/StoreContext';
+import { askForAiKey } from './AiKeyNudge';
 
 // Shop Coach "no video" fix. The seller writes what kind of video they want; the server's AI writes a
 // plan (words, picture order, colours); this browser animates the product's own pictures into a
@@ -21,6 +22,8 @@ async function authed(path: string, init: RequestInit = {}) {
 async function apiJson<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await authed(path, init);
   const data = await res.json().catch(() => ({}));
+  // (a video made with the ready-made design shows its own note instead, so recording is not covered)
+  if (data?.code === 'AI_KEY_NEEDED') askForAiKey(data.error);
   if (!res.ok) throw new Error(data?.error || (res.status === 413 ? 'The video is too large.' : 'Could not reach the store. Please try again.'));
   return data as T;
 }
@@ -55,6 +58,8 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
   const [music, setMusic] = useState(true);
   const [video, setVideo] = useState<{ blob: Blob; url: string } | null>(null);
   const [added, setAdded] = useState(false);
+  // made with the ready-made design because today's free AI uses are finished
+  const [keyNote, setKeyNote] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stopRef = useRef(false);
   const supported = Boolean(pickMime()) && typeof HTMLCanvasElement !== 'undefined' && 'captureStream' in HTMLCanvasElement.prototype;
@@ -74,10 +79,11 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
     stopRef.current = false;
     try {
       setStatus('The AI is planning your video...');
-      const r = await apiJson<{ plan: Plan; usedAi: boolean; product: { pictures: string[]; shopName: string } }>('/api/seller/coach/video-plan', {
+      const r = await apiJson<{ plan: Plan; usedAi: boolean; aiKeyNeeded?: boolean; product: { pictures: string[]; shopName: string } }>('/api/seller/coach/video-plan', {
         method: 'POST',
         body: JSON.stringify({ productId: product.id, prompt }),
       });
+      setKeyNote(Boolean(r.aiKeyNeeded));
       setStatus('Getting the pictures ready...');
       const pics = (await Promise.all(r.product.pictures.map((u, i) => loadPicture(product.id, u, i)))).filter(Boolean) as (HTMLImageElement | ImageBitmap)[];
       if (!pics.length) throw new Error('The product pictures could not be opened. Check that they still show on the product page.');
@@ -230,7 +236,17 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
             {(step === 'done' || step === 'saving') && video && (
               <div className="space-y-2">
                 <video src={video.url} controls autoPlay loop playsInline className="w-full aspect-square rounded-xl bg-black" />
-                {error && <p className="text-xs text-rose-700">{error}</p>}
+                {keyNote && (
+                  <div className="text-[11px] p-2 bg-amber-50 border border-amber-300 rounded flex flex-wrap items-center gap-2">
+                    <span className="flex-1 min-w-[180px]">
+                      Made with the ready-made design: today's free AI uses are finished. Add your own free AI key and the AI designs every video from your words.
+                    </span>
+                    <button type="button" onClick={() => askForAiKey()} className="px-2 py-1 bg-[#0E7A43] text-white font-bold rounded cursor-pointer">
+                      Add my free key
+                    </button>
+                  </div>
+                )}
+                {error &&<p className="text-xs text-rose-700">{error}</p>}
                 <button
                   type="button"
                   disabled={step === 'saving'}

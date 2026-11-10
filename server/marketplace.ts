@@ -54,6 +54,8 @@ export interface MarketplaceDeps {
   storePrivateFile: (rel: string, buffer: Buffer) => Promise<void>;
   readPrivateFile: (rel: string) => Promise<Buffer | null>;
   HOUSE_SELLER_ID: string;
+  /** Whether a seller added their own AI key, and how many free AI uses on the store's keys are left today */
+  aiKeyState?: (uid: string) => { hasKey: boolean; freeLeft: number; freePerDay: number };
   DEFAULT_COMMISSION_PERCENT: number;
   /** Tells the seller by email that their shop was approved / rejected / suspended */
   emailSellerStatus: (seller: any, status: 'APPROVED' | 'REJECTED' | 'SUSPENDED', reason: string, vendorId?: string) => Promise<void>;
@@ -2039,7 +2041,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       if (!hit.shop) return res.status(404).json({ error: 'Shop not found.' });
       res.setHeader('Cache-Control', 'public, max-age=300');
-      res.json({ success: true, shop: hit.shop });
+      // "AI Powered Shop" badge: the seller added their own AI key (known in memory, no reads)
+      res.json({ success: true, shop: { ...hit.shop, aiPowered: Boolean(d.aiKeyState?.(id).hasKey) } });
     } catch (err) {
       console.error('[shops] failed:', err);
       res.status(503).json({ error: 'Could not load this shop.' });
@@ -2160,7 +2163,29 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     try {
       const uid = (req as any).user.uid as string;
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ success: true, coach: await coachOf(uid, (req as any).seller, req.query.fresh === '1') });
+      const coach = await coachOf(uid, (req as any).seller, req.query.fresh === '1');
+      // No own AI key: a red point that stays until the key is added (the health score is not touched)
+      const ai = d.aiKeyState?.(uid);
+      const out =
+        ai && !ai.hasKey
+          ? {
+              ...coach,
+              issues: [
+                {
+                  level: 'RED',
+                  title: 'Your free AI key is not added',
+                  detail: `Without your own key you get only ${ai.freePerDay} AI uses a day (${ai.freeLeft} left today) for videos, descriptions and the AI Assistant.`,
+                  impact: 'When they run out, your AI videos, AI descriptions and the AI Assistant stop for the day, while shops with their own key keep improving their listings.',
+                  fix: 'Add your free Gemini key (2 minutes, no card needed): you get 150 AI uses a day and the "AI Powered Shop ✨" badge on your shop page.',
+                  tab: 'AI',
+                  action: 'ADD_AI_KEY',
+                  key: 'ai-key',
+                },
+                ...coach.issues,
+              ],
+            }
+          : coach;
+      res.json({ success: true, coach: out, ai: ai || null });
       // Daily auto-fix (server/sellerAi.ts) runs in the background when the seller opens the coach
       coachViewedHook?.(uid, (req as any).seller);
     } catch (err) {

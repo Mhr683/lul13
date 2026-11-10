@@ -119,6 +119,14 @@ export const SellerShopPage: React.FC<{
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-[#0E7A43]">
             <Store className="w-3.5 h-3.5" /> Shop
+            {shop?.aiPowered && (
+              <span
+                title="This shop uses AI to make its product videos and descriptions clearer"
+                className="ml-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-violet-100 to-amber-100 text-violet-800 border border-violet-200 normal-case tracking-normal"
+              >
+                AI Powered Shop ✨
+              </span>
+            )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-display font-medium text-[#141413] truncate">{name}</h1>
           <p className="text-xs text-[#575653]">

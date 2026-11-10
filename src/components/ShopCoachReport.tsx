@@ -13,7 +13,7 @@ export type CoachIssue = {
   tab?: string;
   key?: string;
   /** A fix the app can run for the seller */
-  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES' | 'MAKE_VIDEOS';
+  action?: 'REWRITE_ALL' | 'FIX_BRAND_NAMES' | 'MAKE_VIDEOS' | 'ADD_AI_KEY';
   /** The products the issue is about */
   products?: { id: string; name: string; brand: string; image?: string }[];
 };

@@ -63,6 +63,7 @@ import { SellerShell } from './SellerShell';
 import { SellerLanding } from './SellerLanding';
 import { AdminAiKeysPanel } from './AdminAiKeysPanel';
 import { VideoFixActions, VideoMakerModal } from './AiVideoMaker';
+import { AiKeyNudge, askForAiKey } from './AiKeyNudge';
 
 // Seller Center (/seller): marketplace sellers apply, then manage their own products, orders,
 // shipping/tracking and earnings. Everything goes through the /api/seller/* server routes.
@@ -138,6 +139,8 @@ async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
   const data = await res.json().catch(() => ({}));
+  // Today's free AI uses are finished: ask the seller to add their own free AI key
+  if (data?.code === 'AI_KEY_NEEDED' || data?.aiKeyNeeded) askForAiKey(data?.code === 'AI_KEY_NEEDED' ? data.error : data?.message);
   if (!res.ok) {
     // No answer from the store itself (e.g. the connection dropped): say so instead of a vague error
     const message =
@@ -541,6 +544,13 @@ export const SellerCenterView: React.FC = () => {
         ) : null
       }
     >
+      {/* Asks shops without their own free AI key to add one (welcome step + when the free uses run out) */}
+      <AiKeyNudge
+        onAddKey={() => {
+          setTab('AI');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
       {tab === 'DASHBOARD' && <DashboardTab onGo={setTab} seller={seller} />}
       {tab === 'ORDERS' && <OrdersTab />}
       {tab === 'PRODUCTS' && (
@@ -1431,6 +1441,10 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
                     onGo('PRODUCTS' as Tab);
                   }}
                 />
+              ) : action === 'ADD_AI_KEY' ? (
+                <button type="button" onClick={() => onGo('AI' as Tab)} className="mt-1 px-3 py-1.5 bg-[#0E7A43] text-white font-bold cursor-pointer">
+                  🔑 Add my free AI key
+                </button>
               ) : action === 'MAKE_VIDEOS' ? (
                 <VideoFixActions
                   products={issue.products || []}
