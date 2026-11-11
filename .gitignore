@@ -19,3 +19,6 @@ coverage/
 
 # PWA service worker built by the dev server
 dev-dist/
+
+# Ads made for marketing (videos / posters), kept out of git
+marketing-ads/
