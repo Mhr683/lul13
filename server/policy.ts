@@ -28,7 +28,7 @@ export interface PolicyDeps {
   storeMedia: (buffer: Buffer, ext: string, contentType: string) => Promise<string>;
   applyOrderStatusWithStock: (ref: FirebaseFirestore.DocumentReference, updates: Record<string, any> & { status: string }) => Promise<unknown>;
   appendTrackingEvent: (existing: any, event: { at: string; status?: string; location?: string; note: string }) => any[];
-  postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => Promise<void>;
+  postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT', source?: 'CUSTOMER' | 'ADMIN' | 'STORE' | 'COACH') => Promise<void>;
   suspendSeller: (sellerId: string, reason: string) => Promise<boolean>;
   forgetSeller: (sellerId: string) => void;
   forgetOrders: (sellerId: string) => void;
@@ -192,7 +192,8 @@ export function registerPolicyRoutes(app: express.Express, d: PolicyDeps) {
           request.sellerName,
           `Return request on order ${orderNumber}`,
           `The customer asked for a ${resolution === 'REPLACEMENT' ? 'replacement' : 'refund'}: ${RETURN_REASON_LABEL[reason]}.\n\n"${details}"\n\nThe store will review it. Your payout for this order is on hold until it is decided. You can add your side in Seller Center → Orders → Returns.`,
-          reason === 'FAKE' ? 'URGENT' : 'WARNING'
+          reason === 'FAKE' ? 'URGENT' : 'WARNING',
+          'CUSTOMER'
         ).catch(() => {});
       }
       res.json({ success: true, status: 'OPEN' });
@@ -303,11 +304,11 @@ export function registerPolicyRoutes(app: express.Express, d: PolicyDeps) {
     });
     if (outcome && r.sellerId !== d.HOUSE_SELLER_ID) {
       if (outcome.action === 'DELISTED') {
-        await d.postNotice(r.sellerId, sellerName, 'Product delisted', `"${outcome.name}" has been permanently removed from the store: ${outcome.customers} different customers reported quality / wrong-item problems (Seller Rules: 3 complaints).`, 'URGENT');
+        await d.postNotice(r.sellerId, sellerName, 'Product delisted', `"${outcome.name}" has been permanently removed from the store: ${outcome.customers} different customers reported quality / wrong-item problems (Seller Rules: 3 complaints).`, 'URGENT', 'CUSTOMER');
       } else if (outcome.action === 'LOCKED') {
-        await d.postNotice(r.sellerId, sellerName, 'Product locked: fake / replica complaint', `"${outcome.name}" has been locked after a customer complaint about a fake or replica item was upheld (order ${r.orderNumber}). It stays off the store; contact the store if you believe this is a mistake.`, 'URGENT');
+        await d.postNotice(r.sellerId, sellerName, 'Product locked: fake / replica complaint', `"${outcome.name}" has been locked after a customer complaint about a fake or replica item was upheld (order ${r.orderNumber}). It stays off the store; contact the store if you believe this is a mistake.`, 'URGENT', 'CUSTOMER');
       } else {
-        await d.postNotice(r.sellerId, sellerName, 'Customer complaint upheld', `A complaint about "${outcome.name}" (order ${r.orderNumber}: ${RETURN_REASON_LABEL[r.reason as ReturnReason]}) was upheld. ${outcome.customers} of ${POLICY.COMPLAINTS_TO_DELIST} complaints: at ${POLICY.COMPLAINTS_TO_DELIST} the product is delisted.`, 'WARNING');
+        await d.postNotice(r.sellerId, sellerName, 'Customer complaint upheld', `A complaint about "${outcome.name}" (order ${r.orderNumber}: ${RETURN_REASON_LABEL[r.reason as ReturnReason]}) was upheld. ${outcome.customers} of ${POLICY.COMPLAINTS_TO_DELIST} complaints: at ${POLICY.COMPLAINTS_TO_DELIST} the product is delisted.`, 'WARNING', 'CUSTOMER');
       }
     }
     return outcome;

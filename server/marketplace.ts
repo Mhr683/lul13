@@ -47,7 +47,7 @@ export interface MarketplaceDeps {
   /** Copies remote images into the store's Firebase Storage (old URL -> stored URL) */
   archiveImageUrls: (urls: unknown[]) => Promise<{ storageUnavailable: boolean; results: Record<string, string> }>;
   /** Sends a notice to one seller's Seller Center inbox */
-  postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => Promise<void>;
+  postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT', source?: 'CUSTOMER' | 'ADMIN' | 'STORE' | 'COACH') => Promise<void>;
   /** Saves an uploaded picture / video and returns its public URL */
   storeMedia: (buffer: Buffer, ext: string, contentType: string) => Promise<string>;
   /** Saves / reads a private file (sellers' ID and business documents); never publicly served */
@@ -2138,7 +2138,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         `Shop Coach: ${urgent.length} urgent problem${urgent.length > 1 ? 's' : ''}`,
         urgent.map((i: any) => `• ${i.title}\n  Why it matters: ${i.impact}\n  What to do: ${i.fix}`).join('\n\n') +
           '\n\nOpen the Dashboard or ask the AI Assistant "how is my shop doing?" for the full report.',
-        'WARNING'
+        'WARNING',
+        'COACH'
       ).catch(() => {});
     }
     return coach;
@@ -2305,7 +2306,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         await sellersCol().doc(uid).set(fields, { merge: true });
         forgetSeller(uid);
       },
-      notify: (uid: string, shopName: string, title: string, body: string) => d.postNotice(uid, shopName, title, body, 'INFO'),
+      notify: (uid: string, shopName: string, title: string, body: string) => d.postNotice(uid, shopName, title, body, 'INFO', 'COACH'),
       forgetCoach: (uid: string) => coachCache.delete(uid),
     },
     setCoachViewedHook: (fn: (uid: string, seller: any) => void) => {

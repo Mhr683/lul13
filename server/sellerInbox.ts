@@ -23,6 +23,27 @@ export interface SellerInboxDeps {
 }
 
 export const THREAD_CATEGORIES = ['ORDER', 'PAYOUT', 'PRODUCT', 'ACCOUNT', 'OTHER'] as const;
+
+/** Who a notice is from, so Seller Center can keep customers, the store team and the AI coach apart */
+export type NoticeSource = 'CUSTOMER' | 'ADMIN' | 'STORE' | 'COACH';
+export type PostNotice = (
+  sellerId: string,
+  sellerName: string,
+  title: string,
+  body: string,
+  level: 'INFO' | 'WARNING' | 'URGENT',
+  source?: NoticeSource
+) => Promise<void>;
+const SOURCES: NoticeSource[] = ['CUSTOMER', 'ADMIN', 'STORE', 'COACH'];
+// Older notices were saved without a source: tell them apart by who wrote them and their title
+const sourceOf = (n: any): NoticeSource => {
+  if (SOURCES.includes(n.source)) return n.source;
+  if (n.createdBy !== 'Store rules (automatic)') return 'ADMIN';
+  const t = String(n.title || '');
+  if (/^(Shop Coach|Descriptions written|Brand names removed)/i.test(t)) return 'COACH';
+  if (/^(Return request|Customer complaint|Product delisted|Product locked)/i.test(t)) return 'CUSTOMER';
+  return 'STORE';
+};
 const NOTICE_LEVELS = ['INFO', 'WARNING', 'URGENT'];
 const MAX_MESSAGES = 200;
 
@@ -104,8 +125,9 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
       const uid = (req as any).user.uid as string;
       const seller = (req as any).seller;
       const [list, all] = await Promise.all([threadsOfSeller(uid), allNotices()]);
-      const mine = all.filter((n) => n.audience === 'ALL' || n.audience === uid);
+      const mine = all.filter((n) => n.audience === 'ALL' || n.audience === uid).map((n) => ({ ...n, source: sourceOf(n) }));
       const readAt = String(seller.noticesReadAt || '');
+      const unreadOf = (coach: boolean) => mine.filter((n) => (n.source === 'COACH') === coach && String(n.createdAt) > readAt).length;
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         success: true,
@@ -114,7 +136,9 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
         noticesReadAt: readAt,
         unread: {
           threads: list.filter((t) => t.unreadForSeller).length,
-          notices: mine.filter((n) => String(n.createdAt) > readAt).length,
+          // the AI coach's tips are counted apart so they don't fill the bell
+          notices: unreadOf(false),
+          coach: unreadOf(true),
         },
       });
     } catch (err) {
@@ -408,6 +432,7 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
         title,
         body,
         level,
+        source: 'ADMIN',
         audience,
         audienceName,
         createdAt: new Date().toISOString(),
@@ -423,13 +448,14 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
   });
 
   /** A notice sent automatically by the store's rules (late dispatch, complaints, ...) to one seller */
-  const postNotice = async (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => {
+  const postNotice: PostNotice = async (sellerId, sellerName, title, body, level, source = 'STORE') => {
     const id = newId('ntc');
     await notices().doc(id).set({
       id,
       title: title.slice(0, 140),
       body: body.slice(0, 3000),
       level,
+      source,
       audience: sellerId,
       audienceName: sellerName || sellerId,
       createdAt: new Date().toISOString(),

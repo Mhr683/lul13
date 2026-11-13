@@ -24,7 +24,7 @@ export interface FeedbackDeps {
   forgetShop: (sellerId: string) => void;
   /** Supplier Code of Conduct: a rating below 3.0 suspends the seller */
   suspendSeller: (sellerId: string, reason: string, cause?: 'RATING' | 'OTHER') => Promise<boolean>;
-  postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT') => Promise<void>;
+  postNotice: (sellerId: string, sellerName: string, title: string, body: string, level: 'INFO' | 'WARNING' | 'URGENT', source?: 'CUSTOMER' | 'ADMIN' | 'STORE' | 'COACH') => Promise<void>;
   limitPerIp: (name: string, max: number, windowMs?: number) => Handler;
   /** Saves an uploaded file (Firebase Storage, or the server's disk) and returns its URL */
   storeMedia: (buffer: Buffer, ext: string, contentType: string) => Promise<string>;

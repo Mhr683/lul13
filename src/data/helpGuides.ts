@@ -104,13 +104,18 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     tips: ['Jaldi jawab dene se sale barhti hai.'],
   },
   'seller.tab.MESSAGES': {
-    title: 'Messages (store se baat chit)',
-    what: 'Store ke notices aur aap ki shikayatein / sawal.',
+    title: 'Messages (customer, store aur AI coach alag alag)',
+    what: 'Yahan 3 dabbe hain: 🛍️ Customers, 🏪 Store / Admin aur 🤖 AI Coach. Har message par likha hota hai ke kis ki taraf se aaya.',
     steps: [
-      'Messages tab kholein. "Notices from the store" mein store ke elaan hain.',
-      'Store ko kuch kehna ho to "New complaint / message" dabayein.',
-      '"What is it about?" chunein, order number (agar ho) likhein, Subject aur message likh kar bhej dein.',
+      'Messages tab kholein. Jis dabbe mein naya message ho woh khud khulta hai, aur us par laal number hota hai.',
+      '🛍️ Customers: buyers ke returns aur shikayatein. Inhein sab se pehle dekhein. Product ke sawal Questions tab mein hain (neeche button).',
+      '🏪 Store / Admin: store team ke notices, store ke qawaid (late dispatch, return charge waghera) aur store se aap ki baat chit.',
+      'Store ko kuch kehna ho to Store / Admin mein "New complaint / message" dabayein, "What is it about?" chunein, order number (agar ho), Subject aur message likh kar bhej dein.',
       'Jawab yahin aata hai. Band baat chit par dobara likhne se woh phir khul jati hai.',
+      '🤖 AI Coach: dukaan behtar karne ke mashware. Yeh hukam nahi, salah hai. Poori report Dashboard par hai.',
+    ],
+    tips: [
+      'Upar ki ghanti (🔔) ka number sirf customers aur store ke messages ginta hai; AI coach ke mashware us mein nahi gine jate, taake zaroori message gum na hon.',
     ],
   },
   'seller.tab.PROFILE': {

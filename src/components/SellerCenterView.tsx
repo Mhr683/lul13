@@ -90,12 +90,22 @@ type SellerThread = {
   messageCount?: number;
   messages?: ThreadMessage[];
 };
-type StoreNotice = { id: string; title: string; body: string; level: 'INFO' | 'WARNING' | 'URGENT'; createdAt: string; audience: string };
+type NoticeSource = 'CUSTOMER' | 'ADMIN' | 'STORE' | 'COACH';
+type StoreNotice = {
+  id: string;
+  title: string;
+  body: string;
+  level: 'INFO' | 'WARNING' | 'URGENT';
+  createdAt: string;
+  audience: string;
+  source?: NoticeSource;
+};
 type SellerInbox = {
   threads: SellerThread[];
   notices: StoreNotice[];
   noticesReadAt: string;
-  unread: { threads: number; notices: number };
+  /** notices = from customers and the store team; coach = the AI coach's tips (kept off the bell) */
+  unread: { threads: number; notices: number; coach?: number };
 };
 type SupplierItem = { productId: string; supplierName?: string; supplierSku?: string; supplierProductUrl?: string; supplierCostPrice?: number };
 type SellerOrder = Order & {
@@ -483,7 +493,7 @@ export const SellerCenterView: React.FC = () => {
     PRODUCTS: { title: 'Products', description: 'Add, edit and bulk-upload the products of your shop.', help: 'seller.tab.PRODUCTS' },
     REVIEWS: { title: 'Reviews', description: 'Your rating, customer reviews, likes and dislikes.', help: 'seller.tab.REVIEWS' },
     QUESTIONS: { title: 'Questions', description: 'Customers ask about your products; your answers show to everyone.', help: 'seller.tab.QUESTIONS' },
-    MESSAGES: { title: 'Messages', description: 'Notices from the store and your conversations with the team.', help: 'seller.tab.MESSAGES' },
+    MESSAGES: { title: 'Messages', description: 'Customers, the store team and the AI coach, each in its own box.', help: 'seller.tab.MESSAGES' },
     EARNINGS: { title: 'Earnings & payouts', description: 'What you earned on each order and what was paid to you.', help: 'seller.tab.EARNINGS' },
     AI: { title: 'AI Assistant', description: 'Ask about your shop, get descriptions written and fixes suggested.', help: 'seller.tab.AI' },
     PROFILE: { title: 'Profile & payout', description: 'Your shop details, pickup address and where payouts are sent.', help: 'seller.tab.PROFILE' },
@@ -592,7 +602,7 @@ export const SellerCenterView: React.FC = () => {
       )}
       {tab === 'REVIEWS' && <ReviewsTab onSeen={clearActivity} />}
       {tab === 'QUESTIONS' && <QuestionsInbox mode="seller" onWaitingChange={setQuestionsWaiting} />}
-      {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} />}
+      {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} onTab={(t) => setTab(t as Tab)} />}
       {tab === 'PROFILE' &&
         (sellerPrivate ? (
           <ProfileTab seller={seller} privateData={sellerPrivate} onSaved={loadMe} />
@@ -3043,20 +3053,75 @@ const noticeTone: Record<string, string> = {
 const when = (iso: string) =>
   new Date(iso).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
-const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<void> }> = ({ inbox, reload }) => {
+// Who sent a notice: customers, the store team (admin + the store's automatic rules) or the AI coach
+const NOTICE_FROM: Record<NoticeSource, string> = {
+  CUSTOMER: '🛍️ From a customer',
+  ADMIN: '🏪 From the store team',
+  STORE: '📋 Store rules (automatic)',
+  COACH: '🤖 AI Shop Coach (advice)',
+};
+type InboxBox = 'CUSTOMER' | 'STORE' | 'COACH';
+const boxOf = (n: StoreNotice): InboxBox => (n.source === 'CUSTOMER' ? 'CUSTOMER' : n.source === 'COACH' ? 'COACH' : 'STORE');
+
+const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<void>; onTab: (tab: string) => void }> = ({
+  inbox,
+  reload,
+  onTab,
+}) => {
   const { showToast } = useStore();
   const [openId, setOpenId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
+  const [box, setBox] = useState<InboxBox | null>(null);
+  // "New" marks stay for this visit even after the notices are marked read
+  const [seenBefore, setSeenBefore] = useState<string | null>(null);
 
-  // Opening this tab counts as reading the store's notices
   useEffect(() => {
-    if (!inbox || inbox.unread.notices === 0) return;
+    if (inbox && seenBefore === null) setSeenBefore(inbox.noticesReadAt || '');
+  }, [inbox, seenBefore]);
+
+  // Opening this tab counts as reading the notices
+  useEffect(() => {
+    if (!inbox || inbox.unread.notices + (inbox.unread.coach || 0) === 0) return;
     api('/api/seller/notices/read', { method: 'POST' })
       .then(() => reload())
       .catch(() => {});
-  }, [inbox?.unread.notices]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inbox?.unread.notices, inbox?.unread.coach]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!inbox) return <p className="text-xs text-[#575653]">Loading messages...</p>;
+
+  const readAt = seenBefore ?? inbox.noticesReadAt;
+  const isNew = (n: StoreNotice) => String(n.createdAt) > readAt;
+  const inBox = (b: InboxBox) => inbox.notices.filter((n) => boxOf(n) === b);
+  const newIn = (b: InboxBox) => inBox(b).filter(isNew).length + (b === 'STORE' ? inbox.unread.threads : 0);
+  // Open the box that has something new: customers first, then the store, then the coach
+  const shown: InboxBox = box || (['CUSTOMER', 'STORE', 'COACH'] as InboxBox[]).find((b) => newIn(b) > 0) || 'CUSTOMER';
+  const boxes: { id: InboxBox; label: string; hint: string }[] = [
+    { id: 'CUSTOMER', label: '🛍️ Customers', hint: 'Returns and complaints from your buyers. Act on these first.' },
+    { id: 'STORE', label: '🏪 Store / Admin', hint: 'Notices from the store team, store rules, and your conversations with the store.' },
+    { id: 'COACH', label: '🤖 AI Coach', hint: 'Tips from the AI Shop Coach. They are advice, not orders: use them to sell more.' },
+  ];
+
+  const noticeList = (list: StoreNotice[], empty: string) =>
+    list.length === 0 ? (
+      <p className="p-4 bg-white border border-black/10 text-[#575653]">{empty}</p>
+    ) : (
+      list.slice(0, 20).map((n) => (
+        <div key={n.id} className={`p-3 border ${noticeTone[n.level] || noticeTone.INFO}`}>
+          <div className="text-[10px] font-bold uppercase tracking-wider opacity-70">{NOTICE_FROM[n.source || 'STORE']}</div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <strong className="text-[13px]">
+              {n.level === 'URGENT' ? '⚠️ ' : n.level === 'WARNING' ? '❗ ' : ''}
+              {n.title}
+            </strong>
+            <span className="opacity-70">
+              {when(n.createdAt)}
+              {isNew(n) && <span className="ml-1 font-bold">· New</span>}
+            </span>
+          </div>
+          <p className="mt-1 whitespace-pre-line">{n.body}</p>
+        </div>
+      ))
+    );
 
   if (composing) {
     return (
@@ -3076,30 +3141,70 @@ const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<v
   }
 
   return (
-    <div className="space-y-5 text-xs">
+    <div className="space-y-4 text-xs">
+      <div className="grid grid-cols-3 gap-1.5" role="tablist">
+        {boxes.map((b) => {
+          const count = newIn(b.id);
+          const on = shown === b.id;
+          return (
+            <button
+              key={b.id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setBox(b.id)}
+              className={`relative px-2 py-2.5 rounded-lg border text-[12px] font-bold cursor-pointer ${
+                on ? 'bg-[#141413] text-white border-[#141413]' : 'bg-white border-black/15 text-[#3A3936] hover:bg-[#F2F1EC]'
+              }`}
+            >
+              {b.label}
+              {count > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center">
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[#575653]">{boxes.find((b) => b.id === shown)!.hint}</p>
+
+      {shown === 'CUSTOMER' && (
+        <section className="space-y-2">
+          {noticeList(inBox('CUSTOMER'), 'No returns or complaints from customers. 👍')}
+          <button
+            type="button"
+            onClick={() => onTab('QUESTIONS')}
+            className="w-full p-3 bg-white border border-black/10 text-left cursor-pointer hover:bg-black/[0.02]"
+          >
+            <strong>❓ Customer questions about your products</strong>
+            <span className="block text-[#575653]">They are in the Questions tab. Tap to open and reply.</span>
+          </button>
+        </section>
+      )}
+
+      {shown === 'COACH' && (
+        <section className="space-y-2">
+          {noticeList(inBox('COACH'), 'No tips from the AI coach yet.')}
+          <button
+            type="button"
+            onClick={() => onTab('DASHBOARD')}
+            className="w-full p-3 bg-white border border-black/10 text-left cursor-pointer hover:bg-black/[0.02]"
+          >
+            <strong>📊 See the full Shop Coach report</strong>
+            <span className="block text-[#575653]">On the Dashboard, with a fix button next to each problem.</span>
+          </button>
+        </section>
+      )}
+
+      {shown === 'STORE' && (
       <section className="space-y-2">
         <h2 className="text-sm font-bold text-[#141413]">Notices from the store</h2>
-        {inbox.notices.length === 0 ? (
-          <p className="p-4 bg-white border border-black/10 text-[#575653]">No notices yet.</p>
-        ) : (
-          inbox.notices.slice(0, 20).map((n) => (
-            <div key={n.id} className={`p-3 border ${noticeTone[n.level] || noticeTone.INFO}`}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong className="text-[13px]">
-                  {n.level === 'URGENT' ? '⚠️ ' : n.level === 'WARNING' ? '❗ ' : ''}
-                  {n.title}
-                </strong>
-                <span className="opacity-70">
-                  {when(n.createdAt)}
-                  {String(n.createdAt) > inbox.noticesReadAt && <span className="ml-1 font-bold">· New</span>}
-                </span>
-              </div>
-              <p className="mt-1 whitespace-pre-line">{n.body}</p>
-            </div>
-          ))
-        )}
+        {noticeList(inBox('STORE'), 'No notices from the store yet.')}
       </section>
+      )}
 
+      {shown === 'STORE' && (
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-bold text-[#141413]">Your conversations with the store</h2>
@@ -3150,6 +3255,7 @@ const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<v
           </div>
         )}
       </section>
+      )}
     </div>
   );
 };
