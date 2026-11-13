@@ -1508,7 +1508,8 @@ export const StorefrontView: React.FC = () => {
           </button>
 
           {/* Global search */}
-          <div className="flex-1 max-w-xl mx-2 hidden sm:block min-w-0">
+          {/* In the header row only on wide screens; narrower windows get the full-width row below */}
+          <div className="flex-1 max-w-xl mx-2 hidden lg:block min-w-0">
             <GlobalHeaderSearch
               products={products}
               categories={categories}
@@ -1654,9 +1655,9 @@ export const StorefrontView: React.FC = () => {
           </div>
         </div>
 
-        {/* Mobile Search Bar */}
-        <div className="sm:hidden px-4 py-2 border-t border-black/[0.05] bg-[#FBFBF9] flex items-center gap-2">
-          <div className="flex-1 min-w-0">
+        {/* Search row for phones, tablets and small laptop windows (a full-screen search page on phones) */}
+        <div className="lg:hidden px-4 py-2 border-t border-black/[0.05] bg-[#FBFBF9] flex items-center gap-2">
+          <div className="flex-1 min-w-0 max-w-2xl mx-auto">
             <GlobalHeaderSearch
               fullWidth
               products={products}
@@ -2050,7 +2051,8 @@ export const StorefrontView: React.FC = () => {
                         <ProductTypeIcon type={t.id} className="w-5 h-5 sm:w-6 sm:h-6" />
                       </span>
                       <span className="text-[10.5px] sm:text-xs font-semibold text-[#141413] text-center leading-tight">{t.label}</span>
-                      <span className="text-[9.5px] text-[#8A8780]">{n ? `${n} item${n === 1 ? '' : 's'}` : 'Coming soon'}</span>
+                      {/* No product counts for customers; only say when a type has nothing yet */}
+                      {!n && <span className="text-[9.5px] text-[#8A8780]">Coming soon</span>}
                     </button>
                   );
                 })}

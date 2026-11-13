@@ -41,7 +41,15 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sheetInputRef = useRef<HTMLInputElement>(null);
-  const sheet = fullWidth; // phone: full-screen page
+  // Phone (narrow screen): full-screen search page; wider screens: the panel under the box
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const sheet = fullWidth && narrow;
 
   // Phone search page has its own history step (so the phone's Back closes it). Closing it goes
   // back one step first, then does what was asked (open the product, show all results).
