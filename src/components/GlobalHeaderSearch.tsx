@@ -1,343 +1,306 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, X, ArrowRight, Tag, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
+import { Search, X, ArrowRight, ArrowLeft } from 'lucide-react';
 import { Product } from '../types/store';
 import { ProductImage } from './ProductImage';
-import { formatPKR } from '../services/abstractions';
 import { formatMoney } from '../services/currency';
+
+// Store search box (header). Laptop: a results panel under the box that always stays inside the
+// screen. Phone: a full-screen search page with a Back button. Esc, Back, a tap outside or picking a
+// result closes it.
 
 interface GlobalHeaderSearchProps {
   products: Product[];
   categories: { id: string; name: string }[];
   onSelectProduct: (product: Product) => void;
   onViewAllResults: (query: string, category?: string) => void;
-  /** Phone search row: the box and its results take the full width */
+  /** Phone search row: the box takes the full width and opens a full-screen search page */
   fullWidth?: boolean;
 }
 
-export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({
-  products,
-  categories,
-  onSelectProduct,
-  onViewAllResults,
-  fullWidth = false,
-}) => {
+const SHOW = 8;
+const PANEL_W = 520;
+const GAP = 12;
+
+/** Does the product match the words typed (with a few everyday synonyms)? */
+function matches(p: Product, q: string, tokens: string[]) {
+  const cat = p.category.toLowerCase();
+  const sub = (p.subcategory || '').toLowerCase();
+  if ((q.includes('kid') || q.includes('child') || q.includes('bach')) && (cat === 'children' || /kid|boy|girl|baby/.test(sub))) return true;
+  if ((q.includes('perfume') || q.includes('fragrance') || q.includes('scent') || q.includes('attar')) && cat === 'fragrance') return true;
+  if ((q.includes('watch') || q.includes('ghari')) && (cat === 'watches' || cat === 'horology')) return true;
+  const text = `${p.name} ${p.category} ${p.subcategory || ''} ${p.brand} ${p.sku} ${p.shortDescription || ''} ${p.description || ''} ${p.seoKeywords || ''}`.toLowerCase();
+  return tokens.every((t) => text.includes(t));
+}
+
+export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products, categories, onSelectProduct, onViewAllResults, fullWidth = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  const [category, setCategory] = useState('ALL');
+  const [active, setActive] = useState(-1);
+  const [panelPos, setPanelPos] = useState<{ left: number; width: number }>({ left: 0, width: PANEL_W });
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const sheetInputRef = useRef<HTMLInputElement>(null);
+  const sheet = fullWidth; // phone: full-screen page
 
-  // Close when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Shortcut "/" or "Cmd+K / Ctrl+K" to open global search
-      if (
-        (event.key === '/' || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')) &&
-        document.activeElement?.tagName !== 'INPUT' &&
-        document.activeElement?.tagName !== 'TEXTAREA'
-      ) {
-        event.preventDefault();
-        setIsOpen(true);
-        setTimeout(() => inputRef.current?.focus(), 50);
-      }
-      if (event.key === 'Escape' && isOpen) {
-        setIsOpen(false);
-        inputRef.current?.blur();
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  // Focus input when opened
-  useEffect(() => {
-    if (isOpen) {
-      inputRef.current?.focus();
+  // Phone search page has its own history step (so the phone's Back closes it). Closing it goes
+  // back one step first, then does what was asked (open the product, show all results).
+  const afterClose = useRef<(() => void) | null>(null);
+  const close = (after?: () => void) => {
+    setActive(-1);
+    inputRef.current?.blur();
+    sheetInputRef.current?.blur();
+    if (sheet && history.state?.anokhaSearch) {
+      afterClose.current = after || null;
+      history.back();
+      return;
     }
-  }, [isOpen]);
-
-  // Fast luxury matching across Name, Category, Description, Brand, and SKU
-  const searchResults = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const activeProducts = products.filter((p) => p.status === 'ACTIVE');
-
-    if (!q) {
-      // When input is blank, show featured curated pieces or top stock
-      return activeProducts
-        .filter((p) => (selectedCategory === 'ALL' ? true : p.category.toLowerCase() === selectedCategory.toLowerCase()))
-        .sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0))
-        .slice(0, 5);
-    }
-
-    const tokens = q.split(/\s+/).filter(Boolean);
-
-    return activeProducts
-      .filter((p) => {
-        if (selectedCategory !== 'ALL' && p.category.toLowerCase() !== selectedCategory.toLowerCase()) {
-          return false;
-        }
-
-        const name = p.name.toLowerCase();
-        const cat = p.category.toLowerCase();
-        const sub = (p.subcategory || '').toLowerCase();
-        const brand = p.brand.toLowerCase();
-        const sku = p.sku.toLowerCase();
-        const desc = `${p.shortDescription || ''} ${p.description || ''}`.toLowerCase();
-        const keywords = (p.seoKeywords || '').toLowerCase();
-        const combined = `${name} ${cat} ${sub} ${brand} ${sku} ${desc} ${keywords}`;
-
-        // Support smart synonyms: kids -> children, perfume -> fragrance, watch -> watches/horology
-        if ((q.includes('kid') || q.includes('child') || q.includes('bach')) && (cat === 'children' || sub.includes('kid') || sub.includes('boy') || sub.includes('girl') || sub.includes('baby'))) {
-          return true;
-        }
-        if ((q.includes('perfume') || q.includes('fragrance') || q.includes('scent') || q.includes('attar')) && cat === 'fragrance') {
-          return true;
-        }
-        if ((q.includes('watch') || q.includes('ghari')) && (cat === 'watches' || cat === 'horology')) {
-          return true;
-        }
-
-        // Check if all tokens match anywhere in record
-        return tokens.every((token) => combined.includes(token));
-      })
-      .slice(0, 10);
-  }, [products, query, selectedCategory]);
-
-  const totalMatchingCount = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return 0;
-    const tokens = q.split(/\s+/).filter(Boolean);
-    return products
-      .filter((p) => p.status === 'ACTIVE')
-      .filter((p) => {
-        if (selectedCategory !== 'ALL' && p.category.toLowerCase() !== selectedCategory.toLowerCase()) {
-          return false;
-        }
-        const text = `${p.name} ${p.category} ${p.subcategory || ''} ${p.brand} ${p.sku} ${p.shortDescription || ''} ${p.description || ''} ${p.seoKeywords || ''}`.toLowerCase();
-        if ((q.includes('kid') || q.includes('child') || q.includes('bach')) && (p.category.toLowerCase() === 'children' || (p.subcategory || '').toLowerCase().includes('kid'))) {
-          return true;
-        }
-        if ((q.includes('perfume') || q.includes('fragrance') || q.includes('scent')) && p.category.toLowerCase() === 'fragrance') {
-          return true;
-        }
-        if ((q.includes('watch') || q.includes('ghari')) && (p.category.toLowerCase() === 'watches' || p.category.toLowerCase() === 'horology')) {
-          return true;
-        }
-        return tokens.every((t) => text.includes(t));
-      }).length;
-  }, [products, query, selectedCategory]);
-
-  const handleSelect = (product: Product) => {
-    onSelectProduct(product);
     setIsOpen(false);
+    after?.();
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (query.trim()) {
-      onViewAllResults(query.trim(), selectedCategory === 'ALL' ? undefined : selectedCategory);
+  // Close on a tap outside (laptop panel), Esc; "/" or Ctrl+K opens
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!sheet && containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '');
+      if (!sheet && !typing && (e.key === '/' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'))) {
+        e.preventDefault();
+        setIsOpen(true);
+        inputRef.current?.focus();
+      }
+      if (e.key === 'Escape' && isOpen) close();
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, sheet]);
+
+  // Laptop: keep the panel inside the window, under the box
+  useLayoutEffect(() => {
+    if (!isOpen || sheet) return;
+    const place = () => {
+      const r = containerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const vw = document.documentElement.clientWidth;
+      const width = Math.min(Math.max(PANEL_W, r.width), vw - GAP * 2);
+      let left = 0;
+      if (r.left + width > vw - GAP) left = vw - GAP - width - r.left;
+      if (r.left + left < GAP) left = GAP - r.left;
+      setPanelPos({ left, width });
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [isOpen, sheet]);
+
+  // Phone: the page behind does not scroll; Back button of the phone closes the search page
+  useEffect(() => {
+    if (!isOpen || !sheet) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => sheetInputRef.current?.focus(), 30);
+    // The page remembers where it was scrolled (StorefrontView scrolls back there on "back"), and the
+    // search step counts as a page of the site (inSite) so the "leave the store?" guard leaves it alone
+    history.replaceState({ ...(history.state || {}), y: window.scrollY }, '');
+    const { exitMarker, ...here } = history.state || {};
+    history.pushState({ ...here, inSite: true, anokhaSearch: true }, '');
+    const onPop = () => {
       setIsOpen(false);
+      const next = afterClose.current;
+      afterClose.current = null;
+      next?.();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('popstate', onPop);
+    };
+  }, [isOpen, sheet]);
+
+  const q = query.trim().toLowerCase();
+  const { results, total } = useMemo(() => {
+    const live = products.filter((p) => p.status === 'ACTIVE' && (category === 'ALL' || p.category.toLowerCase() === category.toLowerCase()));
+    if (!q) {
+      const top = [...live].sort((a, b) => Number(!!b.featured) - Number(!!a.featured));
+      return { results: top.slice(0, SHOW), total: 0 };
+    }
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const found = live.filter((p) => matches(p, q, tokens));
+    return { results: found.slice(0, SHOW), total: found.length };
+  }, [products, q, category]);
+
+  useEffect(() => setActive(-1), [q, category]);
+
+  const pick = (p: Product) => close(() => onSelectProduct(p));
+  const seeAll = () => {
+    const text = query.trim();
+    close(() => onViewAllResults(text, category === 'ALL' ? undefined : category));
+  };
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (active >= 0 && results[active]) return pick(results[active]);
+    if (query.trim()) seeAll();
+  };
+  const onArrows = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActive((i) => Math.min(results.length - 1, i + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive((i) => Math.max(-1, i - 1));
     }
   };
 
-  return (
-    <div ref={containerRef} className="relative">
-      {/* Desktop & Mobile Trigger / Search Input */}
-      <div className="relative flex items-center">
-        <form onSubmit={handleSubmit} className={`relative flex items-center ${fullWidth ? 'w-full' : ''}`}>
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onFocus={() => setIsOpen(true)}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              if (!isOpen) setIsOpen(true);
-            }}
-            placeholder="Search products..."
-            className={`pl-9 pr-8 py-1.5 text-xs text-[#141413] bg-[#F3F2EE] border transition-all duration-200 placeholder:text-[#8C8A85] focus:outline-none focus:bg-white focus:border-[#141413] ${
-              fullWidth ? 'w-full py-2 text-sm ' : ''
-            }${
-              isOpen
-                ? `${fullWidth ? '' : 'w-64 sm:w-80 md:w-96 '}border-[#141413] bg-white shadow-sm ring-1 ring-black/5`
-                : `${fullWidth ? '' : 'w-48 sm:w-60 md:w-72 '}border-black/10 hover:border-black/25`
-            }`}
-          />
-          <Search className="w-3.5 h-3.5 text-[#787774] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+  const field = (ref: React.RefObject<HTMLInputElement | null>, big: boolean) => (
+    <form onSubmit={onSubmit} className="relative flex items-center w-full" role="search">
+      <Search className="w-4 h-4 text-[#787774] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <input
+        ref={ref}
+        type="search"
+        enterKeyHint="search"
+        autoComplete="off"
+        value={query}
+        onFocus={() => setIsOpen(true)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setIsOpen(true);
+        }}
+        onKeyDown={onArrows}
+        placeholder="Search products..."
+        aria-label="Search products"
+        className={`w-full pl-9 pr-9 ${big ? 'py-2.5 text-[15px]' : 'py-2 text-[13px]'} rounded-full text-[#141413] bg-[#F3F2EE] border border-black/10 placeholder:text-[#8C8A85] focus:outline-none focus:bg-white focus:border-[#141413] focus:ring-2 focus:ring-black/5 transition-colors [&::-webkit-search-cancel-button]:hidden`}
+      />
+      {query && (
+        <button
+          type="button"
+          onClick={() => {
+            setQuery('');
+            ref.current?.focus();
+          }}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-full text-[#787774] hover:text-[#141413] hover:bg-black/5 cursor-pointer"
+          aria-label="Clear search"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </form>
+  );
 
-          {query && (
+  const body = (
+    <>
+      {/* Category chips */}
+      <div className="flex items-center border-b border-black/[0.06]">
+      <div className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {[{ id: 'ALL', name: 'All' }, ...categories].map((c) => {
+          const on = (c.id === 'ALL' ? 'ALL' : c.name).toLowerCase() === category.toLowerCase();
+          return (
             <button
+              key={c.id}
               type="button"
-              onClick={() => {
-                setQuery('');
-                inputRef.current?.focus();
-              }}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#787774] hover:text-[#141413] p-0.5 cursor-pointer"
-              aria-label="Clear search query"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-
-          {!query && (
-            <kbd className="hidden lg:inline-flex items-center gap-0.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-[#8C8A85] bg-black/[0.04] px-1.5 py-0.5 border border-black/[0.06]">
-              /
-            </kbd>
-          )}
-        </form>
-      </div>
-
-      {/* Luxury Search Results Dropdown Overlay */}
-      {isOpen && (
-        <div className={`absolute right-0 top-full mt-2 ${fullWidth ? 'left-0 w-full' : 'w-[340px] sm:w-[460px] md:w-[540px]'} bg-white border border-black/15 shadow-2xl z-50 overflow-hidden divide-y divide-black/[0.06] animate-in fade-in slide-in-from-top-1 duration-150`}>
-          {/* Category Filter Chips */}
-          <div className="p-3 bg-[#FAF9F6] flex items-center gap-1.5 overflow-x-auto text-[11px] font-medium no-scrollbar">
-            <span className="text-[#8C6D46] uppercase tracking-wider text-[10px] font-semibold shrink-0 mr-1 flex items-center gap-1">
-              <Tag className="w-3 h-3" />
-              Filter:
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory('ALL')}
-              className={`px-2.5 py-1 whitespace-nowrap transition-colors cursor-pointer ${
-                selectedCategory === 'ALL'
-                  ? 'bg-[#141413] text-[#FBFBF9]'
-                  : 'bg-white text-[#575653] hover:text-[#141413] border border-black/10'
+              onClick={() => setCategory(c.id === 'ALL' ? 'ALL' : c.name)}
+              className={`px-3 py-1 rounded-full text-[12px] whitespace-nowrap cursor-pointer transition-colors ${
+                on ? 'bg-[#141413] text-white' : 'bg-[#F3F2EE] text-[#3A3936] hover:bg-[#E9E7E1]'
               }`}
             >
-              All Products
+              {c.name}
             </button>
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => setSelectedCategory(cat.name)}
-                className={`px-2.5 py-1 whitespace-nowrap transition-colors cursor-pointer ${
-                  selectedCategory.toLowerCase() === cat.name.toLowerCase()
-                    ? 'bg-[#141413] text-[#FBFBF9]'
-                    : 'bg-white text-[#575653] hover:text-[#141413] border border-black/10'
-                }`}
-              >
-                {cat.name}
-              </button>
+          );
+        })}
+      </div>
+        {!sheet && (
+          <button
+            type="button"
+            onClick={() => close()}
+            className="mr-2 p-1.5 rounded-full text-[#787774] hover:text-[#141413] hover:bg-black/5 cursor-pointer shrink-0"
+            aria-label="Close search"
+            title="Close (Esc)"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      <div className="px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#8C8A85]">
+        {q ? (total ? `${total} product${total === 1 ? '' : 's'} found` : 'No results') : 'Popular products'}
+      </div>
+
+      <div className={`overflow-y-auto overscroll-contain ${sheet ? 'flex-1' : 'max-h-[min(400px,calc(100vh-220px))]'}`}>
+        {results.length > 0 ? (
+          <ul role="listbox" aria-label="Search results">
+            {results.map((p, i) => (
+              <li key={p.id} role="option" aria-selected={i === active}>
+                <button
+                  type="button"
+                  onClick={() => pick(p)}
+                  onMouseEnter={() => setActive(i)}
+                  className={`w-full px-4 py-2.5 flex items-center gap-3 text-left cursor-pointer ${i === active ? 'bg-[#F5F4F0]' : 'hover:bg-[#F5F4F0]'}`}
+                >
+                  <span className="w-12 h-12 rounded-lg bg-[#F3F2EE] shrink-0 overflow-hidden border border-black/[0.06]">
+                    <ProductImage src={p.primaryImage} alt="" category={p.category} className="w-full h-full object-cover" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-medium text-[#141413] leading-snug line-clamp-2">{p.name}</span>
+                    <span className="block text-[11px] text-[#8C8A85] truncate mt-0.5">{p.category}</span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-[13px] font-bold text-[#141413]">{formatMoney(p.price)}</span>
+                    {p.stock > 0 && p.stock <= 5 && <span className="block text-[10px] text-[#B42318] font-medium">Only {p.stock} left</span>}
+                  </span>
+                </button>
+              </li>
             ))}
+          </ul>
+        ) : (
+          <div className="px-6 py-10 text-center">
+            <Search className="w-7 h-7 mx-auto text-[#C9C6BE]" />
+            <p className="mt-2 text-[13px] font-semibold text-[#141413]">Nothing found for &ldquo;{query.trim()}&rdquo;</p>
+            <p className="mt-1 text-[12px] text-[#8C8A85]">Check the spelling, try a shorter word, or choose "All".</p>
           </div>
+        )}
+      </div>
 
-          {/* Quick Results List */}
-          <div className="max-h-[380px] overflow-y-auto divide-y divide-black/[0.05]">
-            {searchResults.length > 0 ? (
-              searchResults.map((product) => (
-                <div
-                  key={product.id}
-                  onClick={() => handleSelect(product)}
-                  className="p-3.5 hover:bg-[#FAF9F6] flex items-center gap-3.5 cursor-pointer transition-colors group"
-                >
-                  <div className="w-14 h-14 bg-[#F3F2EE] shrink-0 border border-black/10 overflow-hidden relative">
-                    <ProductImage
-                      src={product.primaryImage}
-                      alt={product.name}
-                      category={product.category}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                    />
-                  </div>
+      <div className="p-3 border-t border-black/[0.06]">
+        <button
+          type="button"
+          onClick={seeAll}
+          className="w-full py-2.5 rounded-full bg-[#141413] text-white text-[13px] font-semibold flex items-center justify-center gap-1.5 hover:bg-[#2A2A28] cursor-pointer"
+        >
+          {q ? (total ? `See all ${total} results` : 'Browse all products') : category === 'ALL' ? 'Browse all products' : `See all in ${category}`}
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+    </>
+  );
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 text-[10px] text-[#787774] uppercase tracking-wider">
-                      <span className="font-semibold text-[#8C6D46]">{product.brand}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{product.category}</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono">{product.sku}</span>
-                    </div>
+  return (
+    <div ref={containerRef} className="relative w-full">
+      {field(inputRef, false)}
 
-                    <h4 className="text-xs font-semibold text-[#141413] group-hover:text-[#8C6D46] transition-colors truncate mt-0.5">
-                      {product.name}
-                    </h4>
+      {isOpen && !sheet && (
+        <div
+          style={{ left: panelPos.left, width: panelPos.width }}
+          className="absolute top-full mt-2 bg-white rounded-2xl border border-black/10 shadow-2xl z-50 overflow-hidden flex flex-col"
+        >
+          {body}
+        </div>
+      )}
 
-                    {product.shortDescription && (
-                      <p className="text-[11px] text-[#575653] line-clamp-1 mt-0.5 leading-snug">
-                        {product.shortDescription}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="text-right shrink-0 font-mono">
-                    <div className="text-xs font-semibold text-[#141413]">
-                      {formatMoney(product.price)}
-                    </div>
-                    {product.stock <= 5 && product.stock > 0 && (
-                      <div className="text-[9px] text-[#991B1B] font-sans font-medium mt-0.5">
-                        Only {product.stock} left
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="p-8 text-center text-xs text-[#787774] space-y-2">
-                <p>No products matched &ldquo;{query}&rdquo; in {selectedCategory === 'ALL' ? 'the store' : selectedCategory}.</p>
-                <p className="text-[11px] text-[#8C8A85]">
-                  Try searching by collection, materials (e.g. &ldquo;titanium&rdquo;, &ldquo;leather&rdquo;), or model code.
-                </p>
-              </div>
-            )}
+      {isOpen && sheet && (
+        <div className="fixed inset-0 z-[70] bg-white flex flex-col" role="dialog" aria-label="Search">
+          <div className="flex items-center gap-2 px-2 py-2 border-b border-black/[0.08]">
+            <button type="button" onClick={() => close()} className="p-2 rounded-full text-[#141413] hover:bg-black/5 cursor-pointer shrink-0" aria-label="Close search">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            {field(sheetInputRef, true)}
           </div>
-
-          {/* Footer Bar: View All Results / Quick Suggestions */}
-          <div className="p-3 bg-[#FAF9F6] flex items-center justify-between gap-3 text-xs">
-            {query.trim() ? (
-              <>
-                <span className="text-[11px] text-[#787774]">
-                  {totalMatchingCount > 0 ? (
-                    <>
-                      Found <strong className="text-[#141413]">{totalMatchingCount}</strong> product{totalMatchingCount === 1 ? '' : 's'}
-                    </>
-                  ) : (
-                    'No pieces found'
-                  )}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onViewAllResults(query.trim(), selectedCategory === 'ALL' ? undefined : selectedCategory);
-                    setIsOpen(false);
-                  }}
-                  className="px-3 py-1.5 bg-[#141413] text-[#FBFBF9] text-[11px] font-medium flex items-center gap-1.5 hover:bg-[#2A2A28] transition-colors cursor-pointer"
-                >
-                  <span>View All in Catalog</span>
-                  <ArrowRight className="w-3 h-3" />
-                </button>
-              </>
-            ) : (
-              <div className="w-full flex items-center justify-between text-[11px] text-[#787774]">
-                <span className="flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-[#C5A059]" />
-                  Featured Products
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onViewAllResults('', selectedCategory === 'ALL' ? undefined : selectedCategory);
-                    setIsOpen(false);
-                  }}
-                  className="text-[#141413] hover:underline font-medium cursor-pointer"
-                >
-                  Explore Complete Collection →
-                </button>
-              </div>
-            )}
-          </div>
+          {body}
         </div>
       )}
     </div>
