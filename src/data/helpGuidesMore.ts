@@ -133,6 +133,8 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       '"WhatsApp Raw Number": sirf hindsay, 92 se shuru, + ke baghair (jaise 923001234567). WhatsApp ke button isi se chalte hain.',
       '"Helpline Email": customers ke sawal kahan aayen.',
       '"Phone / Helpline Number" aur "Operating Hours" (jaise 10am–8pm).',
+      '"Head Office & Warehouse Address": Contact Us page par dikhne wala pata.',
+      'Phone ya pata khali chhorein to Contact page aur footer par woh card dikhta hi nahi (koi farzi number/pata nahi aata).',
       'Yeh sab website ke chat, Contact page aur order ke baad "Confirm on WhatsApp" mein aata hai.',
     ],
     tips: [SAVES_ITSELF, 'Number ghalat hua to customers ke WhatsApp message ghalat jagah jayenge: ek dafa khud test karein.'],

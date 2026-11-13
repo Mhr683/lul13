@@ -58,7 +58,7 @@ export const INITIAL_SETTINGS: StoreSettings = {
   guestCheckoutEnabled: true,
   aiTone: 'Professional',
   // Client Helpline
-  helplinePhone: '+92 300 1234567',
+  helplinePhone: '', // set by the owner in Admin → Settings → 05; empty = not shown
   helplineWhatsApp: '923001234567',
   helplineWhatsAppFormatted: '+92 300 1234567',
   helplineEmail: 'support@store.com',

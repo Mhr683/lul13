@@ -4164,16 +4164,6 @@ export const AdminDashboardView: React.FC<{
                     />
                   </div>
                   <div>
-                    <label className="block text-[#141413] font-bold text-xs mb-1.5">Store Physical Address</label>
-                    <input
-                      type="text"
-                      value={settings.address || ''}
-                      onChange={(e) => updateStoreSettings({ address: e.target.value })}
-                      placeholder="e.g. 123 Commerce St, Lahore, Pakistan"
-                      className="w-full px-3.5 py-2.5 bg-white border-2 border-black/30 text-[#141413] focus:border-black focus:outline-none"
-                    />
-                  </div>
-                  <div>
                     <label className="block text-[#141413] font-bold text-xs mb-1.5">USD to PKR Store Valuation Rate</label>
                     <input
                       type="number"
@@ -4566,7 +4556,7 @@ export const AdminDashboardView: React.FC<{
                   </div>
                   <div>
                     <label className="block text-[#141413] font-bold text-xs mb-1.5">
-                      Phone / Helpline Number
+                      Phone / Helpline Number <span className="font-normal text-[#787774]">(Contact Us page &amp; footer; empty = hidden)</span>
                     </label>
                     <input
                       type="text"
@@ -4574,6 +4564,18 @@ export const AdminDashboardView: React.FC<{
                       onChange={(e) => updateStoreSettings({ helplinePhone: e.target.value })}
                       placeholder="+92 (042) 0000-0000"
                       className="w-full px-3.5 py-2.5 bg-white border-2 border-black/30 text-[#141413] font-mono font-bold focus:border-black focus:outline-none"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[#141413] font-bold text-xs mb-1.5">
+                      Head Office &amp; Warehouse Address <span className="font-normal text-[#787774]">(Contact Us page; empty = hidden)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={settings.address || ''}
+                      onChange={(e) => updateStoreSettings({ address: e.target.value })}
+                      placeholder="Shop / office number, street, area, city"
+                      className="w-full px-3.5 py-2.5 bg-white border-2 border-black/30 text-[#141413] focus:border-black focus:outline-none"
                     />
                   </div>
                   <div>

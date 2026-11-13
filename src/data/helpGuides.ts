@@ -707,7 +707,10 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
   },
   'admin.helpline': {
     title: 'Helpline aur WhatsApp',
-    steps: ['WhatsApp number (do tarah: dikhane wala aur 92 se shuru), email, phone aur waqt likhein.', 'Save dabayein; website ke chat aur Contact page par yahi aata hai.'],
+    steps: [
+      'WhatsApp number (do tarah: dikhane wala aur 92 se shuru), email, phone, waqt aur Head Office ka pata likhein.',
+      'Save dabayein; website ke chat aur Contact page par yahi aata hai. Phone ya pata khali ho to woh dikhta hi nahi.',
+    ],
   },
   'admin.policies': {
     title: 'Policies (Refund, Shipping, Terms, Privacy)',

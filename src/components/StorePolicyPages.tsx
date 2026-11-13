@@ -478,30 +478,30 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                     <p className="text-[11px] text-[#787774]">Inquiries replied within 24 hours.</p>
                   </div>
 
-                  <div className="p-4 bg-[#FAF9F5] border border-black/[0.08] rounded space-y-1">
-                    <div className="flex items-center gap-2 text-xs font-bold text-[#141413] uppercase tracking-wider">
-                      <Phone className="w-4 h-4 text-[#8C6D46]" />
-                      <span>Phone Helpline</span>
+                  {/* Phone and address come only from Admin → Settings → 05 (Helpline); empty = not shown */}
+                  {settings.helplinePhone?.trim() && (
+                    <div className="p-4 bg-[#FAF9F5] border border-black/[0.08] rounded space-y-1">
+                      <div className="flex items-center gap-2 text-xs font-bold text-[#141413] uppercase tracking-wider">
+                        <Phone className="w-4 h-4 text-[#8C6D46]" />
+                        <span>Phone Helpline</span>
+                      </div>
+                      <a href={`tel:${settings.helplinePhone.replace(/[^\d+]/g, '')}`} className="text-xs font-mono text-[#141413] font-bold block pt-1">
+                        {settings.helplinePhone}
+                      </a>
+                      <p className="text-[11px] text-[#787774]">Direct operator desk during working hours.</p>
                     </div>
-                    <a
-                      href={`tel:${settings.helplinePhone || '+923001234567'}`}
-                      className="text-xs font-mono text-[#141413] font-bold block pt-1"
-                    >
-                      {settings.helplinePhone || '+92 (042) 3578-9000'}
-                    </a>
-                    <p className="text-[11px] text-[#787774]">Direct operator desk during working hours.</p>
-                  </div>
+                  )}
 
-                  <div className="p-4 bg-[#FAF9F5] border border-black/[0.08] rounded space-y-1 sm:col-span-2">
-                    <div className="flex items-center gap-2 text-xs font-bold text-[#141413] uppercase tracking-wider">
-                      <MapPin className="w-4 h-4 text-[#8C6D46]" />
-                      <span>Head Office & Warehouse</span>
+                  {settings.address?.trim() && (
+                    <div className="p-4 bg-[#FAF9F5] border border-black/[0.08] rounded space-y-1 sm:col-span-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-[#141413] uppercase tracking-wider">
+                        <MapPin className="w-4 h-4 text-[#8C6D46]" />
+                        <span>Head Office & Warehouse</span>
+                      </div>
+                      <p className="text-xs text-[#2A2A28] pt-1">{settings.address}</p>
+                      <p className="text-[11px] text-[#787774]">Order fulfillment and return processing hub.</p>
                     </div>
-                    <p className="text-xs text-[#2A2A28] pt-1">
-                      {settings.address || 'Commercial Center, Gulberg III, Lahore, Pakistan'}
-                    </p>
-                    <p className="text-[11px] text-[#787774]">Order fulfillment and return processing hub.</p>
-                  </div>
+                  )}
                 </div>
 
                 {/* Send Us a Message Form */}

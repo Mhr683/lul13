@@ -5539,15 +5539,15 @@ export const StorefrontView: React.FC = () => {
                   <span>{settings.helplineEmail || settings.contactEmail || 'support@store.com'}</span>
                 </a>
               </li>
-              <li>
-                <a
-                  href={`tel:${settings.helplinePhone || '+923001234567'}`}
-                  className="hover:text-white flex items-center gap-1.5 transition-colors"
-                >
-                  <Phone className="w-3.5 h-3.5 text-white/60 shrink-0" />
-                  <span>{settings.helplinePhone || '+92 (042) 3578-9000'}</span>
-                </a>
-              </li>
+              {/* Only the number set in Admin → Settings → 05 (Helpline) */}
+              {settings.helplinePhone?.trim() && (
+                <li>
+                  <a href={`tel:${settings.helplinePhone.replace(/[^\d+]/g, '')}`} className="hover:text-white flex items-center gap-1.5 transition-colors">
+                    <Phone className="w-3.5 h-3.5 text-white/60 shrink-0" />
+                    <span>{settings.helplinePhone}</span>
+                  </a>
+                </li>
+              )}
               <li className="text-[11px] text-white/40 pt-1">
                 Nationwide Courier: TCS · Leopards · PostEx · Trax · M&amp;P
               </li>
