@@ -42,6 +42,26 @@ const readClearedAt = () => {
   }
 };
 
+// Phone / computer notification for a new order update (once the customer allowed it). Shown by the
+// app's own service worker (sw.js); never register a second one.
+const NOTIFIED_KEY = 'order_updates_notified_at_v1';
+const alertsAllowed = () => typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+async function showUpdateNotification(n: Notice) {
+  const options = {
+    body: `${n.location ? `${n.location} · ` : ''}${n.text}`,
+    icon: '/pwa-192x192.png',
+    tag: `order-${n.orderNumber}`,
+    data: { url: location.href.split('#')[0] },
+  } as NotificationOptions;
+  try {
+    const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+    if (reg) await reg.showNotification(`Order ${n.orderNumber}`, options);
+    else new Notification(`Order ${n.orderNumber}`, options);
+  } catch {
+    /* the browser refused: the bell still shows it */
+  }
+}
+
 const formatWhen = (iso: string) => {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? '' : d.toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
@@ -97,7 +117,8 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
   useEffect(() => {
     refresh();
     const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') refresh();
+      // With phone alerts on, keep looking while the app is in the background too
+      if (document.visibilityState === 'visible' || alertsAllowed()) refresh();
     }, REFRESH_MS);
     const onVisible = () => document.visibilityState === 'visible' && refresh();
     window.addEventListener('my-orders-changed', refresh);
@@ -144,6 +165,27 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
   }, [deviceOrders, orders, firebaseUser, hidden, clearedAt]);
 
   const unread = notices.filter((n) => !seenAt || n.at > seenAt).length;
+
+  // A new update (e.g. the seller pressed "Ready for pickup") pops up on the phone as well
+  const [alerts, setAlerts] = useState(alertsAllowed);
+  useEffect(() => {
+    const newest = notices[0];
+    if (!newest) return;
+    let last = '';
+    try {
+      last = localStorage.getItem(NOTIFIED_KEY) || '';
+    } catch {}
+    if (newest.at <= last) return;
+    try {
+      localStorage.setItem(NOTIFIED_KEY, newest.at);
+    } catch {}
+    // First look on this device: remember the newest one without ringing for old updates
+    if (last && alertsAllowed() && (!seenAt || newest.at > seenAt)) showUpdateNotification(newest);
+  }, [notices, seenAt]);
+  const turnOnAlerts = async () => {
+    if (!('Notification' in window)) return;
+    setAlerts((await Notification.requestPermission()) === 'granted');
+  };
 
   const togglePanel = () => {
     const next = !open;
@@ -193,6 +235,15 @@ export const CustomerNotificationsBell: React.FC<{ onOpenOrder: (orderNumber: st
               </button>
             </div>
           </div>
+          {!alerts && typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied' && (
+            <button
+              type="button"
+              onClick={turnOnAlerts}
+              className="w-full px-4 py-2.5 text-left text-xs font-semibold text-emerald-900 bg-emerald-50 border-b border-emerald-200 cursor-pointer hover:bg-emerald-100"
+            >
+              🔔 Get order updates as phone notifications
+            </button>
+          )}
           {notices.length === 0 ? (
             <p className="p-4 text-xs text-[#575653]">No updates yet. Every update about your orders will appear here.</p>
           ) : (

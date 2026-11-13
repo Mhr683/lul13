@@ -4343,9 +4343,9 @@ class InsufficientStockError extends Error {}
 const STATUS_EVENT_NOTES: Record<string, string> = {
   PENDING_CONFIRMATION: 'Order received. We will call you shortly to confirm it.',
   PENDING: 'Order received and waiting for processing.',
-  CONFIRMED: 'Order confirmed. It is being prepared.',
-  PROCESSING: 'Your order is being prepared.',
-  PACKED: 'Your order has been packed.',
+  CONFIRMED: 'Order accepted. The seller will start packing it soon.',
+  PROCESSING: 'The seller has started packing your order.',
+  PACKED: 'Packing complete. Your order is packed.',
   SHIPPED: 'Handed over to the courier.',
   OUT_FOR_DELIVERY: 'Out for delivery. The rider will call you before arriving.',
   DELIVERED: 'Delivered. Thank you for shopping with us!',

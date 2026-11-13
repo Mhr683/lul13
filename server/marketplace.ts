@@ -249,16 +249,18 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   // Strip supplier/internal fields before sending an order to the seller
   /** Card order whose payment has not arrived (server/cardPayments.ts confirms or cancels it) */
   const awaitingCardPayment = (o: any) => o?.paymentMethod === 'CARD' && o?.paymentStatus !== 'PAID' && o?.status !== 'CANCELLED';
-  // The customer's phone reaches the seller only while the parcel is with the courier: from "Packed"
-  // (ready for pickup) until it is delivered. For items ordered from a supplier app the seller needs it
-  // a step earlier, once they press "Sent to supplier". The e-mail never reaches the seller. This keeps
+  // The customer's phone reaches the seller only while the parcel is with the courier: from "Ready for
+  // pickup" until it is delivered. For items ordered from a supplier app the seller needs it a step
+  // earlier, once they press "Sent to supplier". The e-mail never reaches the seller. This keeps
   // buyers and sellers from making the deal outside the store (they talk in the order chat).
-  const PHONE_STATUSES = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY'];
+  const PHONE_STATUSES = ['SHIPPED', 'OUT_FOR_DELIVERY'];
   const scrubDigits = (s: unknown) => String(s ?? '').replace(/(\+?\d[\d\s\-.()]{6,}\d)/g, '•••');
   const sellerSafeOrder = (o: any) => {
     const { orderAccessToken, customerEmail, ...rest } = o;
     const viaSupplier = (o.supplierItems || []).some((s: any) => !isDirectSource(s?.supplierName));
-    const showPhone = PHONE_STATUSES.includes(o.status) || (viaSupplier && o.status === 'PROCESSING');
+    // Orders packed before the packing steps existed have no `fulfilment` and keep showing it
+    const readyForPickup = o.status === 'PACKED' && (!o.fulfilment || !!o.fulfilment.READY);
+    const showPhone = PHONE_STATUSES.includes(o.status) || readyForPickup || (viaSupplier && ['PROCESSING', 'PACKED'].includes(o.status));
     const out: any = {
       ...rest,
       items: (o.items || []).map(({ supplierName, supplierSku, supplierProductUrl, supplierCostPrice, ...item }: any) => item),
@@ -1298,6 +1300,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (trackingNumber) updates.trackingNumber = trackingNumber;
       if (courierName) updates.courierName = courierName;
       if (status === 'DELIVERED' && order.paymentMethod === 'COD') updates.paymentStatus = 'PAID';
+      // Packing done: the label and pickup steps start (POST /api/seller/orders/step)
+      if (status === 'PACKED' && order.status !== 'PACKED') updates.fulfilment = {};
       if (status === 'CANCELLED') {
         // Cancelling an order the customer asked to cancel accepts their request
         const asked = order.cancelRequest?.status === 'PENDING';
@@ -1316,6 +1320,44 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (d.isInsufficientStockError(err)) return res.status(409).json({ error: (err as Error).message });
       console.error('[seller/orders/status] failed:', err);
       res.status(503).json({ error: 'Could not update the status. Please try again.' });
+    }
+  });
+
+  // Packing steps between "Packed" and "Shipped": label attached, then ready for pickup. Each one
+  // adds a line to the customer's tracking (their notification bell shows it).
+  const PACK_STEPS: Record<string, { needs?: string; note: string }> = {
+    LABEL: { note: 'Shipping label attached to your parcel.' },
+    READY: { needs: 'LABEL', note: 'Your parcel is ready and waiting for the courier to pick it up.' },
+  };
+  app.post('/api/seller/orders/step', requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const step = String(req.body?.step || '');
+    const def = PACK_STEPS[step];
+    if (!def) return res.status(400).json({ error: 'Unknown step.' });
+    try {
+      const own = await loadOwnOrder(uid, String(req.body?.orderId || ''));
+      if (!own) return res.status(404).json({ error: 'Order not found.' });
+      const now = new Date().toISOString();
+      await adminDb.runTransaction(async (tx) => {
+        const o = (await tx.get(own.ref)).data() as any;
+        if (o?.status !== 'PACKED') throw new Error('NOT_PACKED');
+        const done = { ...(o.fulfilment || {}) };
+        if (done[step]) return;
+        if (def.needs && !done[def.needs]) throw new Error('STEP_ORDER');
+        done[step] = now;
+        tx.update(own.ref, {
+          fulfilment: done,
+          updatedAt: now,
+          trackingEvents: d.appendTrackingEvent(o.trackingEvents, { at: now, note: def.note }),
+        });
+      });
+      forgetOrders(uid);
+      res.json({ success: true });
+    } catch (err: any) {
+      if (err?.message === 'NOT_PACKED') return res.status(409).json({ error: 'Press "Complete packing" first.' });
+      if (err?.message === 'STEP_ORDER') return res.status(409).json({ error: 'Press "Attach label" first.' });
+      console.error('[seller/orders/step] failed:', err);
+      res.status(503).json({ error: 'Could not save. Please try again.' });
     }
   });
 

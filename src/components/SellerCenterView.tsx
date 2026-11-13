@@ -70,7 +70,7 @@ import { ProductMediaEditor } from './ProductMediaEditor';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 import { HelpDot } from './HelpDot';
-import { Callout, Empty, FormSection, HowItWorks, Loading, MoreMenu, OrderSteps, Panel, SegTabs, Stat, chipTone, ui } from './SellerUi';
+import { Callout, Empty, FormSection, HowItWorks, Loading, MoreMenu, Panel, SegTabs, Stat, chipTone, ui } from './SellerUi';
 import { ProductTypeChosen, ProductTypeFields, ProductTypePicker, priceLabelFor, type DeliveryForm } from './SellerProductType';
 import { ProductTypeBadge } from './ProductTypeIcon';
 import { typeInfo, type ProductType, type ProductTypeDetails } from '../services/productTypes';
@@ -130,6 +130,8 @@ type SellerOrder = Order & {
   payoutId: string | null;
   supplierItems?: SupplierItem[];
   supplierCost?: number;
+  /** Packing steps after "Complete packing" (server/marketplace.ts POST /api/seller/orders/step) */
+  fulfilment?: { LABEL?: string; READY?: string };
 };
 type ListProduct = Pick<Product, 'id' | 'sku' | 'name' | 'price' | 'stock' | 'category' | 'status' | 'primaryImage' | 'productType'> & {
   compareAtPrice?: number;
@@ -1788,6 +1790,110 @@ function useSellerCouriers() {
   }, []);
   return v;
 }
+// The order's road from "accepted" to "delivered". Each dot is one job; the seller presses the next
+// one when it is done and the customer gets an update in their order bell (tracking line).
+const FULFIL_STEPS: { key: string; label: string; button: string }[] = [
+  { key: 'CONFIRMED', label: 'Order accepted', button: '✓ Accept order' },
+  { key: 'PROCESSING', label: 'Start packing', button: '📦 Start packing' },
+  { key: 'PACKED', label: 'Complete packing', button: '✓ Packing complete' },
+  { key: 'LABEL', label: 'Attach label', button: '🏷️ Label attached' },
+  { key: 'READY', label: 'Ready for pickup', button: '📍 Ready for pickup' },
+  { key: 'SHIPPED', label: 'Hand over to courier', button: 'Handed to courier' },
+  { key: 'OUT_FOR_DELIVERY', label: 'Out for delivery', button: '🛵 Out for delivery' },
+  { key: 'DELIVERED', label: 'Delivered', button: '✓ Delivered' },
+];
+
+/** How many steps are done */
+const stepsDone = (o: SellerOrder) => {
+  switch (o.status) {
+    case 'CONFIRMED':
+      return 1;
+    case 'PROCESSING':
+      return 2;
+    case 'PACKED':
+      // Packed before these steps existed: label and pickup count as done
+      return o.fulfilment ? (o.fulfilment.READY ? 5 : o.fulfilment.LABEL ? 4 : 3) : 5;
+    case 'SHIPPED':
+      return 6;
+    case 'OUT_FOR_DELIVERY':
+      return 7;
+    case 'DELIVERED':
+      return 8;
+    default:
+      return 0;
+  }
+};
+
+const shortWhen = (iso?: string) => {
+  const d = iso ? new Date(iso) : null;
+  return d && !isNaN(d.getTime()) ? d.toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+};
+
+const FulfilmentTrack: React.FC<{
+  order: SellerOrder;
+  busy: boolean;
+  onStep: (key: string) => void;
+}> = ({ order: o, busy, onStep }) => {
+  const done = stepsDone(o);
+  const scroller = useRef<HTMLOListElement>(null);
+  // When each step happened: status steps from the tracking history, the packing steps from `fulfilment`
+  const at = (key: string) =>
+    key === 'LABEL' || key === 'READY'
+      ? o.fulfilment?.[key]
+      : [...(o.trackingEvents || [])].reverse().find((e: any) => e.status === key)?.at;
+
+  // On a phone the road scrolls sideways: bring the next step into view
+  useEffect(() => {
+    const box = scroller.current;
+    const next = box?.children[Math.min(done, FULFIL_STEPS.length - 1)] as HTMLElement | undefined;
+    if (box && next) box.scrollLeft = Math.max(0, next.offsetLeft - box.clientWidth / 2 + next.clientWidth / 2);
+  }, [done]);
+
+  return (
+    <ol ref={scroller} className="flex overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Order progress">
+      {FULFIL_STEPS.map((s, i) => {
+        const isDone = i < done;
+        const isNext = i === done;
+        const canPress = isNext && s.key !== 'SHIPPED' && !busy;
+        return (
+          <li key={s.key} className="flex-1 min-w-[72px] flex flex-col items-center text-center">
+            <span
+              className={`h-8 px-0.5 flex items-end justify-center text-[10.5px] leading-tight font-semibold ${
+                isDone ? 'text-[#0B5E34]' : isNext ? 'text-[#141413]' : 'text-[#8A8780]'
+              }`}
+            >
+              {s.label}
+            </span>
+            <div className="flex items-center w-full mt-1">
+              <span className={`h-[3px] flex-1 ${i === 0 ? 'invisible' : i <= done ? 'bg-[#0E7A43]' : 'bg-[#141413]/20'}`} />
+              <button
+                type="button"
+                disabled={!canPress}
+                onClick={() => onStep(s.key)}
+                title={canPress ? `Press when done: ${s.label}` : s.label}
+                aria-label={isDone ? `${s.label}: done` : s.label}
+                className={`w-6 h-6 !p-0 !rounded-full shrink-0 flex items-center justify-center text-[11px] font-bold text-white transition-colors ${
+                  isDone
+                    ? 'bg-[#0E7A43]'
+                    : isNext
+                      ? 'bg-[#141413] ring-4 ring-amber-300 animate-pulse cursor-pointer disabled:cursor-default'
+                      : 'bg-[#141413]'
+                }`}
+              >
+                {isDone ? '✓' : ''}
+              </button>
+              <span
+                className={`h-[3px] flex-1 ${i === FULFIL_STEPS.length - 1 ? 'invisible' : i < done - 1 ? 'bg-[#0E7A43]' : 'bg-[#141413]/20'}`}
+              />
+            </div>
+            <span className="mt-1 h-6 text-[9.5px] leading-tight text-[#8A8780]">{isDone ? shortWhen(at(s.key)) : isNext ? 'Next' : ''}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+};
+
 const SellerOrderCard: React.FC<{
   order: SellerOrder;
   busy: boolean;
@@ -1834,7 +1940,12 @@ const SellerOrderCard: React.FC<{
   };
 
   const isNew = ['PENDING_CONFIRMATION', 'PENDING'].includes(o.status);
-  const canPack = ['CONFIRMED', 'PROCESSING'].includes(o.status);
+  const nextStep = closed ? undefined : FULFIL_STEPS[stepsDone(o)];
+  // Tracking number form: at the "Hand over to courier" step (supplier orders: any time after
+  // "Sent to supplier", since the supplier packs and ships them)
+  const showShipForm = !closed && !shipped && !isNew && (nextStep?.key === 'SHIPPED' || hasSupplier);
+  const doStep = (key: string) =>
+    key === 'LABEL' || key === 'READY' ? act(o, { step: key }, '/api/seller/orders/step') : act(o, { status: key });
   const showCourierBox = !closed && (o.courierBooking?.trackingNumber || (!shipped && o.status !== 'PENDING_CONFIRMATION' && apiCouriers.couriers.length > 0));
   const trackingWhatsApp = whatsAppLink(
     o.customerPhone,
@@ -1863,7 +1974,53 @@ const SellerOrderCard: React.FC<{
       </div>
 
       <div className="p-4 space-y-4">
-        <OrderSteps status={o.status} />
+        {!closed || o.status === 'DELIVERED' ? (
+          <div className="p-3 rounded-xl border border-[#E7E5DF] bg-[#FBFBF9] space-y-3">
+            <FulfilmentTrack order={o} busy={busy} onStep={doStep} />
+            {nextStep && (
+              <div className="pt-3 border-t border-[#EFEDE8] space-y-2">
+                {showShipForm && (
+                  <div className="space-y-2">
+                    <div className="font-semibold text-[#3A3936] flex items-center gap-1">
+                      <Truck className="w-4 h-4" /> Hand over to courier: enter the tracking number <HelpDot id="seller.order.ship" />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select value={courier} onChange={(e) => setCourier(e.target.value)} className={ui.field}>
+                        {COURIERS.map((c) => (
+                          <option key={c}>{c}</option>
+                        ))}
+                      </select>
+                      <input
+                        value={tracking}
+                        onChange={(e) => setTracking(e.target.value)}
+                        placeholder="Courier tracking #"
+                        className={`${ui.field} font-mono w-44`}
+                      />
+                      <button
+                        type="button"
+                        disabled={busy || tracking.trim().length < 4}
+                        onClick={() => act(o, { status: 'SHIPPED', courierName: courier, trackingNumber: tracking.trim() })}
+                        className={ui.dark}
+                      >
+                        <Truck className="w-3.5 h-3.5" /> Handed to courier
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {nextStep.key !== 'SHIPPED' && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" disabled={busy} onClick={() => doStep(nextStep.key)} className={ui.primary}>
+                      {nextStep.button}
+                    </button>
+                    <span className="text-[11px] text-[#8A8780] flex items-center gap-1">
+                      Press when this is done. The customer gets an update. <HelpDot id="seller.order.steps" />
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {/* ---------------- customer · items · money */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1876,7 +2033,7 @@ const SellerOrderCard: React.FC<{
               </a>
             ) : (
               <div className="text-[#8A8780] flex items-center gap-1">
-                📵 Phone shows after you press <strong>Packed</strong> <HelpDot id="seller.order.chat" />
+                📵 Phone shows after you press <strong>Ready for pickup</strong> <HelpDot id="seller.order.chat" />
               </div>
             )}
             <div className="text-[#6B6963] leading-relaxed">{o.shippingAddressSummary}</div>
@@ -2025,55 +2182,10 @@ const SellerOrderCard: React.FC<{
         {/* ---------------- next step: one main button, the rest in "More" */}
         {!closed && (
           <div className="pt-3 border-t border-[#EFEDE8] space-y-3">
-            {!shipped && !isNew && (
-              <div className="p-3 rounded-xl bg-[#F7F6F2] border border-[#E7E5DF] space-y-2">
-                <div className="font-semibold text-[#3A3936] flex items-center gap-1">
-                  <Truck className="w-4 h-4" /> Ship with a tracking number <HelpDot id="seller.order.ship" />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select value={courier} onChange={(e) => setCourier(e.target.value)} className={ui.field}>
-                    {COURIERS.map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
-                  <input
-                    value={tracking}
-                    onChange={(e) => setTracking(e.target.value)}
-                    placeholder="Courier tracking #"
-                    className={`${ui.field} font-mono w-44`}
-                  />
-                  <button
-                    type="button"
-                    disabled={busy || tracking.trim().length < 4}
-                    onClick={() => act(o, { status: 'SHIPPED', courierName: courier, trackingNumber: tracking.trim() })}
-                    className={ui.dark}
-                  >
-                    <Truck className="w-3.5 h-3.5" /> Ship
-                  </button>
-                </div>
-              </div>
-            )}
             <div className="flex flex-wrap items-center gap-2">
-              {isNew && (
-                <>
-                  <button type="button" disabled={busy} onClick={() => act(o, { status: 'CONFIRMED' })} className={ui.primary}>
-                    ✓ Confirm order
-                  </button>
-                </>
-              )}
-              {canPack && (
-                <button type="button" disabled={busy} onClick={() => act(o, { status: 'PACKED' })} className={ui.primary}>
-                  📦 Mark as packed
-                </button>
-              )}
-              {shipped && (
-                <button type="button" disabled={busy} onClick={() => act(o, { status: 'DELIVERED' })} className={ui.primary}>
-                  ✓ Delivered
-                </button>
-              )}
               {o.status === 'SHIPPED' && (
-                <button type="button" disabled={busy} onClick={() => act(o, { status: 'OUT_FOR_DELIVERY' })} className={ui.secondary}>
-                  🛵 Out for delivery
+                <button type="button" disabled={busy} onClick={() => act(o, { status: 'DELIVERED' })} className={ui.secondary}>
+                  ✓ Delivered (skip Out for delivery)
                 </button>
               )}
               {shipped && o.trackingNumber && (
