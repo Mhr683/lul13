@@ -338,7 +338,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     },
     {
       q: 'How do I track my order?',
-      a: 'Tap "Track order" at the very top of our website and enter your order number and phone number. If you have an account, your orders are also listed under My Account.',
+      a: 'Open the ☰ menu on our website, tap "Track order" and enter your order number and phone number. If you have an account, your orders are also listed under My Account.',
     },
     {
       q: 'I received a damaged or wrong item. What should I do?',

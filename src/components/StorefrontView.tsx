@@ -612,7 +612,8 @@ export const StorefrontView: React.FC = () => {
     window.history.pushState({ inSite: true, y: 0 }, '', '#track');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-  // The store's one "Track order" button (top bar, every screen size)
+  // The store's one "Track order" button: in the ☰ menu (phones, tablets, small laptops) and, on
+  // large screens where the ☰ menu is not shown, in the navigation row instead
   const openTrackPage = () => {
     setMobileMenuOpen(false);
     setSubView('ORDER_TRACKING');
@@ -1463,19 +1464,8 @@ export const StorefrontView: React.FC = () => {
           {settings.announcementText ||
             `Free delivery on orders above PKR ${(settings.domesticFreeShippingThreshold || 10000).toLocaleString()} · Cash on Delivery available`}
         </span>
-        <div className="flex items-center gap-3 text-[11px] shrink-0">
-          {/* The only "Track order" button in the store (shown on phones too) */}
-          <button
-            type="button"
-            onClick={openTrackPage}
-            className="px-2.5 py-0.5 rounded-full bg-amber-400 hover:bg-amber-300 text-[#141413] font-bold flex items-center gap-1 cursor-pointer"
-          >
-            <Package className="w-3.5 h-3.5" />
-            <span>Track order</span>
-          </button>
-          {/* Phones: the floating help button below already opens Help & Support */}
-          <span className="hidden sm:inline text-white/30">|</span>
-        <div className="hidden sm:flex items-center gap-3">
+        {/* Phones: the floating help button below already opens Help & Support */}
+        <div className="hidden sm:flex items-center gap-3 text-[11px] shrink-0">
 
           <button
             type="button"
@@ -1500,7 +1490,6 @@ export const StorefrontView: React.FC = () => {
             <MessageCircle className="w-3 h-3 text-emerald-400" />
             <span>WhatsApp: {settings.helplineWhatsAppFormatted || settings.helplineWhatsApp || 'Contact Support'}</span>
           </button>
-        </div>
         </div>
       </div>
 
@@ -1659,6 +1648,13 @@ export const StorefrontView: React.FC = () => {
           </nav>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={openTrackPage}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 border border-neutral-300 rounded-full text-xs font-semibold text-neutral-800 hover:border-black hover:text-black transition-colors whitespace-nowrap cursor-pointer"
+            >
+              <Package className="w-3.5 h-3.5 text-[#8C6D46]" /> Track order
+            </button>
             <a
               href={sellerCenterUrl()}
               className="hidden md:inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#0E7A43] hover:bg-[#0B5E34] text-white text-xs font-bold transition-colors"
@@ -1836,6 +1832,15 @@ export const StorefrontView: React.FC = () => {
               >
                 <span>Special Offers</span>
                 <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded font-mono">SALE</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={openTrackPage}
+                className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between cursor-pointer"
+              >
+                <span>Track order</span>
+                <Package className="w-4 h-4 text-[#8C6D46]" />
               </button>
 
 

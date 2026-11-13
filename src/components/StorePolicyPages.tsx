@@ -350,7 +350,7 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                       Need a return or replacement?
                     </h4>
                     <p className="text-xs text-emerald-800 mt-0.5">
-                      Open your delivered order with “Track order” at the very top of the page and tap “Return or replace”. You can also reach us on WhatsApp.
+                      Open your delivered order with “Track order” in the ☰ menu and tap “Return or replace”. You can also reach us on WhatsApp.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 shrink-0">
