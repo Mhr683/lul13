@@ -6,7 +6,7 @@ import { SocialIcon } from './SocialIcon';
 import { ShareProductButton } from './ShareProductButton';
 import { MAX_SOCIAL_LINKS, SOCIAL_PLATFORMS, checkSocialLink, type SocialLink } from '../services/socialLinks';
 
-// Seller Center → Profile → "Social media": the shop's pages (Facebook, Instagram, YouTube, TikTok, X,
+// Seller Center → Profile → "Shop connect to media": the shop's pages (Facebook, Instagram, YouTube, TikTok, X,
 // Telegram, WhatsApp) plus any other link with its own name. Every field has its own "Connect" button
 // that saves that link at once ("✓ Connected" once saved, "Remove" when the field is emptied). The
 // links show as icons on the shop page. Also a "Share my shop" button for all apps.
@@ -113,9 +113,8 @@ export const SellerSocialLinks: React.FC<{
 
   return (
     <Panel
-      title="Social media"
+      title="Shop connect to media"
       help={<HelpDot id="seller.social" />}
-      subtitle="Paste your page link and press Connect. Customers see your pages on your shop page."
       actions={
         <ShareProductButton
           productId=""

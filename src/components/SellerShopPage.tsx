@@ -147,7 +147,7 @@ export const SellerShopPage: React.FC<{
               </>
             )}
           </p>
-          {/* The shop's own social media pages (Seller Center → Profile → Social media) */}
+          {/* The shop's own social media pages (Seller Center → Profile → Shop connect to media) */}
           {shop?.socialLinks && shop.socialLinks.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] text-[#575653] mr-0.5">Follow us:</span>

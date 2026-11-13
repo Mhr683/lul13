@@ -362,10 +362,10 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     tips: ['COD ki raqam booking mein khud lag jati hai.'],
   },
   'seller.social': {
-    title: 'Social media: apni dukaan ke pages jodein aur share karein',
+    title: 'Shop connect to media: apni dukaan ke pages jodein aur share karein',
     what: 'Facebook, Instagram, YouTube, TikTok, X, Telegram aur WhatsApp ke links. Yeh aap ki dukaan ke page par "Follow us" ke saath nazar aate hain.',
     steps: [
-      'Profile kholein aur "Social media" hissa dekhein.',
+      'Profile kholein aur "Shop connect to media" hissa dekhein.',
       'Jis platform par aap ka page hai us ke khane mein page ka link paste karein (jaise facebook.com/aapkipage). Link app mein "Share" → "Copy link" se milta hai.',
       'Usi khane ke saath hara "Connect" button dabayein: link foran save ho jata hai aur button ki jagah "✓ Connected" aa jata hai.',
       'List mein na ho (Pinterest, Snapchat, Threads, website...) to "Add another link" dabayein: naam aur link likh kar uske saath "Connect" dabayein.',

@@ -1,4 +1,4 @@
-// A shop's social media links (Seller Center → Profile → Social media; shown on the shop page).
+// A shop's social media links (Seller Center → Profile → Shop connect to media; shown on the shop page).
 // Used by the server (checks what is saved) and the browser (form + icons), so both follow the same rules.
 //
 // The owner's rule: contact details are blocked only in the order chat and in product listings
