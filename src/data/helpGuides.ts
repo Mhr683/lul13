@@ -40,7 +40,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     title: 'Orders (order se delivery tak)',
     what: 'Har order ko dot ba dot le jayein: Accepted → Packing → Label → Ready for pickup → Courier → Delivered.',
     steps: [
-      'Orders tab kholein. Upar filter se "naye", "ship karne wale" waghera chunein.',
+      'Orders tab kholein. Upar "Parcel count" ke dabbe se list chunein (To ship, On the way, Coming back...).',
       'Naya order dekhein. Customer se kuch poochhna ho to order card ke "💬 Chat" mein likhein, phir "✓ Accept order" dabayein.',
       'Phir har kaam ke baad agla button: Start packing → Packing complete → Label attached → Ready for pickup.',
       'Courier connected ho to "Book & ship" dabayein: tracking number khud aa jata hai. Warna courier chun kar tracking number likhein aur "Handed to courier" dabayein.',
@@ -350,7 +350,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Delivered: customer ko mil gaye.',
       'Returned: wapis aap ke paas pohanch gaye (ya customer ne baad mein wapis kiye).',
       'Cancelled: cancel hue.',
-      'Har dabbe ke neeche un orders ki kul raqam hai. Dabba dabayein to wohi orders neeche khul jate hain.',
+      'Har dabbe ke neeche un orders ki kul raqam hai. Dabba dabayein to wohi orders neeche khul jate hain; "All orders" se sab.',
     ],
     tips: [
       'Return rate = wapis aane wale parcel / (delivered + wapis). 15% se upar ho to laal: customer se order confirm karke bhejein.',

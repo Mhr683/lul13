@@ -1733,27 +1733,26 @@ const ChatAiSwitch: React.FC = () => {
   );
 };
 
-type OrderFilter = 'OPEN' | 'SHIPPED' | 'RETURNING' | 'DONE' | 'ALL';
-const inFilter = (o: SellerOrder, f: OrderFilter) => {
-  const b = bucketOf(o);
-  if (f === 'OPEN') return b === 'OPEN';
-  if (f === 'SHIPPED') return b === 'ON_WAY';
-  if (f === 'RETURNING') return b === 'RETURNING';
-  if (f === 'DONE') return b === 'DELIVERED' || b === 'RETURNED' || b === 'CANCELLED';
-  return true;
-};
+// The parcel boxes are also the list picker (one place, no second row of tabs)
+type OrderFilter = ParcelBucket | 'ALL';
+const inFilter = (o: SellerOrder, f: OrderFilter) => f === 'ALL' || bucketOf(o) === f;
 
-const PARCEL_BOXES: { id: ParcelBucket; label: string; filter: OrderFilter; tone: string }[] = [
-  { id: 'OPEN', label: 'To ship', filter: 'OPEN', tone: 'bg-amber-50 border-amber-200 text-amber-950' },
-  { id: 'ON_WAY', label: 'On the way', filter: 'SHIPPED', tone: 'bg-sky-50 border-sky-200 text-sky-950' },
-  { id: 'RETURNING', label: 'Coming back', filter: 'RETURNING', tone: 'bg-rose-50 border-rose-200 text-rose-950' },
-  { id: 'DELIVERED', label: 'Delivered', filter: 'DONE', tone: 'bg-emerald-50 border-emerald-200 text-emerald-950' },
-  { id: 'RETURNED', label: 'Returned', filter: 'DONE', tone: 'bg-orange-50 border-orange-200 text-orange-950' },
-  { id: 'CANCELLED', label: 'Cancelled', filter: 'DONE', tone: 'bg-[#F2F1EC] border-[#E2DFD8] text-[#3A3936]' },
+const PARCEL_BOXES: { id: ParcelBucket; label: string; tone: string; ring: string }[] = [
+  { id: 'OPEN', label: 'To ship', tone: 'bg-amber-50 border-amber-200 text-amber-950', ring: 'ring-amber-500' },
+  { id: 'ON_WAY', label: 'On the way', tone: 'bg-sky-50 border-sky-200 text-sky-950', ring: 'ring-sky-500' },
+  { id: 'RETURNING', label: 'Coming back', tone: 'bg-rose-50 border-rose-200 text-rose-950', ring: 'ring-rose-500' },
+  { id: 'DELIVERED', label: 'Delivered', tone: 'bg-emerald-50 border-emerald-200 text-emerald-950', ring: 'ring-emerald-600' },
+  { id: 'RETURNED', label: 'Returned', tone: 'bg-orange-50 border-orange-200 text-orange-950', ring: 'ring-orange-500' },
+  { id: 'CANCELLED', label: 'Cancelled', tone: 'bg-[#F2F1EC] border-[#E2DFD8] text-[#3A3936]', ring: 'ring-[#55534E]' },
 ];
 
-/** Parcel count: every order in one box, with its value; the boxes add up to the total */
-const ParcelCount: React.FC<{ orders: SellerOrder[]; onPick: (f: OrderFilter) => void }> = ({ orders, onPick }) => {
+/** Parcel count: every order in one box, with its value; the boxes add up to the total. A box opens its list. */
+const ParcelCount: React.FC<{ orders: SellerOrder[]; value: OrderFilter; onPick: (f: OrderFilter) => void; onRefresh: () => void }> = ({
+  orders,
+  value,
+  onPick,
+  onRefresh,
+}) => {
   const sums = Object.fromEntries(PARCEL_BOXES.map((b) => [b.id, { n: 0, value: 0 }])) as Record<ParcelBucket, { n: number; value: number }>;
   let attempts = 0;
   for (const o of orders) {
@@ -1769,14 +1768,18 @@ const ParcelCount: React.FC<{ orders: SellerOrder[]; onPick: (f: OrderFilter) =>
     <section className={`${ui.card} p-3 space-y-2`}>
       <div className="flex items-center gap-1 text-[13px] font-bold text-[#141413]">
         Parcel count <HelpDot id="seller.order.count" />
+        <button type="button" onClick={onRefresh} className={`${ui.secondary} ml-auto !py-1`}>
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </button>
       </div>
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
         {PARCEL_BOXES.map((b) => (
           <button
             key={b.id}
             type="button"
-            onClick={() => onPick(b.filter)}
-            className={`p-2 rounded-xl border text-left cursor-pointer hover:brightness-95 ${b.tone}`}
+            onClick={() => onPick(b.id)}
+            aria-pressed={value === b.id}
+            className={`p-2 rounded-xl border text-left cursor-pointer hover:brightness-95 ${b.tone} ${value === b.id ? `ring-2 ${b.ring}` : ''}`}
           >
             <div className="text-[10.5px] font-semibold opacity-80">{b.label}</div>
             <div className="text-[18px] font-bold leading-tight">{sums[b.id].n}</div>
@@ -1785,10 +1788,14 @@ const ParcelCount: React.FC<{ orders: SellerOrder[]; onPick: (f: OrderFilter) =>
         ))}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#6B6963]">
-        <span>
-          Total orders: <strong className="text-[#141413]">{orders.length}</strong>{' '}
+        <button
+          type="button"
+          onClick={() => onPick('ALL')}
+          className={`cursor-pointer ${value === 'ALL' ? 'font-bold text-[#141413] underline' : 'hover:underline'}`}
+        >
+          All orders: <strong className="text-[#141413]">{orders.length}</strong>{' '}
           {counted === orders.length ? <span className="text-emerald-700 font-semibold">✓ all counted</span> : <span className="text-rose-700 font-semibold">check</span>}
-        </span>
+        </button>
         <span>
           Return rate: <strong className={returnRate > 15 ? 'text-rose-700' : 'text-[#141413]'}>{returnRate}%</strong>
         </span>
@@ -1848,28 +1855,17 @@ const OrdersTab: React.FC<{ refreshKey?: string }> = ({ refreshKey }) => {
     }
   };
 
-  const countOf = (f: OrderFilter) => (orders || []).filter((o) => inFilter(o, f)).length;
+  const pickedLabel = filter === 'ALL' ? 'All orders' : PARCEL_BOXES.find((b) => b.id === filter)?.label;
 
   return (
     <div className="space-y-4">
       <ChatAiSwitch />
-      {orders && orders.length > 0 && <ParcelCount orders={orders} onPick={setFilter} />}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <SegTabs
-          value={filter}
-          onChange={setFilter}
-          items={[
-            { id: 'OPEN', label: 'To ship', count: countOf('OPEN') },
-            { id: 'SHIPPED', label: 'On the way', count: countOf('SHIPPED') },
-            { id: 'RETURNING', label: 'Coming back', count: countOf('RETURNING') },
-            { id: 'DONE', label: 'Completed', count: countOf('DONE') },
-            { id: 'ALL', label: 'All', count: countOf('ALL') },
-          ]}
-        />
-        <button type="button" onClick={load} className={ui.secondary}>
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
-      </div>
+      {orders && <ParcelCount orders={orders} value={filter} onPick={setFilter} onRefresh={load} />}
+      {orders && orders.length > 0 && (
+        <div className="text-[13px] font-bold text-[#141413]">
+          {pickedLabel} <span className="font-normal text-[#8A8780]">({visible.length})</span>
+        </div>
+      )}
 
       {orders === null ? (
         <p className="text-xs text-[#575653]">Loading orders...</p>
