@@ -174,7 +174,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Jitne piece aap foran bhej sakte hain, utne likhein.',
       'Variants (rang / size) lagaye hon to stock har variant mein alag likhein; yahan total khud ban jata hai.',
       'Stock 0 ho jaye to product "out of stock" dikhta hai aur order nahi aata.',
-      'Digital download, software, service aur subscription mein stock nahi likhna parta: yeh jitne chahein bik sakte hain.',
+      'Digital product, software, service aur subscription mein stock nahi likhna parta: yeh jitne chahein bik sakte hain.',
     ],
   },
   'seller.product.type': {
@@ -182,7 +182,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     what: 'Naya product daalte waqt pehle us ki qisam chunein. Har qisam ka apna form hai, aur customer ko store par wahi icon dikhta hai.',
     steps: [
       'Physical product: asli cheez jo courier se jaye (kapre, electronics). COD chalta hai.',
-      'Digital download: e-book, PDF, course, template, pattern. Customer pehle payment karta hai, phir use download link milta hai. Courier nahi.',
+      'Digital product: e-book, PDF, course, template, pattern. Customer pehle payment karta hai, phir use download link milta hai. Courier nahi.',
       'Software & apps: download link + har customer ke liye alag license key. Keys ek line mein ek likhein.',
       'Service: web design, logo, tuition, repairing. Kitne din mein kaam hoga aur kitni dafa tabdeeli (revisions) likhein. Customer order par apni zaroorat likhta hai.',
       'Wholesale: dukaandaron ke liye. Kam az kam kitne piece, aur zyada lene par sasti qeemat ke steps.',

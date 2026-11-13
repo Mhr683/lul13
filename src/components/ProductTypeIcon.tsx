@@ -12,7 +12,7 @@ export const ProductTypeIcon: React.FC<{ type?: ProductType | string; className?
   return <Icon className={className} />;
 };
 
-/** Small coloured label: "Digital download", "Service", ... (nothing for ordinary physical products) */
+/** Small coloured label: "Digital product", "Service", ... (nothing for ordinary physical products) */
 export const ProductTypeBadge: React.FC<{ type?: ProductType | string; className?: string; showPhysical?: boolean }> = ({
   type,
   className = '',

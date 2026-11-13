@@ -95,7 +95,7 @@ export const PRODUCT_TYPES: ProductTypeInfo[] = [
   },
   {
     id: 'DIGITAL',
-    label: 'Digital download',
+    label: 'Digital product',
     hint: 'E-book, PDF, course, template, crochet pattern: payment ke baad customer ko download link milta hai.',
     customerLine: 'Instant download after payment',
     color: '#1D4ED8',

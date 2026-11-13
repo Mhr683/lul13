@@ -445,7 +445,7 @@ export const StorefrontView: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('ALL');
   const [activeSubcategory, setActiveSubcategory] = useState<string>('ALL');
   const [activeCollection, setActiveCollection] = useState<'ALL' | 'NEW_ARRIVALS' | 'BEST_SELLERS' | 'OFFERS'>('ALL');
-  // "Shop by type": physical, digital downloads, services, wholesale, rent, ... (src/services/productTypes.ts)
+  // "Shop by type": physical, digital products, services, wholesale, rent, ... (src/services/productTypes.ts)
   const [activeType, setActiveType] = useState<ProductType | 'ALL'>('ALL');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileExpandedSection, setMobileExpandedSection] = useState<string | null>(null);
