@@ -16,6 +16,8 @@ export type ShopInfo = {
   shipsFromCountry?: string;
   /** The seller added their own AI key ("AI Powered Shop" badge) */
   aiPowered?: boolean;
+  /** Wide banner on top of the shop page (Seller Center → Profile) */
+  coverUrl?: string;
   /** The shop's social media pages (src/services/socialLinks.ts) */
   socialLinks?: import('../services/socialLinks').SocialLink[];
   ratingAvg: number;

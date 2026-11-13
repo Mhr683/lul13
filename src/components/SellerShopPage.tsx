@@ -116,7 +116,13 @@ export const SellerShopPage: React.FC<{
       </button>
 
       {/* Shop header */}
-      <div className="p-5 sm:p-6 bg-white border border-black/[0.08] flex flex-wrap items-center gap-4">
+      {/* Cover picture (Seller Center → Profile) above the shop header */}
+      {shop?.coverUrl && (
+        <div className="-mb-6 aspect-[3/1] max-h-72 w-full overflow-hidden bg-[#F2F1EC]">
+          <img src={shop.coverUrl} alt={`${name} cover`} className="w-full h-full object-cover" />
+        </div>
+      )}
+      <div className="p-5 sm:p-6 bg-white border border-black/[0.08] flex flex-wrap items-center gap-4 relative">
         <SellerAvatar src={shop?.logoUrl} name={name} size={72} className="border border-black/10" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-[#0E7A43]">

@@ -3689,6 +3689,36 @@ async function shrinkToSquareJpeg(file: File, size = 256): Promise<string> {
   }
 }
 
+// Crops a chosen photo to a 3:1 banner (1500 x 500) and shrinks it to a JPEG for the shop's cover
+async function shrinkToCoverJpeg(file: File): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('This picture could not be opened. Please choose a JPG or PNG.'));
+      el.src = url;
+    });
+    const W = 1500;
+    const H = 500;
+    const scale = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+    const sw = W / scale;
+    const sh = H / scale;
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, 0, 0, W, H);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not prepare the picture.'))), 'image/jpeg', 0.82)
+    );
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // Change the shop name (own save button: it is checked more strictly and renames every product)
 const ShopNameEditor: React.FC<{ seller: SellerShop; onSaved: () => void }> = ({ seller, onSaved }) => {
   const { showToast } = useStore();
@@ -3762,6 +3792,22 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  const [cover, setCover] = useState<string>((seller as any).coverUrl || '');
+  const [coverBusy, setCoverBusy] = useState(false);
+  const saveCover = async (coverUrl: string) => {
+    setCoverBusy(true);
+    try {
+      await api('/api/seller/profile', { method: 'PUT', body: JSON.stringify({ coverUrl }) });
+      setCover(coverUrl);
+      showToast(coverUrl ? 'Cover photo saved. It shows on top of your shop page.' : 'Cover photo removed.');
+      onSaved();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+
   const savePhoto = async (logoUrl: string) => {
     setPhotoBusy(true);
     try {
@@ -3792,10 +3838,51 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
         }
       }}
     >
-      <Panel title="Shop" subtitle="How customers see your shop">
-       <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-4">
-        <SellerAvatar src={photo} name={seller.shopName} size={80} className="border border-[#E7E5DF]" />
+      <Panel title="Shop" subtitle="How customers see your shop" flush>
+       {/* Cover picture: the wide banner on top of the shop page */}
+       <div className="relative aspect-[3/1] max-h-56 w-full bg-gradient-to-r from-[#E8F3EC] via-[#F2F1EC] to-[#FBEFD9] overflow-hidden">
+         {cover ? (
+           <img src={cover} alt="Shop cover" className="w-full h-full object-cover" />
+         ) : (
+           <div className="w-full h-full flex flex-col items-center justify-center text-[#6B6963] text-[12px] gap-1">
+             <Camera className="w-6 h-6" />
+             Add a cover photo: your shop, products or a sale banner
+           </div>
+         )}
+         <div className="absolute top-2 right-2 flex gap-1.5">
+           <label className={`${ui.secondary} !bg-white/95 shadow-sm ${coverBusy ? 'opacity-50 pointer-events-none' : ''}`}>
+             <Camera className="w-3.5 h-3.5" /> {coverBusy ? 'Saving...' : cover ? 'Change cover' : 'Add cover'}
+             <input
+               type="file"
+               accept="image/*"
+               className="hidden"
+               onChange={async (e) => {
+                 const f = e.target.files?.[0];
+                 e.target.value = '';
+                 if (!f) return;
+                 setCoverBusy(true);
+                 try {
+                   const url = await uploadMedia(await shrinkToCoverJpeg(f));
+                   await saveCover(url);
+                 } catch (err: any) {
+                   showToast(err.message);
+                 } finally {
+                   setCoverBusy(false);
+                 }
+               }}
+             />
+           </label>
+           {cover && (
+             <button type="button" disabled={coverBusy} onClick={() => saveCover('')} className={`${ui.secondary} !bg-white/95 shadow-sm`}>
+               Remove
+             </button>
+           )}
+         </div>
+       </div>
+       <div className="p-4 sm:p-5 space-y-5">
+      <div className="flex flex-wrap items-start gap-4">
+        {/* The profile picture sits half over the cover, like on social media */}
+        <SellerAvatar src={photo} name={seller.shopName} size={88} className="border-4 border-white shadow-md relative -mt-12 sm:-mt-14 shrink-0" />
         <div className="space-y-2 text-[12.5px] text-[#6B6963]">
           <div>
             <div className="text-[15px] font-bold text-[#141413]">{seller.shopName}</div>

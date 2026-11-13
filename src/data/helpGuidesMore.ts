@@ -406,11 +406,13 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
   },
   'seller.tab.PROFILE': {
     title: 'Profile & payout (dukaan aur payout ki maloomat)',
-    what: 'Dukaan ka naam, tasveer, mobile, shehar, pata aur payout ka bank / wallet.',
+    what: 'Dukaan ka naam, tasveer, cover photo, mobile, shehar, pata aur payout ka bank / wallet.',
     steps: [
       'Menu mein "Account → Profile" (ya upar apni tasveer → "Profile & payout") kholein.',
       '"Shop" hisse mein naam ke neeche aap ka commission %, shehar aur followers ki ginti likhi hoti hai.',
       'Tasveer: "Add picture / Change picture".',
+      'Cover photo (upar wali chauri tasveer): "Add cover / Change cover" dabayein aur tasveer chunein. Yeh khud chauri (3:1) kat kar save ho jati hai aur dukaan ke page par sab se upar dikhti hai. "Remove" se hata dein.',
+      'Cover ke liye apni dukaan, products ya sale ka banner achha lagta hai; zaroori cheez tasveer ke beech mein rakhein, kinare kat sakte hain.',
       'Dukaan ka naam: "Shop name" mein naya naam aur "Change name" (us ka apna ? dekhein).',
       'Mobile, City aur Address sahi likhein: courier yahin se parcel uthata hai.',
       'Bank / wallet, Account title aur Account number / IBAN: payouts yahin aate hain.',

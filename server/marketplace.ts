@@ -531,6 +531,15 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (logo.length > 200_000) return res.status(400).json({ error: 'This picture is too large. Please choose a smaller one.' });
       updates.logoUrl = logo;
     }
+    // Cover picture: the wide banner on top of the shop page (uploaded through /api/seller/media/upload)
+    if (b.coverUrl !== undefined) {
+      const cover = String(b.coverUrl || '').trim();
+      if (cover && !/^\/media\/[a-zA-Z0-9_.-]+$/.test(cover) && !/^https:\/\/\S+$/i.test(cover)) {
+        return res.status(400).json({ error: 'Unsupported cover picture. Please choose a JPG or PNG.' });
+      }
+      updates.coverUrl = cover.slice(0, 500);
+      shopCache.delete(uid);
+    }
     // Social media pages shown on the shop page (src/services/socialLinks.ts checks them)
     if (b.socialLinks !== undefined) {
       const { links, error } = cleanSocialLinks(b.socialLinks);
@@ -2078,6 +2087,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
                   id,
                   shopName: s.shopName,
                   logoUrl: s.logoUrl || '',
+                  coverUrl: s.coverUrl || '',
                   city: s.city || '',
                   joinedAt: s.createdAt || '',
                   followers: Math.max(0, Number(s.followers) || 0),
