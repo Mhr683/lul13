@@ -5,8 +5,8 @@ import { auth } from '../lib/firebase';
 // Chat between the customer and the seller of one order (server/orderChat.ts). Open while the order
 // runs, read-only once it is finished. Phone numbers, e-mails and links are refused by the server.
 
-type ChatMessage = { id: string; from: 'CUSTOMER' | 'SELLER'; text: string; at: string; mine: boolean };
-type ChatView = { open: boolean; sellerName: string; customerName: string; messages: ChatMessage[]; unread?: number; available?: boolean };
+type ChatMessage = { id: string; from: 'CUSTOMER' | 'SELLER'; text: string; at: string; mine: boolean; ai?: boolean };
+type ChatView = { open: boolean; sellerName: string; customerName: string; messages: ChatMessage[]; unread?: number; available?: boolean; aiOn?: boolean };
 
 type Props =
   | { mode: 'customer'; orderNumber: string; token: string }
@@ -119,6 +119,27 @@ export const OrderChat: React.FC<Props> = (p) => {
           Close
         </button>
       </div>
+      {p.mode === 'seller' && chat && (
+        <label className="px-3 py-1.5 bg-violet-50 border-b border-violet-100 text-[11.5px] text-violet-950 flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={chat.aiOn !== false}
+            onChange={async (e) => {
+              const on = e.target.checked;
+              setChat((c) => (c ? { ...c, aiOn: on } : c));
+              try {
+                await call('/api/seller/order-chat-ai', { on });
+              } catch {
+                setChat((c) => (c ? { ...c, aiOn: !on } : c));
+              }
+            }}
+            className="accent-violet-700"
+          />
+          <span>
+            <strong>🤖 AI replies when I am away</strong> (order status, tracking, how to cancel; never bank details, never cancels). It waits 30 min after you write.
+          </span>
+        </label>
+      )}
       <div className="px-3 py-1.5 bg-[#FBFBF9] border-b border-[#EFEDE8] text-[11px] text-[#6B6963] flex items-start gap-1.5">
         <ShieldCheck className="w-3.5 h-3.5 mt-px shrink-0 text-emerald-700" />
         <span>
@@ -136,6 +157,11 @@ export const OrderChat: React.FC<Props> = (p) => {
           chat.messages.map((m) => (
             <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[80%] px-3 py-2 rounded-2xl whitespace-pre-line break-words ${m.mine ? 'bg-emerald-700 text-white rounded-br-sm' : 'bg-white border border-[#E7E5DF] rounded-bl-sm'}`}>
+                {m.ai && (
+                  <div className={`mb-0.5 text-[10px] font-bold ${m.mine ? 'text-emerald-100' : 'text-violet-700'}`}>
+                    {p.mode === 'seller' ? '🤖 AI replied for you' : `🤖 Auto-reply from ${chat.sellerName}`}
+                  </div>
+                )}
                 {m.text}
                 <div className={`mt-0.5 text-[10px] ${m.mine ? 'text-emerald-100' : 'text-[#8A8780]'}`}>{when(m.at)}</div>
               </div>

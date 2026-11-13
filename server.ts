@@ -4584,6 +4584,25 @@ registerOrderChatRoutes(app, {
   callerUid: callerUidOf,
   limitPerIp,
   HOUSE_SELLER_ID,
+  // Replies on the seller's behalf: the seller's own AI keys first, then the store's
+  hasOwnAiKey: (sellerId) => Boolean(sellerAiKeys.get(sellerId)?.keys?.length),
+  generateReply: async (sellerId, system, contents) => {
+    let ai: ReturnType<typeof getGenAIClient>;
+    try {
+      ai = getGenAIClient(sellerId);
+    } catch {
+      return null;
+    }
+    for (const model of ['gemini-3.8-flash', 'gemini-3.1-flash-lite']) {
+      try {
+        const r = await ai.models.generateContent({ model, contents, config: { systemInstruction: system, temperature: 0.4, maxOutputTokens: 300 } });
+        if (r.text) return r.text.trim();
+      } catch (err: any) {
+        console.warn(`[order-chat AI] ${model} failed:`, err?.message || err);
+      }
+    }
+    return null;
+  },
 });
 
 // Product page extras: back-in-stock alerts, questions & answers, bought together

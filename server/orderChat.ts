@@ -9,6 +9,13 @@ import crypto from 'crypto';
 // cancelled, returned or refunded. Phone numbers, e-mails, links and "WhatsApp me" style messages are
 // refused, so buyer and seller cannot take the deal off the store. Blocked tries are counted on the
 // chat so the store can see who keeps trying.
+//
+// While the seller is away, an AI assistant answers the customer on the seller's behalf
+// (server/orderChatAi.ts): order status, delays, tracking, how cancelling works, never bank details
+// and never a cancellation. It stays quiet for 30 minutes after the seller writes, and the seller can
+// switch it off (sellers/{uid}.orderChatAiOff).
+
+import { orderChatReply, type GenerateReply } from './orderChatAi';
 
 type Handler = (req: express.Request, res: express.Response, next: express.NextFunction) => any;
 
@@ -19,7 +26,12 @@ export interface OrderChatDeps {
   callerUid: (req: express.Request) => Promise<string | null>;
   limitPerIp: (name: string, max: number, windowMs?: number) => Handler;
   HOUSE_SELLER_ID: string;
+  /** The AI used for replies on the seller's behalf (their own key first); absent = fixed replies only */
+  generateReply?: GenerateReply;
+  hasOwnAiKey?: (sellerId: string) => boolean;
 }
+
+const HUMAN_QUIET_MS = 30 * 60_000;
 
 const CLOSED = ['DELIVERED', 'CANCELLED', 'REFUNDED', 'RETURNED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'];
 const MAX_MESSAGES = 300;
@@ -149,8 +161,55 @@ export function registerOrderChatRoutes(app: express.Express, d: OrderChatDeps) 
     status: order.status,
     sellerName: order.sellerName || 'Seller',
     customerName: String(order.customerName || 'Customer').split(/\s+/)[0],
-    messages: (chat?.messages || []).map((m: any) => ({ id: m.id, from: m.from, text: m.text, at: m.at, mine: m.from === me })),
+    messages: (chat?.messages || []).map((m: any) => ({ id: m.id, from: m.from, text: m.text, at: m.at, mine: m.from === me, ...(m.ai ? { ai: true } : {}) })),
   });
+
+  // The seller's "AI replies for me" switch (on unless switched off), kept in memory for 10 minutes
+  const aiSwitch = new Map<string, { at: number; on: boolean }>();
+  const aiOn = async (sellerId: string) => {
+    const hit = aiSwitch.get(sellerId);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.on;
+    let on = true;
+    try {
+      on = !(await adminDb.collection('sellers').doc(sellerId).get()).data()?.orderChatAiOff;
+    } catch {
+      /* keep it on */
+    }
+    aiSwitch.set(sellerId, { at: Date.now(), on });
+    if (aiSwitch.size > 5000) aiSwitch.clear();
+    return on;
+  };
+
+  /** Answers the customer's last message on the seller's behalf when the seller is away */
+  const autoReply = async (orderId: string, order: any, chat: any, text: string) => {
+    if (!isOpen(order) || !(await aiOn(order.sellerId))) return chat;
+    const lastHuman = Date.parse(chat.lastSellerHumanAt || '');
+    if (!isNaN(lastHuman) && Date.now() - lastHuman < HUMAN_QUIET_MS) return chat;
+    const lastAi = [...(chat.messages || [])].reverse().find((m: any) => m.ai);
+    if (lastAi && Date.now() - Date.parse(lastAi.at) < 15_000) return chat; // a burst of messages gets one answer
+    const reply = await orderChatReply({
+      text,
+      order,
+      shop: order.sellerName || 'The seller',
+      history: (chat.messages || []).slice(0, -1),
+      generate: d.generateReply,
+      ownKey: Boolean(d.hasOwnAiKey?.(order.sellerId)),
+    });
+    if (!reply) return chat;
+    const ref = chats().doc(orderId);
+    return adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const cur: any = snap.data() || chat;
+      if ((cur.messages || []).length >= MAX_MESSAGES) return cur;
+      const next = {
+        ...cur,
+        messages: [...(cur.messages || []), { id: crypto.randomBytes(4).toString('hex'), from: 'SELLER', text: reply, at: new Date().toISOString(), ai: true }],
+        lastAt: new Date().toISOString(),
+      };
+      tx.set(ref, next);
+      return next;
+    });
+  };
 
   /** Adds a message (or refuses it) inside a transaction; returns the updated chat */
   const send = async (orderId: string, order: any, from: 'CUSTOMER' | 'SELLER', text: string) => {
@@ -189,6 +248,8 @@ export function registerOrderChatRoutes(app: express.Express, d: OrderChatDeps) 
         unreadForSeller: from === 'CUSTOMER' ? (Number(chat.unreadForSeller) || 0) + 1 : 0,
         sellerHasUnread: from === 'CUSTOMER',
         unreadForCustomer: from === 'SELLER' ? (Number(chat.unreadForCustomer) || 0) + 1 : 0,
+        // The AI stays quiet for a while after the seller writes
+        ...(from === 'SELLER' ? { lastSellerHumanAt: now } : {}),
       };
       tx.set(ref, next);
       return { chat: next, blocked: null };
@@ -240,7 +301,13 @@ export function registerOrderChatRoutes(app: express.Express, d: OrderChatDeps) 
       if (out.blocked) return res.status(400).json({ error: CONTACT_BLOCKED_TEXT, code: 'CONTACT_BLOCKED' });
       unreadCache.delete(fresh.sellerId);
       alertsCache.delete(fresh.sellerId);
-      res.json({ success: true, ...view(out.chat, fresh, 'CUSTOMER') });
+      let chat = out.chat;
+      try {
+        chat = await autoReply(found.id, fresh, out.chat, text);
+      } catch (err: any) {
+        console.warn('[order-chat] auto-reply failed:', err?.message);
+      }
+      res.json({ success: true, ...view(chat, fresh, 'CUSTOMER') });
     } catch (err) {
       sendError(res, err, 'customer send');
     }
@@ -309,10 +376,24 @@ export function registerOrderChatRoutes(app: express.Express, d: OrderChatDeps) 
         alertsCache.delete(uid);
       }
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ success: true, ...view(chat, order, 'SELLER') });
+      res.json({ success: true, aiOn: await aiOn(uid), ...view(chat, order, 'SELLER') });
     } catch (err) {
       console.error('[seller/order-chat] failed:', err);
       res.status(503).json({ error: 'Could not load the chat.' });
+    }
+  });
+
+  // The seller's switch: "AI replies to customers when I am away"
+  app.post('/api/seller/order-chat-ai', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const on = req.body?.on !== false;
+    try {
+      await adminDb.collection('sellers').doc(uid).set({ orderChatAiOff: !on }, { merge: true });
+      aiSwitch.set(uid, { at: Date.now(), on });
+      res.json({ success: true, aiOn: on });
+    } catch (err) {
+      console.error('[seller/order-chat-ai] failed:', err);
+      res.status(503).json({ error: 'Could not save. Please try again.' });
     }
   });
 

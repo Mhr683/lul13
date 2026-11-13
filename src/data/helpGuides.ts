@@ -403,8 +403,12 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Paigham likh kar bhejein. Customer ko apne order ke page par nazar aata hai.',
       'Parcel tayyar ho to "📦 Mark as packed" dabayein: tab customer ka phone number courier ke liye nazar aa jata hai.',
       'Parcel deliver hone par number aur chat dono band ho jate hain.',
+      'Aap mojood na hon to "🤖 AI" aap ki taraf se customer ko foran jawab deta hai: order accept hua ya nahi, der kyun, order kahan hai (courier aur tracking number), cancel kaise hota hai. Us ke jawab par "🤖 AI replied for you" likha hota hai.',
+      'AI kabhi bank / JazzCash / Easypaisa account ya koi number nahi deta, kabhi order cancel nahi karta aur refund ya delivery ki tareekh ka waada nahi karta: sirf store ke buttons aur qaanoon batata hai.',
+      'Aap khud jawab dein to AI 30 minute chup rehta hai. Band karna ho to chat ke upar "🤖 AI replies when I am away" ka tick hata dein.',
     ],
     tips: [
+      'Apni AI key (AI Assistant tab) ho to AI ke jawab us se bante hain aur zyada achhe hote hain; key na ho to store ka AI roz mehdood jawab deta hai, phir tayyar jawab chalte hain.',
       'Chat mein phone number, email, link, "WhatsApp karo / call karo" likhna mana hai: aisa paigham jata hi nahi aur store ko pata chal jata hai.',
       'Store se bahar deal karna Seller Rules ke khilaf hai: is mein na customer ki hifazat hai na aap ke paise ki.',
       'Doosri app (Oshi, YourMart...) wale order par number "✓ Sent to supplier" dabane ke baad dikhta hai, taake supplier ko pata de saken.',
