@@ -69,15 +69,18 @@ export function playChime(kind: 'order' | 'message' = 'message') {
 
 // ------------------------------------------------------------------ notifications
 
-let swReg: Promise<ServiceWorkerRegistration | null> | null = null;
-const registration = () => {
-  if (!swReg) {
-    swReg =
-      'serviceWorker' in navigator
-        ? navigator.serviceWorker.register('/seller-sw.js').catch(() => null)
-        : Promise.resolve(null);
+// The app's own service worker (sw.js, registered in src/main.tsx) shows the notifications. Never
+// register a second one here: it would replace sw.js and the app would keep reloading itself.
+const registration = async (): Promise<ServiceWorkerRegistration | null> => {
+  if (!('serviceWorker' in navigator)) return null;
+  try {
+    return (
+      (await navigator.serviceWorker.getRegistration()) ||
+      (await Promise.race([navigator.serviceWorker.ready, new Promise<null>((r) => setTimeout(() => r(null), 3000))]))
+    );
+  } catch {
+    return null;
   }
-  return swReg;
 };
 
 export const notificationsSupported = () => typeof window !== 'undefined' && 'Notification' in window;
@@ -86,7 +89,6 @@ export const notificationsBlocked = () => notificationsSupported() && Notificati
 
 export async function askForNotifications(): Promise<boolean> {
   if (!notificationsSupported()) return false;
-  await registration();
   const p = await Notification.requestPermission();
   return p === 'granted';
 }
@@ -117,6 +119,5 @@ export function onNotificationOpen(fn: (tab: string) => void) {
     if (e.data?.type === 'seller-alert-open' && e.data.tab) fn(String(e.data.tab));
   };
   navigator.serviceWorker.addEventListener('message', handler);
-  registration();
   return () => navigator.serviceWorker.removeEventListener('message', handler);
 }

@@ -113,6 +113,8 @@ export default defineConfig(() => {
           // A new version takes over right away and old cached files are removed
           skipWaiting: true,
           clientsClaim: true,
+          // Seller Center notifications: opening the app when one is tapped (public/sw-notifications.js)
+          importScripts: ['sw-notifications.js'],
           cleanupOutdatedCaches: true,
           // Never answer API calls from the offline cache
           navigateFallbackDenylist: [/^\/api\//],
