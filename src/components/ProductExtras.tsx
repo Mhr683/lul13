@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, Check, History, MessageCircleQuestion, ShoppingBag } from 'lucide-react';
+import { Bell, Check, ChevronDown, History, MessageCircleQuestion, ShoppingBag } from 'lucide-react';
 import { auth } from '../lib/firebase';
 import { formatPKR } from '../services/abstractions';
 import { ProductImage } from './ProductImage';
@@ -21,6 +21,7 @@ const canBuy = (p: Product) =>
 
 const RECENT_KEY = 'store_recently_viewed_v1';
 const RECENT_MAX = 12;
+const RECENT_OPEN_KEY = 'store_recently_viewed_open_v1';
 
 const readRecent = (): string[] => {
   try {
@@ -82,24 +83,70 @@ export const RecentlyViewedStrip: React.FC<{
       .filter((p): p is Product => Boolean(p && p.status === 'ACTIVE'))
       .slice(0, 6);
   }, [ids, products, excludeId]);
+  // A closed bar by default (small pictures only); opens into a short list. The choice is kept on this device.
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(RECENT_OPEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    setOpen((v) => {
+      try {
+        localStorage.setItem(RECENT_OPEN_KEY, v ? '0' : '1');
+      } catch {}
+      return !v;
+    });
+  };
   if (!list.length) return null;
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-display font-medium text-[#141413] flex items-center gap-2">
-          <History className="w-5 h-5 text-[#8C6D46]" /> Recently viewed
-        </h2>
-        {onClear && (
-          <button type="button" onClick={onClear} className="text-xs text-[#575653] underline hover:text-[#141413] cursor-pointer">
+    <section className="bg-white border border-black/[0.08] rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 pr-2">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          className="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2.5 text-left cursor-pointer hover:bg-black/[0.02]"
+        >
+          <History className="w-4 h-4 text-[#8C6D46] shrink-0" />
+          <span className="text-sm font-semibold text-[#141413] whitespace-nowrap">Recently viewed</span>
+          {!open && (
+            <span className="flex -space-x-2 min-w-0 overflow-hidden" aria-hidden="true">
+              {list.slice(0, 4).map((p) => (
+                <span key={p.id} className="w-7 h-7 rounded-full border-2 border-white bg-[#F3F2EE] overflow-hidden shrink-0">
+                  <ProductImage src={p.primaryImage} alt="" category={p.category} className="w-full h-full object-cover" />
+                </span>
+              ))}
+            </span>
+          )}
+          <ChevronDown className={`w-4 h-4 ml-auto text-[#575653] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {open && onClear && (
+          <button type="button" onClick={onClear} className="text-xs text-[#575653] underline hover:text-[#141413] cursor-pointer shrink-0">
             Clear
           </button>
         )}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {list.map((p) => (
-          <MiniCard key={p.id} p={p} onSelect={onSelect} />
-        ))}
-      </div>
+      {open && (
+        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 border-t border-black/[0.06] p-1.5">
+          {list.map((p) => (
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(p)}
+                className="w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left cursor-pointer hover:bg-[#F5F4F0]"
+              >
+                <span className="w-11 h-11 rounded-lg bg-[#F3F2EE] overflow-hidden shrink-0 border border-black/[0.06]">
+                  <ProductImage src={p.primaryImage} alt="" category={p.category} className="w-full h-full object-cover" />
+                </span>
+                <span className="flex-1 min-w-0 text-[13px] text-[#141413] leading-snug line-clamp-2">{p.name}</span>
+                <span className="shrink-0 text-[13px] font-bold text-[#141413]">{formatMoney(p.price)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 };
