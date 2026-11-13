@@ -371,6 +371,8 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Account nahi hai to "No account? Create a new one" dabayein aur naya account banayein.',
       'App mein apna profile / page link copy karein (dabbe mein likha hai kahan se), phir wapis Seller Center mein aayein.',
       '"Connect now" dabayein: copy kiya hua link khud padh kar jor deta hai aur icon par "✓ Connected" aa jata hai. Na padh sake to link khane mein paste karke "Connect" dabayein.',
+      'Link copy karna mushkil lage to khane mein sirf apni page / account ka naam likhein (jaise anokhashop) aur "Connect" dabayein.',
+      'Yaad rakhein: sirf app khul jane se connect nahi hota; link ya naam de kar "Connect" dabana zaroori hai.',
       'Hatana ho to icon par tap karke "Disconnect".',
       'List mein na ho (Pinterest, Snapchat, Threads, website...) to "Add another link" dabayein: naam aur link likhein.',
       'Other links ke baad "Save other links" dabayein. Ghalat link par laal likhai batati hai kya theek karna hai.',

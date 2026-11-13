@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle2, ClipboardPaste, ExternalLink, UserPlus, X } from 'lucide-react';
 import { ui } from './SellerUi';
 import { SocialIcon } from './SocialIcon';
-import { CONNECT, deviceKind, openAppUrl, playStoreUrl } from '../services/socialConnect';
+import { CONNECT, deviceKind, openAppUrl, playStoreUrl, profileUrlFromName } from '../services/socialConnect';
 import { checkSocialLink, platformInfo, type SocialPlatform } from '../services/socialLinks';
 
 // "Connect" one social platform to the shop, in 3 steps:
@@ -65,8 +65,9 @@ export const SocialConnectModal: React.FC<{
       setError(`Nothing copied yet. In ${info.label}: ${c.howToCopy}`);
       return;
     }
-    // Pick the link out of a longer shared text ("Check out my profile https://...")
-    const found = link.match(/https?:\/\/\S+|(?:www\.)?[a-z0-9-]+\.(?:com|me|be)\/\S+/i)?.[0];
+    // Pick the link out of a longer shared text ("Check out my profile https://..."), or make it from
+    // a typed page / user name ("anokhashop")
+    const found = link.match(/https?:\/\/\S+|(?:www\.)?[a-z0-9-]+\.(?:com|me|be)\/\S+/i)?.[0] || profileUrlFromName(platform, link);
     const { link: ok, error: err } = checkSocialLink({ platform, url: found || link });
     if (!ok) {
       setError(err || `This is not a ${info.label} link.`);
@@ -166,6 +167,10 @@ export const SocialConnectModal: React.FC<{
               {step(3, back)}
               <div className="flex-1 space-y-2">
                 <div className="font-semibold">{back ? 'Welcome back! Connect now' : 'Come back and connect'}</div>
+                <p className="text-[#55534E]">
+                  Opening the app does not connect it yet: copy your link there, come back and press the green button.
+                  {platform !== 'WHATSAPP_CHANNEL' && ' Or just type your page / user name in the box (e.g. anokhashop).'}
+                </p>
                 <button type="button" disabled={busy} onClick={() => connect()} className={`${ui.primary} w-full !py-2.5`}>
                   <ClipboardPaste className="w-4 h-4" /> {busy ? 'Connecting...' : 'Connect now (use the copied link)'}
                 </button>
@@ -181,7 +186,7 @@ export const SocialConnectModal: React.FC<{
                         if (text.trim()) connect(text);
                       }
                     }}
-                    placeholder={platform === 'WHATSAPP_CHANNEL' ? '03001234567 or link' : `or paste here: ${info.example}`}
+                    placeholder={platform === 'WHATSAPP_CHANNEL' ? '03001234567 or link' : 'or type your page name / paste link'}
                     inputMode={platform === 'WHATSAPP_CHANNEL' ? 'text' : 'url'}
                     autoCapitalize="off"
                     spellCheck={false}

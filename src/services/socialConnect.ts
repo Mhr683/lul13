@@ -62,6 +62,28 @@ export const CONNECT: Record<Exclude<SocialPlatform, 'OTHER'>, Connect> = {
   },
 };
 
+/** A typed user / page name ("anokhashop" or "@anokhashop") made into its profile link; null when it is not a name */
+export function profileUrlFromName(p: Exclude<SocialPlatform, 'OTHER'>, raw: string): string | null {
+  const name = raw.trim().replace(/^@/, '');
+  if (!/^[A-Za-z0-9._-]{2,60}$/.test(name) || /^\d+$/.test(name)) return null;
+  switch (p) {
+    case 'FACEBOOK':
+      return `https://www.facebook.com/${name}`;
+    case 'INSTAGRAM':
+      return `https://www.instagram.com/${name}`;
+    case 'YOUTUBE':
+      return `https://www.youtube.com/@${name}`;
+    case 'TIKTOK':
+      return `https://www.tiktok.com/@${name}`;
+    case 'X':
+      return `https://x.com/${name}`;
+    case 'TELEGRAM':
+      return `https://t.me/${name}`;
+    default:
+      return null;
+  }
+}
+
 export const deviceKind = (): 'android' | 'ios' | 'desktop' => {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   if (/android/i.test(ua)) return 'android';
