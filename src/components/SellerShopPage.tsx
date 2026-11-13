@@ -138,12 +138,11 @@ export const SellerShopPage: React.FC<{
           </div>
           <h1 className="text-2xl sm:text-3xl font-display font-medium text-[#141413] truncate">{name}</h1>
           <p className="text-xs text-[#575653]">
-            {shopProducts.length} {shopProducts.length === 1 ? 'product' : 'products'}
-            {shop?.city ? ` · ${shop.city}` : ''}
-            {joined ? ` · selling since ${joined}` : ''}
+            {/* How many products a shop has is not shown to customers */}
+            {[shop?.city, joined ? `selling since ${joined}` : ''].filter(Boolean).join(' · ')}
             {shop?.shipsFromCountry && (
               <>
-                {' · '}ships from{' '}
+                {shop?.city || joined ? ' · ' : ''}ships from{' '}
                 <strong className="text-[#141413]">
                   {(() => {
                     const c = ALL_WORLD_COUNTRIES.find((x) => x.isoCode === shop.shipsFromCountry);
@@ -227,7 +226,7 @@ export const SellerShopPage: React.FC<{
                     category === c ? 'bg-[#141413] text-white border-[#141413]' : 'bg-white border-black/15 text-[#141413]'
                   }`}
                 >
-                  {c === 'ALL' ? 'All' : c} ({n})
+                  {c === 'ALL' ? 'All' : c}
                 </button>
               ))}
             </div>
@@ -284,9 +283,6 @@ export const SellerShopPage: React.FC<{
                 ))}
               </div>
               <div className="flex flex-col items-center gap-2 pt-2 text-xs text-[#575653]">
-                <span>
-                  {Math.min(shown, visible.length)} / {visible.length} products
-                </span>
                 {visible.length > shown && (
                   <button
                     type="button"

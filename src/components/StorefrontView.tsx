@@ -1799,7 +1799,6 @@ export const StorefrontView: React.FC = () => {
                             className="w-full text-left py-1.5 px-3 text-xs text-neutral-600 hover:text-black hover:bg-white rounded flex items-center justify-between"
                           >
                             <span>{item.name}</span>
-                            <span className="text-[10px] text-neutral-400 font-mono">{item.count}</span>
                           </button>
                         ))}
                       </div>
@@ -2106,7 +2105,7 @@ export const StorefrontView: React.FC = () => {
                         : 'text-black hover:bg-black/10'
                     }`}
                   >
-                    All Products ({products.filter((p) => p.status === 'ACTIVE').length})
+                    All Products
                   </button>
                   {categories.map((cat) => (
                     <button
@@ -2241,7 +2240,7 @@ export const StorefrontView: React.FC = () => {
                   onClick={() => setSubView('CATALOG')}
                   className="px-8 py-3.5 border border-[#141413] text-xs font-semibold uppercase tracking-widest text-[#141413] hover:bg-[#141413] hover:text-[#FBFBF9] transition-colors cursor-pointer"
                 >
-                  View Complete Catalog ({products.filter((p) => p.status === 'ACTIVE').length} Pieces)
+                  View Complete Catalog
                 </button>
               </div>
             </section>
@@ -2403,9 +2402,6 @@ export const StorefrontView: React.FC = () => {
                   })}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mt-2.5">
-                  <span className="text-xs text-neutral-500 font-mono">
-                    Showing {filteredProducts.length} piece{filteredProducts.length === 1 ? '' : 's'}
-                  </span>
                   {(activeCategory !== 'ALL' || activeSubcategory !== 'ALL' || activeCollection !== 'ALL' || activeType !== 'ALL' || searchQuery) && (
                     <button
                       type="button"
@@ -2488,20 +2484,8 @@ export const StorefrontView: React.FC = () => {
                       }`}
                     >
                       <span>All Products</span>
-                      <span className="font-mono text-[11px] opacity-70">
-                        {products.filter((p) => p.status === 'ACTIVE').length}
-                      </span>
                     </button>
                     {categories.map((cat) => {
-                      const count = products.filter(
-                        (p) =>
-                          p.status === 'ACTIVE' &&
-                          (p.category.toLowerCase() === cat.name.toLowerCase() ||
-                            (cat.name === 'Men' && (p.category === 'Men' || p.subcategory?.includes('Men'))) ||
-                            (cat.name === 'Women' && (p.category === 'Women' || p.subcategory?.includes('Women'))) ||
-                            (cat.name === 'Children' && (p.category === 'Children' || p.subcategory?.includes('Children'))))
-                      ).length;
-
                       const isSelected = activeCategory.toLowerCase() === cat.name.toLowerCase();
 
                       return (
@@ -2519,7 +2503,6 @@ export const StorefrontView: React.FC = () => {
                           }`}
                         >
                           <span>{cat.name}</span>
-                          <span className="font-mono text-[11px] opacity-70">({count})</span>
                         </button>
                       );
                     })}
@@ -2676,9 +2659,6 @@ export const StorefrontView: React.FC = () => {
                     ))}
                   </div>
                   <div className="flex flex-col items-center gap-2 pt-8 text-xs text-[#575653]">
-                    <span>
-                      {visibleCatalogProducts.length} / {filteredProducts.length} products
-                    </span>
                     {visibleCatalogProducts.length < filteredProducts.length && (
                       <button
                         type="button"

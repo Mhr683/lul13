@@ -228,7 +228,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
       </div>
 
       <div className="px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#8C8A85]">
-        {q ? (total ? `${total} product${total === 1 ? '' : 's'} found` : 'No results') : 'Popular products'}
+        {q ? (total ? 'Results' : 'No results') : 'Popular products'}
       </div>
 
       <div className={`overflow-y-auto overscroll-contain ${sheet ? 'flex-1' : 'max-h-[min(400px,calc(100vh-220px))]'}`}>
@@ -272,7 +272,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
           onClick={seeAll}
           className="w-full py-2.5 rounded-full bg-[#141413] text-white text-[13px] font-semibold flex items-center justify-center gap-1.5 hover:bg-[#2A2A28] cursor-pointer"
         >
-          {q ? (total ? `See all ${total} results` : 'Browse all products') : category === 'ALL' ? 'Browse all products' : `See all in ${category}`}
+          {q ? (total ? 'See all results' : 'Browse all products') : category === 'ALL' ? 'Browse all products' : `See all in ${category}`}
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>

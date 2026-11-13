@@ -149,7 +149,6 @@ export const HeaderNavDropdowns: React.FC<HeaderNavDropdownsProps> = ({
                         }`}
                       >
                         <span className="truncate">{item.name}</span>
-                        <span className="ml-3 text-[10px] font-mono text-neutral-400 group-hover/item:text-black">{item.count}</span>
                       </button>
                     );
                   })}
