@@ -559,7 +559,7 @@ export const SellerCenterView: React.FC = () => {
     MESSAGES: { title: 'Messages', description: 'Customers, the store team and the AI coach, each in its own box.', help: 'seller.tab.MESSAGES' },
     EARNINGS: { title: 'Earnings & payouts', description: 'What you earned on each order and what was paid to you.', help: 'seller.tab.EARNINGS' },
     AI: { title: 'AI Assistant', description: 'Ask about your shop, get descriptions written and fixes suggested.', help: 'seller.tab.AI' },
-    PROFILE: { title: 'Profile & payout', description: 'Your shop details, pickup address and where payouts are sent.', help: 'seller.tab.PROFILE' },
+    PROFILE: { title: 'Profile & payout', description: '', help: 'seller.tab.PROFILE' },
     RULES: { title: 'Seller rules', description: 'The rules every shop on the marketplace follows.', help: 'seller.tab.RULES' },
   };
   const byId = Object.fromEntries(tabs.map((t) => [t.id, t]));
