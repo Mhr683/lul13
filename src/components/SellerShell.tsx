@@ -34,6 +34,8 @@ export const SellerShell: React.FC<{
   onTab: (id: string) => void;
   page: { title: string; description: string; help?: string };
   unread: number;
+  /** Small controls shown in the top bar before the bell (e.g. the sound on/off switch) */
+  topExtra?: React.ReactNode;
   onSignOut: () => void;
   banner?: React.ReactNode;
   children: React.ReactNode;
@@ -144,6 +146,7 @@ export const SellerShell: React.FC<{
             >
               Store <ExternalLink className="w-3.5 h-3.5" />
             </a>
+            {p.topExtra}
             <button
               type="button"
               aria-label="Messages and notices"

@@ -1,4 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  askForNotifications,
+  notificationsAllowed,
+  notificationsBlocked,
+  notificationsSupported,
+  notify,
+  onNotificationOpen,
+  playChime,
+  setSoundOn,
+  soundOn,
+  unlockSoundOnFirstTap,
+} from '../services/sellerAlerts';
 import { useTabHistory } from '../hooks/useTabHistory';
 import { CourierBookBox } from './CourierBookBox';
 import { courierApi } from '../services/courierClient';
@@ -325,6 +337,51 @@ export const SellerCenterView: React.FC = () => {
   }, [authReady, approved, loadInbox]);
   const unreadTotal = (inbox?.unread.threads || 0) + (inbox?.unread.notices || 0);
 
+  // The ring: new orders and new customer chat messages play a chime (and a phone notification when
+  // allowed). Checked every 45 s, also while the app is in the background (browsers slow that to ~1/min).
+  const [alerts, setAlerts] = useState<{ chats: number; newOrders: number } | null>(null);
+  const [sound, setSound] = useState(soundOn);
+  const lastAlerts = useRef<{ chats: number; newOrders: number } | null>(null);
+  const checkAlerts = useCallback(async () => {
+    try {
+      const d = await api<{ chats: number; chatOrders: number; newOrders: number }>('/api/seller/alerts');
+      const prev = lastAlerts.current;
+      lastAlerts.current = { chats: d.chats, newOrders: d.newOrders };
+      setAlerts({ chats: d.chats, newOrders: d.newOrders });
+      if (!prev) return; // first check: nothing "new" yet
+      const moreOrders = d.newOrders > prev.newOrders;
+      const moreChats = d.chats > prev.chats;
+      if (!moreOrders && !moreChats) return;
+      if (soundOn()) playChime(moreOrders ? 'order' : 'message');
+      if (moreOrders) {
+        const n = d.newOrders - prev.newOrders;
+        showToast(`🔔 ${n} new order${n > 1 ? 's' : ''}!`);
+        notify('🛍️ New order', `You have ${d.newOrders} order${d.newOrders > 1 ? 's' : ''} to confirm.`, 'ORDERS');
+      }
+      if (moreChats) {
+        showToast('💬 A customer sent you a message.');
+        notify('💬 New customer message', 'Open Orders to reply in the order chat.', 'ORDERS');
+      }
+    } catch {
+      // the next check will try again
+    }
+  }, [showToast]);
+  useEffect(() => {
+    if (!authReady || !approved) return;
+    unlockSoundOnFirstTap();
+    checkAlerts();
+    const t = setInterval(checkAlerts, 45_000);
+    const back = () => document.visibilityState === 'visible' && checkAlerts();
+    document.addEventListener('visibilitychange', back);
+    const off = onNotificationOpen((t) => setTab(t as Tab));
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', back);
+      off();
+    };
+  }, [authReady, approved, checkAlerts]);
+  const ordersBadge = (alerts?.newOrders || 0) + (alerts?.chats || 0);
+
   // Unanswered customer questions (badge on "Questions"); checked once when Seller Center opens
   const [questionsWaiting, setQuestionsWaiting] = useState(0);
   useEffect(() => {
@@ -461,7 +518,7 @@ export const SellerCenterView: React.FC = () => {
   const tabs: { id: Tab; label: string; icon: any; badge?: number }[] = [
     { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'AI', label: 'AI Assistant', icon: Bot },
-    { id: 'ORDERS', label: 'Orders', icon: ShoppingCart },
+    { id: 'ORDERS', label: 'Orders', icon: ShoppingCart, badge: ordersBadge },
     { id: 'PRODUCTS', label: 'Products', icon: Package },
     { id: 'RETURNS', label: 'Returns', icon: RotateCcw },
     { id: 'EARNINGS', label: 'Earnings', icon: Wallet },
@@ -531,6 +588,23 @@ export const SellerCenterView: React.FC = () => {
       onTab={(id) => setTab(id as Tab)}
       page={PAGES[tab] || PAGES.DASHBOARD}
       unread={unreadTotal}
+      topExtra={
+        <button
+          type="button"
+          aria-label={sound ? 'Turn the order bell sound off' : 'Turn the order bell sound on'}
+          title={sound ? 'Bell sound on (tap to turn off)' : 'Bell sound off (tap to turn on)'}
+          onClick={() => {
+            const next = !sound;
+            setSoundOn(next);
+            setSound(next);
+            if (next) playChime('message');
+            showToast(next ? '🔔 Bell sound on' : '🔕 Bell sound off');
+          }}
+          className="w-9 h-9 rounded-lg flex items-center justify-center hover:bg-[#F2F1EC] cursor-pointer text-[17px]"
+        >
+          {sound ? '🔊' : '🔇'}
+        </button>
+      }
       onSignOut={handleSignOut}
       banner={
         tab !== 'MESSAGES' && unreadTotal > 0 ? (
@@ -562,8 +636,9 @@ export const SellerCenterView: React.FC = () => {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
+      {(tab === 'DASHBOARD' || tab === 'ORDERS') && <AlertsSetupCard />}
       {tab === 'DASHBOARD' && <DashboardTab onGo={setTab} seller={seller} />}
-      {tab === 'ORDERS' && <OrdersTab />}
+      {tab === 'ORDERS' && <OrdersTab refreshKey={`${alerts?.newOrders || 0}-${alerts?.chats || 0}`} />}
       {tab === 'PRODUCTS' && (
         <ProductsTab
           uid={uid}
@@ -1485,7 +1560,60 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
 
 // ------------------------------------------------------------------ orders
 
-const OrdersTab: React.FC = () => {
+// Asks the seller once to allow phone notifications, so the bell reaches them with the app in the
+// background. Hidden once allowed, blocked (they must change it in the browser) or closed.
+const ALERTS_CARD_KEY = 'anokha.seller.alertsCard';
+const AlertsSetupCard: React.FC = () => {
+  const { showToast } = useStore();
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(ALERTS_CARD_KEY) === 'closed';
+    } catch {
+      return false;
+    }
+  });
+  const [, redraw] = useState(0);
+  if (hidden || !notificationsSupported() || notificationsAllowed()) return null;
+  const close = () => {
+    try {
+      localStorage.setItem(ALERTS_CARD_KEY, 'closed');
+    } catch {
+      /* ignore */
+    }
+    setHidden(true);
+  };
+  return (
+    <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 flex flex-wrap items-center gap-2">
+      <span className="text-lg">🔔</span>
+      <div className="flex-1 min-w-[200px]">
+        <strong>Never miss an order.</strong>{' '}
+        {notificationsBlocked()
+          ? 'Notifications are blocked for this site. Allow them in your browser settings (the lock icon next to the address) to get the bell on your phone.'
+          : 'Allow notifications: a new order or customer message will ring and show on your phone, even when Seller Center is in the background.'}{' '}
+        <HelpDot id="seller.alerts" />
+      </div>
+      {!notificationsBlocked() && (
+        <button
+          type="button"
+          onClick={async () => {
+            const ok = await askForNotifications();
+            showToast(ok ? '🔔 Alerts are on. Keep Seller Center open in the background.' : 'Notifications were not allowed.');
+            playChime('order');
+            redraw((n) => n + 1);
+          }}
+          className={ui.primary}
+        >
+          Turn on alerts
+        </button>
+      )}
+      <button type="button" onClick={close} className="px-2 py-1 font-semibold cursor-pointer">
+        Later
+      </button>
+    </div>
+  );
+};
+
+const OrdersTab: React.FC<{ refreshKey?: string }> = ({ refreshKey }) => {
   const { showToast } = useStore();
   const [orders, setOrders] = useState<SellerOrder[] | null>(memo.orders || null);
   const [filter, setFilter] = useState<'OPEN' | 'SHIPPED' | 'DONE' | 'ALL'>('OPEN');
@@ -1510,6 +1638,13 @@ const OrdersTab: React.FC = () => {
     const t = setInterval(() => document.visibilityState === 'visible' && load(), 60_000);
     return () => clearInterval(t);
   }, [load]);
+  // The bell found a new order or message: refresh the list at once
+  const firstKey = useRef(refreshKey);
+  useEffect(() => {
+    if (refreshKey === firstKey.current) return;
+    firstKey.current = refreshKey;
+    load();
+  }, [refreshKey, load]);
 
   const visible = useMemo(() => {
     const list = orders || [];

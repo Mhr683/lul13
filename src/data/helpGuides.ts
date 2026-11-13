@@ -357,6 +357,22 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     ],
     tips: ['COD ki raqam booking mein khud lag jati hai.'],
   },
+  'seller.alerts': {
+    title: 'Ghanti: naye order aur customer message par awaz',
+    what: 'Naya order aaye ya customer chat mein likhe to Seller Center mein ghanti bajti hai, phone vibrate hota hai aur (ijazat ho to) phone par notification aati hai.',
+    steps: [
+      'Dashboard ya Orders par peeli patti mein "Turn on alerts" dabayein, phir "Allow" dabayein.',
+      'Seller Center ko band na karein, sirf peeche (background) chhod dein. Har takreeban 1 minute mein naye order / message check hote hain.',
+      'Naye order par "ding-dong" do dafa, naye message par halki "ding". Notification dabane se Orders khul jata hai.',
+      'Awaz band / chalu karni ho to upar 🔊 / 🔇 button dabayein.',
+    ],
+    tips: [
+      'Browser pehli dafa awaz tab chalata hai jab aap page par ek dafa kahin tap kar dein.',
+      'Phone ki awaz (ringer / media volume) on rakhein. Seller Center app (Install) kar lein to behtar chalta hai.',
+      'Agar Seller Center poori tarah band (swipe karke hata diya) ho to ghanti nahi bajti; dobara kholte hi naye order nazar aa jate hain.',
+      'Notifications "Blocked" hon to browser mein address ke saath taale (🔒) ka nishan dabayein aur Notifications "Allow" karein.',
+    ],
+  },
   'seller.order.chat': {
     title: 'Customer se chat aur customer ka number',
     what: 'Har order par customer se chat hoti hai. Order khatam (delivered / cancel / return) to chat band. Customer ka number "Packed" dabane ke baad hi dikhta hai.',

@@ -209,6 +209,7 @@ export function registerOrderChatRoutes(app: express.Express, d: OrderChatDeps) 
       const out = await send(found.id, fresh, 'CUSTOMER', text);
       if (out.blocked) return res.status(400).json({ error: CONTACT_BLOCKED_TEXT, code: 'CONTACT_BLOCKED' });
       unreadCache.delete(fresh.sellerId);
+      alertsCache.delete(fresh.sellerId);
       res.json({ success: true, ...view(out.chat, fresh, 'CUSTOMER') });
     } catch (err) {
       sendError(res, err, 'customer send');
@@ -233,6 +234,37 @@ export function registerOrderChatRoutes(app: express.Express, d: OrderChatDeps) 
     }
   });
 
+  // What makes Seller Center ring: new customer chat messages and new orders waiting for the seller.
+  // Polled about once a minute; two count queries (1 read each) + the unread-chat list, cached 30 s.
+  const alertsCache = new Map<string, { at: number; data: { chats: number; chatOrders: number; newOrders: number } }>();
+  app.get('/api/seller/alerts', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    try {
+      const hit = alertsCache.get(uid);
+      let data = hit && Date.now() - hit.at < 30_000 ? hit.data : null;
+      if (!data) {
+        const orders = adminDb.collection('orders').where('sellerId', '==', uid);
+        const [unread, a, b] = await Promise.all([
+          unreadOf(uid),
+          orders.where('status', '==', 'PENDING_CONFIRMATION').count().get(),
+          orders.where('status', '==', 'PENDING').count().get(),
+        ]);
+        const counts = Object.values(unread);
+        data = {
+          chats: counts.reduce((s, n) => s + n, 0),
+          chatOrders: counts.length,
+          newOrders: a.data().count + b.data().count,
+        };
+        alertsCache.set(uid, { at: Date.now(), data });
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ success: true, ...data });
+    } catch (err) {
+      console.error('[seller/alerts] failed:', err);
+      res.status(503).json({ error: 'Could not check for new messages.' });
+    }
+  });
+
   app.get('/api/seller/order-chat/:orderId', d.requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     const orderId = str(req.params.orderId, 128);
@@ -244,6 +276,7 @@ export function registerOrderChatRoutes(app: express.Express, d: OrderChatDeps) 
       if (chat && Number(chat.unreadForSeller) > 0) {
         await chats().doc(orderId).update({ unreadForSeller: 0, sellerHasUnread: false }).catch(() => {});
         unreadCache.delete(uid);
+        alertsCache.delete(uid);
       }
       res.setHeader('Cache-Control', 'no-store');
       res.json({ success: true, ...view(chat, order, 'SELLER') });

@@ -366,6 +366,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Kam istemal hone wale kaam "⋯ More" mein hain: parcel ki location likhna aur order cancel karna (laal).',
       'Customer ka number "📦 Packed" ke baad nazar aata hai (courier ke liye); us ko dabane se seedha call lagti hai. Order deliver hone par number phir chhup jata hai.',
       'Chat mein number, email ya link bhejna mana hai: aisa paigham jata hi nahi.',
+      'Naya order ya customer ka message aaye to ghanti bajti hai (🔊 / 🔇 upar). Phone par bhi chahiye to "Turn on alerts" dabayein.',
     ],
     tips: [
       'Order confirm hone ke 48 ghante ke andar courier ko dena zaroori hai.',
