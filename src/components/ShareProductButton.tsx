@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Facebook, MessageCircle, Share2 } from 'lucide-react';
+import { Copy, Share2 } from 'lucide-react';
+import { SocialIcon } from './SocialIcon';
 
-// Share one product: WhatsApp, Facebook, copy link, or the phone's own share menu. The link is
-// /p/<productId> on the store: chat apps show the product's picture, name and price as a preview
-// (server.ts) and the customer lands on the product page.
+// Share one product (or a shop): WhatsApp, Facebook, X, Telegram, a ready caption for Instagram /
+// TikTok / YouTube (they have no web share link, so the caption + link is copied to paste in the app),
+// copy link, or the phone's own share menu. The product link is /p/<productId> on the store: chat apps
+// show the product's picture, name and price as a preview (server.ts) and the customer lands on the
+// product page.
 
 /**
  * The customer store's address. Seller Center and the admin app have their own address: their own
@@ -48,6 +51,9 @@ export const ShareProductButton: React.FC<{
   align?: 'left' | 'right';
   iconClassName?: string;
   showToast?: (msg: string) => void;
+  /** Share another link than the product (e.g. the whole shop) */
+  shareUrl?: string;
+  shareText?: string;
 }> = ({
   productId,
   productName,
@@ -58,6 +64,8 @@ export const ShareProductButton: React.FC<{
   align = 'right',
   iconClassName = 'w-[18px] h-[18px]',
   showToast,
+  shareUrl,
+  shareText,
 }) => {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -68,16 +76,16 @@ export const ShareProductButton: React.FC<{
   const toggle = () => {
     if (!open && boxRef.current) {
       const r = boxRef.current.getBoundingClientRect();
-      const width = 192;
+      const width = 230;
       const left = Math.max(8, Math.min(window.innerWidth - width - 8, align === 'left' ? r.left : r.right - width));
       // Opens upwards when there is no room below (e.g. above a phone's bottom bar)
-      const below = window.innerHeight - r.bottom > 260;
+      const below = window.innerHeight - r.bottom > 420;
       setMenuPos(below ? { left, top: r.bottom + 4, width } : { left, bottom: window.innerHeight - r.top + 4, width });
     }
     setOpen((o) => !o);
   };
-  const url = productShareUrl(productId);
-  const text = `${productName}${price ? ` - PKR ${Number(price).toLocaleString('en-PK')}` : ''}`;
+  const url = shareUrl || productShareUrl(productId);
+  const text = shareText || `${productName}${price ? ` - PKR ${Number(price).toLocaleString('en-PK')}` : ''}`;
 
   useEffect(() => {
     if (!open) return;
@@ -103,6 +111,17 @@ export const ShareProductButton: React.FC<{
       showToast?.('Product link copied.');
     } catch {
       window.prompt('Copy this link:', url);
+    }
+    setOpen(false);
+  };
+  // Instagram, TikTok and YouTube cannot take a link from a web page: copy a ready caption to paste
+  const copyCaption = async (app: string) => {
+    const caption = `${text}\n🛒 Order here (Cash on Delivery): ${url}\n#AnokhaShoppingHub #OnlineShopping #Pakistan`;
+    try {
+      await navigator.clipboard.writeText(caption);
+      showToast?.(`Caption and link copied. Open ${app} and paste it in your post, reel or story.`);
+    } catch {
+      window.prompt(`Copy this and paste it in ${app}:`, caption);
     }
     setOpen(false);
   };
@@ -153,7 +172,7 @@ export const ShareProductButton: React.FC<{
           role="menu"
           style={menuPos}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-[120] bg-white border border-black/15 rounded-lg shadow-xl py-1"
+          className="fixed z-[120] bg-white border border-black/15 rounded-lg shadow-xl py-1 max-h-[70vh] overflow-y-auto"
         >
           <a
             role="menuitem"
@@ -163,7 +182,7 @@ export const ShareProductButton: React.FC<{
             onClick={() => setOpen(false)}
             className={item}
           >
-            <MessageCircle className="w-4 h-4 text-[#25D366]" /> WhatsApp
+            <SocialIcon platform="WHATSAPP_CHANNEL" size={18} /> WhatsApp
           </a>
           <a
             role="menuitem"
@@ -173,14 +192,43 @@ export const ShareProductButton: React.FC<{
             onClick={() => setOpen(false)}
             className={item}
           >
-            <Facebook className="w-4 h-4 text-[#1877F2]" /> Facebook
+            <SocialIcon platform="FACEBOOK" size={18} /> Facebook
           </a>
+          <a
+            role="menuitem"
+            href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            className={item}
+          >
+            <SocialIcon platform="X" size={18} /> X (Twitter)
+          </a>
+          <a
+            role="menuitem"
+            href={`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            className={item}
+          >
+            <SocialIcon platform="TELEGRAM" size={18} /> Telegram
+          </a>
+          <button role="menuitem" type="button" onClick={() => copyCaption('Instagram')} className={item}>
+            <SocialIcon platform="INSTAGRAM" size={18} /> Instagram (copy caption)
+          </button>
+          <button role="menuitem" type="button" onClick={() => copyCaption('TikTok')} className={item}>
+            <SocialIcon platform="TIKTOK" size={18} /> TikTok (copy caption)
+          </button>
+          <button role="menuitem" type="button" onClick={() => copyCaption('YouTube')} className={item}>
+            <SocialIcon platform="YOUTUBE" size={18} /> YouTube (copy caption)
+          </button>
           <button role="menuitem" type="button" onClick={copy} className={item}>
             <Copy className="w-4 h-4" /> Copy link
           </button>
           {typeof navigator !== 'undefined' && 'share' in navigator && (
             <button role="menuitem" type="button" onClick={nativeShare} className={item}>
-              <Share2 className="w-4 h-4" /> More apps...
+              <Share2 className="w-4 h-4" /> More apps (Snapchat, Pinterest...)
             </button>
           )}
         </div>,

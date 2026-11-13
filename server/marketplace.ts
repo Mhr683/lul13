@@ -9,6 +9,7 @@ import { cleanProductShipping, type ProductShipping } from '../src/services/prod
 import { cleanVariants } from '../src/services/productVariants';
 import { normalizeSource, isDirectSource } from '../src/services/productSource';
 import { contactReason, CONTACT_BLOCKED_TEXT } from './orderChat';
+import { cleanSocialLinks } from '../src/services/socialLinks';
 import { OPEN_STOCK, PRODUCT_TYPES, cleanDelivery, cleanTypeDetails, typeInfo, type ProductType } from '../src/services/productTypes';
 import type { ProductVariant } from '../src/types/store';
 import { KYC_LABELS, KYC_MAX_BYTES, idDocTypeFor, requiredKyc, type KycKind } from '../src/services/sellerOnboarding';
@@ -529,6 +530,13 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       }
       if (logo.length > 200_000) return res.status(400).json({ error: 'This picture is too large. Please choose a smaller one.' });
       updates.logoUrl = logo;
+    }
+    // Social media pages shown on the shop page (src/services/socialLinks.ts checks them)
+    if (b.socialLinks !== undefined) {
+      const { links, error } = cleanSocialLinks(b.socialLinks);
+      if (error) return res.status(400).json({ error });
+      updates.socialLinks = links;
+      shopCache.delete(uid);
     }
     if (b.address !== undefined) priv.address = str(b.address, 300);
     if (b.bankName !== undefined) priv.bankName = str(b.bankName, 60);
@@ -2052,6 +2060,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
                   city: s.city || '',
                   joinedAt: s.createdAt || '',
                   followers: Math.max(0, Number(s.followers) || 0),
+                  socialLinks: Array.isArray(s.socialLinks) ? cleanSocialLinks(s.socialLinks).links : [],
                   shipsFromCountry: String(s.shipsFromCountry || s.warehouseCountry || s.countryCode || 'PK'),
                   ...ratingSummary(s),
                   metrics: metrics

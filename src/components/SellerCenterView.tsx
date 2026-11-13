@@ -41,6 +41,7 @@ import {
 import { SellerAiAssistant } from './SellerAiAssistant';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
 import { OrderChat } from './OrderChat';
+import { SellerSocialLinks } from './SellerSocialLinks';
 import { ProductInfoEditor } from './ProductInfoEditor';
 import { SellerOnboardingWizard } from './SellerOnboardingWizard';
 import { ProductShippingEditor, emptyShipping, shippingFormOf, type ShippingForm } from './ProductShippingEditor';
@@ -3838,6 +3839,17 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
       <ShopNameEditor seller={seller} onSaved={onSaved} />
        </div>
       </Panel>
+
+      <SellerSocialLinks
+        initial={Array.isArray((seller as any).socialLinks) ? (seller as any).socialLinks : []}
+        shopName={seller.shopName}
+        shopUrl={`${storeOrigin()}/#shop/${encodeURIComponent(seller.id || firebaseUser?.uid || '')}`}
+        showToast={showToast}
+        onSave={async (socialLinks) => {
+          await api('/api/seller/profile', { method: 'PUT', body: JSON.stringify({ socialLinks }) });
+          onSaved();
+        }}
+      />
 
       <Panel title="Contact & pickup" subtitle="The courier picks up parcels from this address">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

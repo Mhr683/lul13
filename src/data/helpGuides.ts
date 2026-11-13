@@ -357,6 +357,22 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     ],
     tips: ['COD ki raqam booking mein khud lag jati hai.'],
   },
+  'seller.social': {
+    title: 'Social media: apni dukaan ke pages jodein aur share karein',
+    what: 'Facebook, Instagram, YouTube, TikTok, X, Telegram channel aur WhatsApp channel ke links. Yeh aap ki dukaan ke page par "Follow us" ke saath nazar aate hain.',
+    steps: [
+      'Profile kholein aur "Social media" hissa dekhein.',
+      'Jis platform par aap ka page hai us ke khane mein page ka poora link paste karein (jaise facebook.com/aapkipage).',
+      'List mein na ho (Pinterest, Snapchat, Threads, website...) to "Add another link" dabayein: naam aur link likhein.',
+      '"Save links" dabayein. Ghalat link par laal likhai batati hai kya theek karna hai.',
+      '"Share my shop" se poori dukaan ka link kisi bhi app par bhejein.',
+      'Product share karne ke liye Products mein "Share" dabayein: WhatsApp, Facebook, X, Telegram seedha khulte hain; Instagram, TikTok, YouTube ke liye caption aur link copy ho jata hai, app mein paste kar dein.',
+    ],
+    tips: [
+      'Apna WhatsApp number, WhatsApp group aur email yahan mana hai: customer store ke zariye hi order karte hain. Sirf WhatsApp Channel ka link chalta hai.',
+      'Zyada se zyada 12 links.',
+    ],
+  },
   'seller.alerts': {
     title: 'Ghanti: naye order aur customer message par awaz',
     what: 'Naya order aaye ya customer chat mein likhe to Seller Center mein ghanti bajti hai, phone vibrate hota hai aur (ijazat ho to) phone par notification aati hai.',

@@ -3,6 +3,8 @@ import { ArrowLeft, Search, Share2, Store } from 'lucide-react';
 import { ProductImage } from './ProductImage';
 import { SellerAvatar } from './SellerAvatar';
 import { FollowStoreButton } from './FollowStoreButton';
+import { SocialIcon } from './SocialIcon';
+import { socialLabel } from '../services/socialLinks';
 import { ReviewMediaStrip } from './ReviewMedia';
 import { CardShareButton } from './ShareProductButton';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
@@ -145,6 +147,26 @@ export const SellerShopPage: React.FC<{
               </>
             )}
           </p>
+          {/* The shop's own social media pages (Seller Center → Profile → Social media) */}
+          {shop?.socialLinks && shop.socialLinks.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-[#575653] mr-0.5">Follow us:</span>
+              {shop.socialLinks.map((l) => (
+                <a
+                  key={l.url}
+                  href={l.url}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow ugc"
+                  title={socialLabel(l)}
+                  aria-label={`${name} on ${socialLabel(l)}`}
+                  className="inline-flex items-center gap-1 pl-0.5 pr-2 py-0.5 rounded-full border border-black/10 bg-white text-[11px] font-semibold text-[#141413] hover:border-black/40"
+                >
+                  <SocialIcon platform={l.platform} size={18} className="!rounded-full" />
+                  {socialLabel(l).replace(/ (channel|\(Twitter\))$/i, '')}
+                </a>
+              ))}
+            </div>
+          )}
           <SellerRatingBadge shop={shop} className="mt-1" />
           <SellerScoreCards shop={shop} className="mt-3 max-w-md" />
         </div>
