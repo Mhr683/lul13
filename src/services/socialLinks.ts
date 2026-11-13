@@ -1,8 +1,9 @@
 // A shop's social media links (Seller Center → Profile → Social media; shown on the shop page).
 // Used by the server (checks what is saved) and the browser (form + icons), so both follow the same rules.
 //
-// Personal contact links are not accepted (wa.me numbers, WhatsApp groups, phone numbers, e-mail):
-// customers order and talk through the store, the same rule as the order chat (server/orderChat.ts).
+// The owner's rule: contact details are blocked only in the order chat and in product listings
+// (server/orderChat.ts). Social media links may be anything the seller wants, a WhatsApp number or
+// group included.
 
 export type SocialPlatform = 'FACEBOOK' | 'INSTAGRAM' | 'YOUTUBE' | 'TIKTOK' | 'X' | 'TELEGRAM' | 'WHATSAPP_CHANNEL' | 'OTHER';
 export type SocialLink = { platform: SocialPlatform; url: string; label?: string };
@@ -20,7 +21,7 @@ export const SOCIAL_PLATFORMS: {
   { id: 'TIKTOK', label: 'TikTok', color: '#111111', hosts: /(^|\.)tiktok\.com$/i, example: 'tiktok.com/@yourshop' },
   { id: 'X', label: 'X (Twitter)', color: '#000000', hosts: /(^|\.)(x\.com|twitter\.com)$/i, example: 'x.com/yourshop' },
   { id: 'TELEGRAM', label: 'Telegram channel', color: '#229ED9', hosts: /(^|\.)(t\.me|telegram\.me)$/i, example: 't.me/yourchannel' },
-  { id: 'WHATSAPP_CHANNEL', label: 'WhatsApp channel', color: '#25D366', hosts: /(^|\.)whatsapp\.com$/i, example: 'whatsapp.com/channel/...' },
+  { id: 'WHATSAPP_CHANNEL', label: 'WhatsApp', color: '#25D366', hosts: /(^|\.)(whatsapp\.com|wa\.me)$/i, example: 'wa.me/923001234567 or whatsapp.com/channel/...' },
 ];
 export const MAX_SOCIAL_LINKS = 12;
 
@@ -46,7 +47,13 @@ export function checkSocialLink(raw: { platform?: string; url?: string; label?: 
   const platform = (SOCIAL_PLATFORMS.some((p) => p.id === raw.platform) || raw.platform === 'OTHER' ? raw.platform : guessPlatform(text)) as SocialPlatform;
   const name = platform === 'OTHER' ? String(raw.label || '').replace(/\s+/g, ' ').trim().slice(0, 30) : '';
   const what = platform === 'OTHER' ? name || 'This link' : platformInfo(platform)!.label;
-  if (/^(mailto|tel|sms):/i.test(text) || /@[a-z0-9-]+\.[a-z]{2,}/i.test(text)) return { error: `${what}: e-mail addresses and phone numbers are not allowed. Add a page or channel link.` };
+  if (/^(mailto|tel|sms):/i.test(text)) return { error: `${what}: add a web link (https://...).` };
+  // A plain WhatsApp number becomes its wa.me link
+  if (platform === 'WHATSAPP_CHANNEL' && /^[+\d][\d\s\-()]{8,}$/.test(text)) {
+    let digits = text.replace(/\D/g, '');
+    if (digits.startsWith('0')) digits = `92${digits.slice(1)}`;
+    return { link: { platform, url: `https://wa.me/${digits}` } };
+  }
   let u: URL;
   try {
     u = new URL(withHttps(text));
@@ -57,11 +64,6 @@ export function checkSocialLink(raw: { platform?: string; url?: string; label?: 
   u.protocol = 'https:';
   const host = u.hostname.toLowerCase().replace(/^www\.|^m\./, '');
   const url = u.toString().slice(0, 300);
-  // Personal chats take the deal off the store: only public pages / channels
-  if (/(^|\.)wa\.me$|api\.whatsapp\.com|chat\.whatsapp\.com/i.test(u.hostname) || (/whatsapp\.com$/i.test(host) && !/^\/channel\//i.test(u.pathname))) {
-    return { error: 'WhatsApp: only a WhatsApp Channel link is allowed (whatsapp.com/channel/...), not your number or a group. Customers order through the store.' };
-  }
-  if (/\d[\d\s\-.]{8,}\d/.test(decodeURIComponent(u.pathname + u.search))) return { error: `${what}: phone numbers are not allowed in links.` };
   if (platform === 'OTHER') {
     if (name.length < 2) return { error: 'Write a name for your extra link (e.g. "Pinterest" or "My website").' };
     if (!/\./.test(host)) return { error: `${name}: this is not a valid link.` };

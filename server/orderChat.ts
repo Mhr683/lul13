@@ -51,7 +51,11 @@ export function contactReason(raw: string): string | null {
   // Numbers written with spaces, dashes or dots between the digits ("0300 123-45 67")
   const joined = text.replace(/(\d)[\s\-.()/_*+]+(?=\d)/g, '$1');
   if (/\d{7,}/.test(text) || /\d{10,}/.test(joined) || /(?:92|0)?3\d{9}/.test(joined)) return 'phone';
-  // Numbers written as words ("zero three zero zero ...", "sifar teen ...")
+  return numberWordsPhone(text) ? 'phone' : null;
+}
+
+/** A phone number written as words ("zero three zero zero ...", "sifar teen ...") */
+function numberWordsPhone(text: string): boolean {
   let run = '';
   let words = 0;
   for (const w of text.toLowerCase().split(/[^a-z0-9]+/)) {
@@ -65,11 +69,37 @@ export function contactReason(raw: string): string | null {
     }
     run += d;
     if (digit) words++;
-    // at least 3 written as words (plain digits are checked above), 7+ digits in a row
-    if (run.length >= 7 && words >= 3) return 'phone';
+    // at least 3 written as words (plain digits are checked separately), 7+ digits in a row
+    if (run.length >= 7 && words >= 3) return true;
   }
-  return null;
+  return false;
 }
+
+// Listings (name, descriptions, variants, how to use, care...) may mention Facebook, Instagram or a
+// website by name, so only real contact details count there: phone numbers, e-mails, WhatsApp /
+// Telegram / IMO, and "call me / my number" style phrases. Codes such as a barcode or model number
+// are not passed to this check.
+const LISTING_CONTACT_WORDS =
+  /(whats\s*app|watts?\s*app|whatsap|wtsap|wa\.me|t\.me\/|telegram|\bimo\b|mera\s*(number|no\.?|nmbr|nambar)|hamara\s*(number|no\.?|nmbr|nambar)|(number|nmbr|nambar)\s*(do|dein|de|bhejo|bhejein|send|par|pe)|call\s*(me|karo|karein|kr|kare)|contact\s*(number|me|us|karo|kr|karein)|inbox\s*(me|karo|kr)|dm\s*(me|karo|kr))/i;
+
+/** Contact details in a product listing, or null when it is fine */
+export function listingContactReason(raw: string): string | null {
+  const text = raw
+    .replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x0660));
+  if (EMAIL.test(text)) return 'email';
+  if (LISTING_CONTACT_WORDS.test(text)) return 'contact';
+  // Only shapes of real phone numbers, so sizes ("38 39 40 41") and prices are not caught:
+  // mobile 03xx xxxxxxx / +92 3xx..., with spaces or dashes anywhere; landline 0xx(x)-xxxxxxx(x);
+  // or 10-13 digits written together
+  const mobile = /(?:\+\s*9\s*2|(?<![\d])9\s*2|(?<![\d])0)[\s\-.()]*3(?:[\s\-.()]*\d){9}(?![\d])/;
+  const landline = /(?<![\d])0\d{2,3}[\s\-.)]+\d{6,8}(?![\d])/;
+  if (mobile.test(text) || landline.test(text) || /(?<![\d])\d{10,13}(?![\d])/.test(text)) return 'phone';
+  return numberWordsPhone(text) ? 'phone' : null;
+}
+
+export const LISTING_CONTACT_TEXT =
+  'Phone numbers, e-mails, WhatsApp / Telegram and "call me" are not allowed in a product listing (name, description, variants...). Customers order and ask questions through the store. (Listing mein number / WhatsApp likhna mana hai.)';
 
 export const CONTACT_BLOCKED_TEXT =
   'Phone numbers, e-mails, links and "WhatsApp / call me" are not allowed in the order chat. Keep the deal on Anokha: your order and payment stay protected. (Number / WhatsApp dena mana hai.)';

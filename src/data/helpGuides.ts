@@ -144,7 +144,10 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Saaf aur poora naam likhein: kya cheez hai + khaas baat. Jaise "Wireless Bluetooth Earbuds with Charging Case".',
       'Naam likhte hi neeche category ki tajweez aa jati hai.',
     ],
-    tips: ['Sirf CAPITAL letters, emoji ya "best/sasta" jaise alfaaz na likhein.'],
+    tips: [
+      'Sirf CAPITAL letters, emoji ya "best/sasta" jaise alfaaz na likhein.',
+      'Naam, description, variants ya kahin bhi listing mein phone number, WhatsApp, email ya "call karein" likhna mana hai: product save nahi hoga.',
+    ],
   },
   'seller.product.category': {
     title: 'Category',
@@ -271,6 +274,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       '"Description" mein 2-3 lines: kya cheez hai aur kyun achhi hai.',
       '"Key features" mein har khoobi alag line par likhein; product page par har line bullet ban jati hai.',
     ],
+    tips: ['Description mein phone number, WhatsApp, email ya "call / inbox karein" na likhein: customer store ke zariye order aur sawal karte hain. Aisi listing save nahi hoti.'],
   },
   'seller.product.specs': {
     title: 'Specifications, istemal aur dekh bhaal (optional)',
@@ -359,7 +363,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
   },
   'seller.social': {
     title: 'Social media: apni dukaan ke pages jodein aur share karein',
-    what: 'Facebook, Instagram, YouTube, TikTok, X, Telegram channel aur WhatsApp channel ke links. Yeh aap ki dukaan ke page par "Follow us" ke saath nazar aate hain.',
+    what: 'Facebook, Instagram, YouTube, TikTok, X, Telegram aur WhatsApp ke links. Yeh aap ki dukaan ke page par "Follow us" ke saath nazar aate hain.',
     steps: [
       'Profile kholein aur "Social media" hissa dekhein.',
       'Jis platform par aap ka page hai us ke khane mein page ka poora link paste karein (jaise facebook.com/aapkipage).',
@@ -369,7 +373,8 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Product share karne ke liye Products mein "Share" dabayein: WhatsApp, Facebook, X, Telegram seedha khulte hain; Instagram, TikTok, YouTube ke liye caption aur link copy ho jata hai, app mein paste kar dein.',
     ],
     tips: [
-      'Apna WhatsApp number, WhatsApp group aur email yahan mana hai: customer store ke zariye hi order karte hain. Sirf WhatsApp Channel ka link chalta hai.',
+      'WhatsApp ke khane mein apna number (jaise 03001234567), group ya channel ka link daal sakte hain.',
+      'Number sirf social media mein allowed hai. Order chat aur product listing (naam, description) mein number, WhatsApp ya email likhna mana hai.',
       'Zyada se zyada 12 links.',
     ],
   },

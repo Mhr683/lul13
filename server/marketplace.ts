@@ -8,7 +8,7 @@ import { famousBrandIn } from '../src/services/brandRules';
 import { cleanProductShipping, type ProductShipping } from '../src/services/productShipping';
 import { cleanVariants } from '../src/services/productVariants';
 import { normalizeSource, isDirectSource } from '../src/services/productSource';
-import { contactReason, CONTACT_BLOCKED_TEXT } from './orderChat';
+import { contactReason, CONTACT_BLOCKED_TEXT, listingContactReason, LISTING_CONTACT_TEXT } from './orderChat';
 import { cleanSocialLinks } from '../src/services/socialLinks';
 import { OPEN_STOCK, PRODUCT_TYPES, cleanDelivery, cleanTypeDetails, typeInfo, type ProductType } from '../src/services/productTypes';
 import type { ProductVariant } from '../src/types/store';
@@ -692,6 +692,27 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const primaryImage = images ? images[0] || '' : mediaLink(b.primaryImage);
     const videoUrl = b.videoUrl === undefined ? undefined : mediaLink(b.videoUrl);
     if (name.length < 3) return { error: 'Enter a product name (at least 3 characters).' };
+    // No phone numbers / WhatsApp / e-mail anywhere in the listing's words (codes like the barcode and
+    // model number, and links such as the manual, are not checked)
+    const listingWords = [
+      name,
+      b.shortDescription,
+      b.description,
+      b.brand,
+      b.variantTitle,
+      ...(Array.isArray(b.variants) ? b.variants.map((v: any) => v?.name) : []),
+      b.info?.material,
+      b.info?.countryOfOrigin,
+      b.info?.warranty,
+      b.info?.howToUse,
+      b.info?.careInstructions,
+      ...(b.typeDetails && typeof b.typeDetails === 'object'
+        ? Object.values(b.typeDetails).filter((v) => typeof v === 'string' && !/^https?:\/\/|^\/media\//i.test(v as string))
+        : []),
+    ]
+      .filter((v) => typeof v === 'string' && v)
+      .join('\n');
+    if (listingContactReason(listingWords)) return { error: LISTING_CONTACT_TEXT, code: 'CONTACT_BLOCKED' };
     if (!(price > 0)) return { error: 'Enter a price (PKR).' };
     if (category.length < 2) return { error: 'Choose a category.' };
     // Specifications / how to use / care / manual: only when the form sends them (a CSV row keeps them)
@@ -2305,6 +2326,10 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const nextShort = patch.shortDescription ?? current.shortDescription;
       if (!isBranded && (patch.name !== undefined || patch.shortDescription !== undefined) && famousBrandIn(`${nextName} ${nextShort || ''}`)) {
         skipped.push({ id: snap.id, name: current.name, reason: `The title or short description would use the brand name "${famousBrandIn(`${nextName} ${nextShort || ''}`)}".` });
+        continue;
+      }
+      if (listingContactReason([patch.name, patch.shortDescription, patch.description, patch.seoTitle, patch.seoDescription].filter(Boolean).join('\n'))) {
+        skipped.push({ id: snap.id, name: current.name, reason: 'Phone numbers, e-mails and WhatsApp are not allowed in a listing.' });
         continue;
       }
       if (!Object.keys(patch).length) continue;

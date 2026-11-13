@@ -132,7 +132,7 @@ export const SellerSocialLinks: React.FC<{
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
           <span className="text-[11.5px] text-[#8A8780]">
-            Personal WhatsApp numbers, groups and e-mails are not allowed: customers order through the store. {filled}/{MAX_SOCIAL_LINKS} links.
+            WhatsApp: paste your number, group or channel link. {filled}/{MAX_SOCIAL_LINKS} links.
           </span>
           <button type="button" disabled={saving} onClick={save} className={ui.primary}>
             {saving ? 'Saving...' : 'Save links'}
