@@ -129,6 +129,9 @@ const GoogleMapsAddressDetector = lazy(() =>
 );
 const StorePolicyPages = lazy(() => import('./StorePolicyPages').then((m) => ({ default: m.StorePolicyPages })));
 import { AuthModal } from './AuthPanel';
+import { MyProfilePanel, useCustomerBook } from './MyProfilePanel';
+import type { SavedAddress } from '../services/customerProfile';
+import type { ShippingAddress } from '../services/intlAddress';
 
 // Last delivery address used on this device (prefills the next checkout)
 const SAVED_ADDRESS_KEY = 'store_checkout_address_v1';
@@ -563,13 +566,19 @@ export const StorefrontView: React.FC = () => {
       setCustomerEmail((p) => p || saved.email || '');
       return;
     }
-    const a = fromAccount!;
+    fillAddress(fromAccount!);
+  }, [userProfile]);
+
+  // Puts a saved address into the checkout form (account's last address, or one from the address book)
+  function fillAddress(a: ShippingAddress, opts: { name?: string; overwritePhone?: boolean } = {}) {
     const iso = String(a.countryCode || 'PK').toUpperCase();
     setCountryIso(iso);
     setCountry(a.countryName || iso);
     const st = getStatesForCountry(iso).find((s) => s.name === a.state);
     setStateIso(st?.isoCode || 'CENTRAL');
     setStateProvince(a.state || '');
+    setIsCustomTehsil(false);
+    setCustomTehsil('');
     if (iso === 'PK') {
       setDistrict(a.city);
       if (a.area && !getTehsilsForDistrict(a.city).includes(a.area)) {
@@ -580,8 +589,25 @@ export const StorefrontView: React.FC = () => {
     setStreetAddress(a.line1 || '');
     setAddressLine2(a.line2 || '');
     setPostalCode(a.postalCode || '');
-    setCustomerPhone((p) => p || a.phoneNumber || '');
-  }, [userProfile]);
+    const phone = a.phoneNumber?.startsWith('+92') ? `0${a.phoneNumber.slice(3)}` : a.phoneNumber || '';
+    if (opts.overwritePhone) setCustomerPhone(phone);
+    else setCustomerPhone((p) => p || phone);
+    if (opts.name) setCustomerName(opts.name);
+  }
+
+  // Signed-in customer's saved addresses (My Account): the default one fills the checkout, and the
+  // customer can switch with one tap (read only while the checkout is open)
+  const addressBook = useCustomerBook(!!firebaseUser && subView === 'CHECKOUT');
+  const [chosenAddressId, setChosenAddressId] = useState('');
+  const chooseSavedAddress = (a: SavedAddress) => {
+    setChosenAddressId(a.id);
+    fillAddress(a, { name: a.name, overwritePhone: true });
+  };
+  useEffect(() => {
+    if (!addressBook?.addresses.length || chosenAddressId) return;
+    chooseSavedAddress(addressBook.addresses.find((a) => a.id === addressBook.defaultId) || addressBook.addresses[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressBook]);
   const [shippingMethodId, setShippingMethodId] = useState(SHIPPING_METHODS[0].id);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
   const [paymentSubMethod, setPaymentSubMethod] = useState<'RAAST' | 'RAAST_SWIFT' | 'NAYAPAY' | 'BANK'>('RAAST');
@@ -3574,6 +3600,48 @@ export const StorefrontView: React.FC = () => {
                       </span>
                     </div>
 
+                    {/* Saved addresses (My Account): one tap fills the form below */}
+                    {addressBook && addressBook.addresses.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold text-[#141413]">Deliver to one of your saved addresses</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {addressBook.addresses.map((a) => {
+                            const on = a.id === chosenAddressId;
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                onClick={() => chooseSavedAddress(a)}
+                                className={`text-left p-3 rounded-xl border cursor-pointer transition-colors ${
+                                  on ? 'border-[#0E7A43] bg-emerald-50 ring-1 ring-[#0E7A43]' : 'border-black/15 bg-white hover:border-black/40'
+                                }`}
+                              >
+                                <span className="flex items-center gap-2 text-xs font-bold text-[#141413]">
+                                  <span className={`w-3.5 h-3.5 rounded-full border-2 ${on ? 'border-[#0E7A43] bg-[#0E7A43]' : 'border-black/30'}`} />
+                                  {a.label} · {a.name}
+                                </span>
+                                <span className="block mt-1 text-[11px] text-[#575653] line-clamp-2">
+                                  {[a.line1, a.area, a.city].filter(Boolean).join(', ')}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChosenAddressId('new');
+                            setStreetAddress('');
+                            setAddressLine2('');
+                            setPostalCode('');
+                          }}
+                          className="text-xs font-semibold underline text-[#141413] cursor-pointer"
+                        >
+                          + Deliver to a new address (it is saved to your account after the order)
+                        </button>
+                      </div>
+                    )}
+
                     {/* Quick Jurisdiction Switcher: Pakistan National vs International Worldwide */}
                     <div className="space-y-3 p-3.5 bg-[#F7F6F2] border border-black/[0.06]">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -4834,6 +4902,9 @@ export const StorefrontView: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Photo, name, mobile and saved delivery addresses */}
+            {firebaseUser && <MyProfilePanel />}
 
             {/* The rules that protect the customer on every order */}
             <details className="group bg-white border border-emerald-200">

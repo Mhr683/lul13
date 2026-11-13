@@ -14,6 +14,7 @@ import {
 import { useTabHistory } from '../hooks/useTabHistory';
 import { CourierBookBox } from './CourierBookBox';
 import { courierApi } from '../services/courierClient';
+import { shrinkToSquareJpeg } from '../services/imageShrink';
 import {
   Store,
   Package,
@@ -4100,30 +4101,7 @@ const EarningsTab: React.FC = () => {
 
 // ------------------------------------------------------------------ profile
 
-// Square-crops and shrinks a chosen photo to a small JPEG (about 15-40 KB) so it can be kept on the
-// shop record without Firebase Storage
-async function shrinkToSquareJpeg(file: File, size = 256): Promise<string> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('This picture could not be opened. Please choose a JPG or PNG.'));
-      el.src = url;
-    });
-    const side = Math.min(img.naturalWidth, img.naturalHeight);
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, size, size);
-    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
-    return canvas.toDataURL('image/jpeg', 0.85);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
+// Shop photo: shrinkToSquareJpeg (src/services/imageShrink.ts, shared with the customer's profile photo)
 
 // Crops a chosen photo to a 3:1 banner (1500 x 500) and shrinks it to a JPEG for the shop's cover
 async function shrinkToCoverJpeg(file: File): Promise<Blob> {

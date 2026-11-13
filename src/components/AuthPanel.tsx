@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { MIN_SELLER_PASSWORD_SCORE, passwordStrength } from '../services/sellerOnboarding';
+import { saveAddress, saveDetails } from '../services/customerProfile';
+import { AddressForm, draftProblem, draftToPayload, emptyDraft, type AddressDraft } from './AddressForm';
 
 type AuthMode = 'LOGIN' | 'SIGNUP' | 'FORGOT';
 
@@ -11,11 +13,15 @@ interface AuthPanelProps {
   onSuccess?: () => void;
   /** Seller Center / admin team: require a "Good" password or better for new accounts */
   strongPassword?: boolean;
+  /** Store sign-up: also take the mobile number and the full delivery address (saved to My Account) */
+  collectDelivery?: boolean;
 }
 
 // Login / sign-up / forgot-password form used by the storefront account modal and the admin gate
-export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSignup = true, onSuccess, strongPassword = false }) => {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useStore();
+export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSignup = true, onSuccess, strongPassword = false, collectDelivery = false }) => {
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, refreshAccount } = useStore();
+  const [delivery, setDelivery] = useState<AddressDraft>(() => emptyDraft());
+  const [badField, setBadField] = useState('');
   const [mode, setMode] = useState<AuthMode>('LOGIN');
   const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState('');
@@ -38,8 +44,17 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
     setError(null);
     setInfo(null);
 
+    const fullName = collectDelivery ? delivery.name : name;
     if (mode === 'SIGNUP') {
-      if (name.trim().length < 2) return setError('Please enter your full name.');
+      if (fullName.trim().length < 2) return setError('Please enter your full name.');
+      if (collectDelivery) {
+        const p = draftProblem(delivery);
+        if (p) {
+          setBadField(p.field);
+          return setError(p.message);
+        }
+        setBadField('');
+      }
       if (password.length < 8) return setError('Password kam az kam 8 characters ka rakhein.');
       if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
         return setError('The password must contain both letters and numbers.');
@@ -55,14 +70,30 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
       mode === 'LOGIN'
         ? await signInWithEmail(email, password)
         : mode === 'SIGNUP'
-        ? await signUpWithEmail(name, email, password)
+        ? await signUpWithEmail(fullName, email, password)
         : await resetPassword(email);
-    setBusy(false);
 
     if (!result.ok) {
+      setBusy(false);
       setError(result.message || 'Something went wrong. Please try again.');
       return;
     }
+    // New store account: the mobile number and the delivery address go to My Account. The account
+    // record is made first (refreshAccount), so the number is not overwritten by it.
+    if (mode === 'SIGNUP' && collectDelivery) {
+      try {
+        await refreshAccount();
+        await saveDetails(fullName, delivery.phone, delivery.countryCode);
+        await saveAddress({ ...draftToPayload(delivery), makeDefault: true });
+        await refreshAccount();
+      } catch (err: any) {
+        // Keep the window open so the customer reads it
+        setBusy(false);
+        setInfo(`Account created. The address could not be saved (${err.message}); please add it in My Account.`);
+        return;
+      }
+    }
+    setBusy(false);
     if (mode === 'FORGOT') {
       setInfo(result.message || 'A reset link has been sent.');
       return;
@@ -121,7 +152,13 @@ export const AuthPanel: React.FC<AuthPanelProps> = ({ title, subtitle, allowSign
       )}
 
       <form onSubmit={handleSubmit} className="space-y-3">
-        {mode === 'SIGNUP' && (
+        {mode === 'SIGNUP' && collectDelivery && (
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-[#141413]">Your delivery details (used for your orders, change them any time in My Account)</div>
+            <AddressForm value={delivery} onChange={setDelivery} hideLabel badField={badField} />
+          </div>
+        )}
+        {mode === 'SIGNUP' && !collectDelivery && (
           <div>
             <label className="block text-xs text-[#575653] mb-1" htmlFor="auth-name">
               Poora naam
@@ -273,7 +310,11 @@ export const AuthModal: React.FC<{ open: boolean; onClose: () => void }> = ({ op
         >
           ×
         </button>
-        <AuthPanel subtitle="Sign in to see your order history and tracking. You do not need to sign in to place an order." onSuccess={onClose} />
+        <AuthPanel
+          collectDelivery
+          subtitle="Sign in to see your orders and saved addresses. You do not need to sign in to place an order."
+          onSuccess={onClose}
+        />
       </div>
     </div>
   );

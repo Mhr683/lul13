@@ -43,6 +43,7 @@ import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
 import { registerOrderChatRoutes } from './server/orderChat';
+import { registerCustomerProfileRoutes, rememberOrderAddress } from './server/customerProfile';
 import { registerProductExtrasRoutes } from './server/productExtras';
 import { cleanProductInfo } from './src/services/productInfo';
 import { registerFollowRoutes } from './server/follows';
@@ -3847,6 +3848,8 @@ app.post('/api/orders/create', async (req, res) => {
       if (!isCard) ads.onPurchase(result.created.map((c) => c.order as any), attribution, req);
       // The checkout is done: drop the saved "abandoned cart" of this phone (no reminder needed)
       adminDb.collection('abandoned_carts').doc(phoneKey(cleanPhone)).delete().catch(() => {});
+      // A signed-in customer's new delivery address joins their saved addresses (My Account)
+      if (userId) rememberOrderAddress(adminDb, userId, deliveryAddress, String(customerName || '')).catch(() => {});
       if (!isCard) (async () => {
         // Store settings from the catalog copy (no read); the database only if it is not loaded
         let storeCfg: any = catalogStore.settings() || DEFAULT_SETTINGS;
@@ -4575,6 +4578,9 @@ registerFeedbackRoutes(app, {
   callerUid: callerUidOf,
   storeMedia,
 });
+
+// Customer's My Account: name / phone, profile photo and saved delivery addresses
+registerCustomerProfileRoutes(app, { adminDb, requireAuth });
 
 // Order chat between the customer and the seller (open while the order runs; no contact details)
 registerOrderChatRoutes(app, {
