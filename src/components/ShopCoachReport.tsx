@@ -183,7 +183,7 @@ export const ShopCoachReport: React.FC<{
         ))}
       </div>
 
-      <div className="p-4 bg-white border border-black/10 rounded-lg space-y-4">
+      <div className="p-4 bg-white rounded-xl border border-[#E7E5DF] rounded-lg space-y-4">
         <SalesChart data={coach.charts.salesByDay} />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <BarList title="Orders by status (30 days)" rows={coach.charts.statusBreakdown.map((r) => ({ label: r.label, value: r.value }))} color="#3B82F6" />
@@ -222,7 +222,7 @@ export const ShopCoachReport: React.FC<{
                 <div className="pl-6 flex flex-wrap items-center gap-2">
                   {i.action && renderAction ? renderAction(i.action, i) : null}
                   {onGo && i.tab && !i.action && (
-                    <button type="button" onClick={() => onGo(i.tab!)} className="mt-1 px-2.5 py-1 bg-white border border-black/20 font-semibold cursor-pointer">
+                    <button type="button" onClick={() => onGo(i.tab!)} className="mt-1 px-2.5 py-1 bg-white rounded-lg border border-[#DCD9D2] font-semibold cursor-pointer">
                       Fix it →
                     </button>
                   )}

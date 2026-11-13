@@ -204,7 +204,7 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
         <button type="button" disabled={busy} onClick={add} className="w-full py-2.5 bg-[#0E7A43] text-white font-bold text-sm rounded cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2">
           <Check className="w-4 h-4" /> {busy ? 'Adding to the listing...' : 'Add to my listing'}
         </button>
-        <button type="button" onClick={again} className="w-full py-2 border border-black/25 text-xs font-semibold rounded cursor-pointer flex items-center justify-center gap-1.5">
+        <button type="button" onClick={again} className="w-full py-2 border border-[#DCD9D2] text-xs font-semibold rounded cursor-pointer flex items-center justify-center gap-1.5">
           <RefreshCw className="w-3.5 h-3.5" /> Make another (charged again)
         </button>
       </div>
@@ -224,11 +224,11 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
         rows={3}
         maxLength={600}
         placeholder="e.g. The car drives fast on a highway at sunset, camera follows it"
-        className="w-full px-3 py-2 border border-black/20 rounded text-sm focus:border-black focus:outline-none"
+        className="w-full px-3 py-2 rounded-lg border border-[#DCD9D2] rounded text-sm focus:border-black focus:outline-none"
       />
       <div className="flex flex-wrap gap-1.5">
         {PRO_IDEAS.map((idea) => (
-          <button key={idea} type="button" onClick={() => setPrompt(idea)} className="px-2 py-1 text-[11px] border border-black/15 rounded-full bg-[#FBFBF9] cursor-pointer hover:border-black">
+          <button key={idea} type="button" onClick={() => setPrompt(idea)} className="px-2 py-1 text-[11px] border border-[#DCD9D2] rounded-full bg-[#FBFBF9] cursor-pointer hover:border-black">
             {idea}
           </button>
         ))}
@@ -236,7 +236,7 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
       <div className="grid grid-cols-2 gap-2 text-xs">
         <label className="space-y-1">
           <span className="font-semibold">Length</span>
-          <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white">
+          <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} className="w-full px-2 py-1.5 rounded-lg border border-[#DCD9D2] rounded bg-white">
             {[4, 6, 8, 10, 12, 15].map((s) => (
               <option key={s} value={s}>
                 {s} seconds
@@ -246,7 +246,7 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
         </label>
         <label className="space-y-1">
           <span className="font-semibold">Shape</span>
-          <select value={shape} onChange={(e) => setShape(e.target.value as any)} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white">
+          <select value={shape} onChange={(e) => setShape(e.target.value as any)} className="w-full px-2 py-1.5 rounded-lg border border-[#DCD9D2] rounded bg-white">
             <option value="16:9">Wide (product page, Facebook)</option>
             <option value="9:16">Tall (WhatsApp status, TikTok)</option>
           </select>
@@ -255,7 +255,7 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
       <div className="grid grid-cols-2 gap-2 text-xs">
         <label className="space-y-1">
           <span className="font-semibold">Someone talking about it</span>
-          <select value={presenter} onChange={(e) => setPresenter(e.target.value as any)} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white">
+          <select value={presenter} onChange={(e) => setPresenter(e.target.value as any)} className="w-full px-2 py-1.5 rounded-lg border border-[#DCD9D2] rounded bg-white">
             <option value="NONE">No one (music only)</option>
             <option value="AI_WOMAN">AI woman</option>
             <option value="AI_MAN">AI man</option>
@@ -264,7 +264,7 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
         </label>
         <label className="space-y-1">
           <span className="font-semibold">They speak</span>
-          <select value={lang} disabled={presenter === 'NONE'} onChange={(e) => setLang(e.target.value as any)} className="w-full px-2 py-1.5 border border-black/20 rounded bg-white disabled:opacity-50">
+          <select value={lang} disabled={presenter === 'NONE'} onChange={(e) => setLang(e.target.value as any)} className="w-full px-2 py-1.5 rounded-lg border border-[#DCD9D2] rounded bg-white disabled:opacity-50">
             <option value="UR">Urdu</option>
             <option value="EN">English</option>
           </select>
@@ -276,10 +276,10 @@ export const ProVideoPanel: React.FC<{ product: { id: string; name: string }; on
         </p>
       )}
       {presenter === 'PHOTO' && (
-        <div className="p-2.5 border border-black/15 rounded space-y-2 text-xs">
+        <div className="p-2.5 border border-[#DCD9D2] rounded space-y-2 text-xs">
           <div className="flex items-center gap-3">
-            {photo ? <img src={photo.preview} alt="Presenter" className="w-16 h-16 object-cover rounded-full border border-black/10" /> : null}
-            <label className="px-3 py-1.5 border border-black/30 rounded font-semibold cursor-pointer">
+            {photo ? <img src={photo.preview} alt="Presenter" className="w-16 h-16 object-cover rounded-full rounded-xl border border-[#E7E5DF]" /> : null}
+            <label className="px-3 py-1.5 border border-[#DCD9D2] rounded font-semibold cursor-pointer">
               {photo ? 'Change photo' : 'Choose a photo'}
               <input type="file" accept="image/*" className="hidden" onChange={(e) => pickPhoto(e.target.files?.[0])} />
             </label>

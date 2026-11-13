@@ -17,7 +17,7 @@ export const ProductTypePicker: React.FC<{ value?: ProductType | ''; onPick: (t:
   onPick,
   onCancel,
 }) => (
-  <div className="bg-white border border-black/10 p-4 sm:p-6 space-y-4">
+  <div className="bg-white rounded-xl border border-[#E7E5DF] p-4 sm:p-6 space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div>
         <h2 className="text-lg font-bold tracking-tight">
@@ -69,7 +69,7 @@ export const ProductTypeChosen: React.FC<{ type: ProductType; onChange: () => vo
         </div>
         <div className="text-[11.5px] text-[#575653]">{t.hint}</div>
       </div>
-      <button type="button" onClick={onChange} className="px-3 py-1.5 rounded-lg border border-black/15 bg-white text-xs font-semibold cursor-pointer shrink-0">
+      <button type="button" onClick={onChange} className="px-3 py-1.5 rounded-lg border border-[#DCD9D2] bg-white text-xs font-semibold cursor-pointer shrink-0">
         Change
       </button>
     </div>
@@ -99,7 +99,7 @@ export const ProductTypeFields: React.FC<{
   if (type === 'PHYSICAL') return null;
 
   return (
-    <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl border border-black/10 bg-[#FBFBF9]">
+    <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl rounded-xl border border-[#E7E5DF] bg-[#FBFBF9]">
       {(type === 'DIGITAL' || type === 'SOFTWARE') && (
         <>
           <div className="sm:col-span-2 p-3 rounded-lg border border-sky-200 bg-sky-50 space-y-2">

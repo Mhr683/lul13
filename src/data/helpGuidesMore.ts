@@ -225,7 +225,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     title: 'AI keys (backup Gemini keys)',
     what: 'Har muft key ki rozana had hai; kai keys = AI kabhi nahi rukta.',
     steps: [
-      'Rangeen button "Create Gemini API key" dabayein; Google AI Studio khul jata hai.',
+      'Rangeen button "Create a free key" dabayein; Google AI Studio khul jata hai. (Poora tareeqa "How to get a key" khol kar parhein.)',
       'Ek Gmail se login karein (doosri Gmail ke liye upar daayein tasveer par click karke account badlein).',
       '"Create API key" dabayein; poochhe to "Create API key in new project".',
       'Nayi key ke saath wala COPY button dabayein (list mein chhupi / chhoti key copy na karein).',
@@ -436,7 +436,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     what: 'Apni Gmail ki muft Gemini key lagayein: aap ka AI Assistant, "Write with AI" aur Shop Coach pehle aap ki key se chalenge, kabhi intezar nahi.',
     steps: [
       'Seller Center mein "AI Assistant" tab kholein; sab se upar "My AI keys" ka hissa hai.',
-      'Rangeen button "Create Gemini API key" dabayein; Google AI Studio khul jata hai.',
+      'Rangeen button "Create a free key" dabayein; Google AI Studio khul jata hai. (Poora tareeqa "How to get a key" khol kar parhein.)',
       'Apni Gmail se login karein.',
       '"Create API key" dabayein; poochhe to "Create API key in new project" chunein.',
       'Nayi key ke saath wala COPY button dabayein (list mein chhupi / chhoti key copy na karein).',

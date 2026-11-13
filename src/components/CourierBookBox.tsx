@@ -40,7 +40,7 @@ export const CourierBookBox: React.FC<{
         <span className="px-2 py-1 bg-emerald-50 border border-emerald-400 text-emerald-900 font-semibold">
           Booked: {booking.courier} · <span className="font-mono">{booking.trackingNumber}</span>
         </span>
-        <button type="button" onClick={printLabel} className="px-3 py-1.5 border border-black/30 font-semibold inline-flex items-center gap-1 cursor-pointer">
+        <button type="button" onClick={printLabel} className="px-3 py-1.5 border border-[#DCD9D2] font-semibold inline-flex items-center gap-1 cursor-pointer">
           <Printer className="w-3.5 h-3.5" /> Print label
         </button>
         {error && <span className="text-rose-700 w-full">{error}</span>}
@@ -71,7 +71,7 @@ export const CourierBookBox: React.FC<{
         <Truck className="w-3.5 h-3.5" /> Book with courier (tracking number comes automatically) <HelpDot id="seller.order.courier" />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <select value={courier} onChange={(e) => setCourier(e.target.value)} className="px-2 py-1.5 border border-black/20 bg-white">
+        <select value={courier} onChange={(e) => setCourier(e.target.value)} className="px-2 py-1.5 rounded-lg border border-[#DCD9D2] bg-white">
           {couriers.map((c) => (
             <option key={c.id} value={c.id}>
               {c.label}
@@ -86,7 +86,7 @@ export const CourierBookBox: React.FC<{
             step="0.1"
             value={weight}
             onChange={(e) => setWeight(e.target.value)}
-            className="w-16 px-2 py-1.5 border border-black/20 bg-white"
+            className="w-16 px-2 py-1.5 rounded-lg border border-[#DCD9D2] bg-white"
           />
           kg
         </label>
@@ -94,7 +94,7 @@ export const CourierBookBox: React.FC<{
           type="button"
           disabled={busy || !courier}
           onClick={book}
-          className="px-3 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer disabled:opacity-50"
+          className="px-3 py-1.5 bg-[#141413] text-white rounded-lg font-semibold cursor-pointer disabled:opacity-50"
         >
           {busy ? 'Booking...' : 'Book & ship'}
         </button>

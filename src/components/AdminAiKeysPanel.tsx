@@ -71,48 +71,63 @@ export const AdminAiKeysPanel: React.FC<{
   };
 
   return (
-    <div className="border border-black/15 p-4 space-y-3 text-xs text-[#141413]">
-      <div className="font-bold text-sm inline-flex items-center gap-2">
-        <Sparkles className="w-4 h-4" /> {forSeller ? 'My AI keys (Gemini) — your own free AI' : 'AI keys (Gemini) — backup keys keep the AI working'}{' '}
-        <HelpDot id={forSeller ? 'seller.aiKeys' : 'admin.aiKeys'} />
+    <div className="rounded-2xl border border-[#E7E5DF] bg-white p-4 sm:p-5 space-y-3 text-xs text-[#141413]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-bold text-[14px] inline-flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-violet-600" /> {forSeller ? 'My AI keys (Gemini)' : 'AI keys (Gemini) — backup keys keep the AI working'}{' '}
+            <HelpDot id={forSeller ? 'seller.aiKeys' : 'admin.aiKeys'} />
+          </div>
+          {forSeller && (
+            <p className="text-[12px] text-[#6B6963]">Your own free AI: faster, only for your shop, never shown to anyone.</p>
+          )}
+        </div>
+        <a
+          href="https://aistudio.google.com/apikey"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-sky-600 text-white text-[12px] font-bold shadow-sm"
+        >
+          <Sparkles className="w-4 h-4" /> Create a free key
+        </a>
       </div>
-      {forSeller && (
-        <p className="p-2.5 bg-violet-50 border border-violet-200 text-violet-950">
-          Your AI Assistant, "Write with AI" descriptions and Shop Coach use <strong>your own</strong> free Gemini key first, so your AI
-          never waits for others. Without a key (or when your keys' daily limit is used) the store's shared AI is used, which can be
-          busy. Your key is used only for your shop and is never shown to anyone.
-        </p>
-      )}
-      <p className="text-[#575653]">
-        Every free key has a daily limit. Add several keys: when one key's limit is used up, the
-        next key is used by itself. The free limit belongs to each Google Cloud <strong>project</strong>, so create every key with "Create API key in new project" (one Gmail can have about 10 projects).
-      </p>
-      <a
-        href="https://aistudio.google.com/apikey"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-violet-600 to-sky-600 text-white text-sm font-bold shadow"
-      >
-        <Sparkles className="w-4 h-4" /> Create Gemini API key (opens Google AI Studio)
-      </a>
-      <ol className="list-decimal pl-5 text-[#575653] space-y-0.5">
-        <li>Press the button above and sign in with a Gmail (to switch Gmail, use your picture at the top right of that page).</li>
-        <li>
-          Press "Create API key" (choose "Create API key in new project" if asked). Then press the <strong>copy</strong> button next to the
-          new key. Do not copy the shortened key shown in the list.
-        </li>
-        <li>
-          Paste it below and press Add. You can paste many keys at once, one per line.{' '}
-          {forSeller ? 'Up to 20 keys.' : 'There is no limit on the number of keys.'}
-        </li>
-      </ol>
+      <details className="group rounded-xl border border-[#E7E5DF] bg-[#FBFBF9] text-[12px]">
+        <summary className="px-3 py-2 cursor-pointer select-none font-semibold list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+          <span className="w-5 h-5 rounded-full bg-violet-100 text-violet-800 text-[11px] font-bold flex items-center justify-center">i</span>
+          How to get a key (1 minute)
+          <span className="ml-auto text-[#8A8780] transition-transform group-open:rotate-180">⌄</span>
+        </summary>
+        <div className="px-3 pb-3 space-y-2 text-[#55534E]">
+          {forSeller && (
+            <p>
+              Your AI Assistant, "Write with AI" descriptions and Shop Coach use <strong>your own</strong> free Gemini key first, so your AI never waits for
+              others. Without a key (or when your keys' daily limit is used) the store's shared AI is used, which can be busy.
+            </p>
+          )}
+          <ol className="list-decimal pl-5 space-y-0.5">
+            <li>Press “Create a free key” and sign in with a Gmail (to switch Gmail, use your picture at the top right of that page).</li>
+            <li>
+              Press "Create API key" (choose "Create API key in new project" if asked). Then press the <strong>copy</strong> button next to the new key. Do not
+              copy the shortened key shown in the list.
+            </li>
+            <li>
+              Paste it below and press Add. You can paste many keys at once, one per line.{' '}
+              {forSeller ? 'Up to 20 keys.' : 'There is no limit on the number of keys.'}
+            </li>
+          </ol>
+          <p>
+            Every free key has a daily limit. Add several keys: when one key's limit is used up, the next key is used by itself. The free limit belongs to
+            each Google Cloud <strong>project</strong>, so create every key with "Create API key in new project" (one Gmail can have about 10 projects).
+          </p>
+        </div>
+      </details>
       {data && (
         <div className="space-y-1">
           <div className="font-semibold">
             {data.keys.length} key(s) working together{data.fromEnv ? ` (${data.fromEnv} from the server settings)` : ''}
           </div>
           {data.keys.map((k) => (
-            <div key={k.index} className="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-[#F7F6F2] border border-black/10">
+            <div key={k.index} className="flex flex-wrap items-center gap-2 px-2 py-1.5 bg-[#F7F6F2] rounded-xl border border-[#E7E5DF]">
               <span className="font-mono">
                 {k.index + 1}. {k.key}
               </span>
@@ -145,14 +160,14 @@ export const AdminAiKeysPanel: React.FC<{
           autoComplete="off"
           spellCheck={false}
           rows={3}
-          className="flex-1 min-w-[220px] px-2 py-1.5 border border-black/20 font-mono"
+          className="flex-1 min-w-[220px] px-2 py-1.5 rounded-lg border border-[#DCD9D2] font-mono"
           style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
         />
         <button
           type="button"
           disabled={busy || draft.trim().length < 30}
           onClick={add}
-          className="px-3 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer disabled:opacity-50"
+          className="px-3 py-1.5 bg-[#141413] text-white rounded-lg font-semibold cursor-pointer disabled:opacity-50"
         >
           {busy ? 'Testing keys...' : 'Add key(s)'}
         </button>

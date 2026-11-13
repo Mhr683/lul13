@@ -106,10 +106,10 @@ export const QuestionsInbox: React.FC<{ mode: 'seller' | 'admin'; onWaitingChang
   const visible = mode === 'admin' && !showAll ? waiting : list || [];
 
   return (
-    <div className="bg-white border border-black/10 p-4 sm:p-5 space-y-4">
+    <div className="bg-white rounded-xl border border-[#E7E5DF] p-4 sm:p-5 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-display flex items-center gap-2">
+          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
             <MessageCircleQuestion className="w-5 h-5 text-[#E8590C]" /> Customer questions
           </h2>
           <p className="text-xs text-[#575653]">
@@ -124,7 +124,7 @@ export const QuestionsInbox: React.FC<{ mode: 'seller' | 'admin'; onWaitingChang
               <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show answered &amp; hidden
             </label>
           )}
-          <button type="button" onClick={load} className="px-3 py-1.5 border border-black/20 text-xs font-semibold flex items-center gap-1 cursor-pointer">
+          <button type="button" onClick={load} className="px-3 py-1.5 rounded-lg border border-[#DCD9D2] text-xs font-semibold flex items-center gap-1 cursor-pointer">
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
         </div>
@@ -151,7 +151,7 @@ export const QuestionsInbox: React.FC<{ mode: 'seller' | 'admin'; onWaitingChang
                 <span>{q.customerName}</span>
                 <span>·</span>
                 <span>{when(q.createdAt)}</span>
-                {mode === 'admin' && <span className="px-1.5 border border-black/15 text-[10px]">{q.sellerId === houseSellerId ? 'Store product' : 'Seller product'}</span>}
+                {mode === 'admin' && <span className="px-1.5 border border-[#DCD9D2] text-[10px]">{q.sellerId === houseSellerId ? 'Store product' : 'Seller product'}</span>}
                 <span
                   className={`ml-auto px-1.5 py-0.5 text-[10px] font-bold ${
                     q.status === 'PENDING' ? 'bg-amber-200 text-amber-950' : q.status === 'HIDDEN' ? 'bg-black/10' : 'bg-emerald-100 text-emerald-900'
@@ -179,7 +179,7 @@ export const QuestionsInbox: React.FC<{ mode: 'seller' | 'admin'; onWaitingChang
                     value={drafts[q.id] ?? ''}
                     onChange={(e) => setDrafts((d) => ({ ...d, [q.id]: e.target.value }))}
                     placeholder={q.answer ? 'Change the answer...' : 'Write your answer...'}
-                    className="flex-1 min-w-0 px-3 py-2 border border-black/20 bg-white text-sm focus:border-black focus:outline-none"
+                    className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-[#DCD9D2] bg-white text-sm focus:border-black focus:outline-none"
                   />
                   <button
                     type="button"

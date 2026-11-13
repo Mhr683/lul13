@@ -8,7 +8,7 @@ import { HelpDot } from './HelpDot';
 // the store's own categories) and the variants editor (colour / size with their own price and stock).
 
 const labelCls = 'block text-[11px] font-bold text-[#141413] mb-1';
-const inputCls = 'w-full px-3 py-2 border border-black/20 bg-white text-sm focus:border-black focus:outline-none';
+const inputCls = 'w-full px-3 py-2 rounded-lg border border-[#DCD9D2] bg-white text-sm focus:border-black focus:outline-none';
 
 export const CategoryPicker: React.FC<{
   value: string;
@@ -72,14 +72,14 @@ export const CategoryPicker: React.FC<{
         </div>
       )}
       {open && (
-        <div className="mt-1 border border-black/20 bg-white shadow-lg">
+        <div className="mt-1 rounded-lg border border-[#DCD9D2] bg-white shadow-lg">
           <div className="flex items-center gap-1 p-2 border-b border-black/10">
             <input
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search, e.g. shoes, perfume, charger"
-              className="flex-1 min-w-0 px-2 py-1.5 border border-black/20 text-sm focus:border-black focus:outline-none"
+              className="flex-1 min-w-0 px-2 py-1.5 rounded-lg border border-[#DCD9D2] text-sm focus:border-black focus:outline-none"
             />
             <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="p-1.5 cursor-pointer">
               <X className="w-4 h-4" />
@@ -96,7 +96,7 @@ export const CategoryPicker: React.FC<{
                       type="button"
                       onClick={() => pick(n)}
                       className={`px-2 py-1 border text-xs cursor-pointer ${
-                        n === value ? 'border-[#141413] bg-[#141413] text-white' : 'border-black/15 hover:border-black'
+                        n === value ? 'border-[#141413] bg-[#141413] text-white' : 'border-[#DCD9D2] hover:border-black'
                       }`}
                     >
                       {n}
@@ -109,7 +109,7 @@ export const CategoryPicker: React.FC<{
               <button
                 type="button"
                 onClick={() => pick(q.trim().slice(0, 75))}
-                className="w-full px-2 py-2 border border-dashed border-black/30 text-xs text-left cursor-pointer hover:border-black"
+                className="w-full px-2 py-2 border border-dashed border-[#DCD9D2] text-xs text-left cursor-pointer hover:border-black"
               >
                 Not in the list? Use “<strong>{q.trim()}</strong>” as the category
               </button>
@@ -157,7 +157,7 @@ export const VariantsEditor: React.FC<{
   };
 
   return (
-    <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-3">
+    <div className="sm:col-span-2 p-3 rounded-xl border border-[#E7E5DF] bg-[#FBFBF9] space-y-3">
       <div>
         <div className="text-xs font-bold text-[#141413]">Variants (optional): colour, size, ... <HelpDot id="seller.product.variants" /></div>
         <p className="text-[11px] text-[#575653]">
@@ -184,7 +184,7 @@ export const VariantsEditor: React.FC<{
             type="button"
             disabled={!quick.trim()}
             onClick={addQuick}
-            className="px-3 py-2 bg-[#141413] text-white text-xs font-bold cursor-pointer disabled:opacity-40 flex items-center gap-1"
+            className="px-3 py-2 bg-[#141413] text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 flex items-center gap-1"
           >
             <Plus className="w-3.5 h-3.5" /> Add variants
           </button>
@@ -199,7 +199,7 @@ export const VariantsEditor: React.FC<{
                   key={t}
                   type="button"
                   onClick={() => onChange({ title: t, rows })}
-                  className={`px-2 py-1 border text-[11px] cursor-pointer ${title === t ? 'border-[#141413] bg-[#141413] text-white' : 'border-black/15 bg-white hover:border-black'}`}
+                  className={`px-2 py-1 border text-[11px] cursor-pointer ${title === t ? 'border-[#141413] bg-[#141413] text-white' : 'border-[#DCD9D2] bg-white hover:border-black'}`}
                 >
                   {t}
                 </button>
@@ -208,7 +208,7 @@ export const VariantsEditor: React.FC<{
                 value={TITLE_PRESETS.includes(title) ? '' : title}
                 onChange={(e) => onChange({ title: e.target.value.slice(0, 40), rows })}
                 placeholder="other..."
-                className="w-28 px-2 py-1 border border-black/15 bg-white text-[11px] focus:border-black focus:outline-none"
+                className="w-28 px-2 py-1 border border-[#DCD9D2] bg-white text-[11px] focus:border-black focus:outline-none"
               />
             </div>
           </div>
@@ -231,7 +231,7 @@ export const VariantsEditor: React.FC<{
                   type="button"
                   onClick={() => onChange({ title, rows: rows.filter((_, k) => k !== i) })}
                   aria-label="Remove variant"
-                  className="px-2 border border-black/15 bg-white text-rose-700 cursor-pointer flex items-center justify-center"
+                  className="px-2 border border-[#DCD9D2] bg-white text-rose-700 cursor-pointer flex items-center justify-center"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -243,7 +243,7 @@ export const VariantsEditor: React.FC<{
               type="button"
               disabled={rows.length >= MAX_VARIANTS}
               onClick={() => onChange({ title, rows: [...rows, newRow()] })}
-              className="px-3 py-1.5 border border-black/30 bg-white text-xs font-semibold cursor-pointer disabled:opacity-40 flex items-center gap-1"
+              className="px-3 py-1.5 border border-[#DCD9D2] bg-white text-xs font-semibold cursor-pointer disabled:opacity-40 flex items-center gap-1"
             >
               <Plus className="w-3.5 h-3.5" /> Add one more
             </button>

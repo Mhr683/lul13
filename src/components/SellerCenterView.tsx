@@ -36,6 +36,7 @@ import {
   Bot,
   MessageCircleQuestion,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import { SellerAiAssistant } from './SellerAiAssistant';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
@@ -68,7 +69,7 @@ import { ProductMediaEditor } from './ProductMediaEditor';
 import { formatPKR } from '../services/abstractions';
 import type { Product, Order, SellerShop, SellerPrivate, SellerPayout } from '../types/store';
 import { HelpDot } from './HelpDot';
-import { FormSection, MoreMenu, OrderSteps, SegTabs, ui } from './SellerUi';
+import { Callout, Empty, FormSection, HowItWorks, Loading, MoreMenu, OrderSteps, Panel, SegTabs, Stat, chipTone, ui } from './SellerUi';
 import { ProductTypeChosen, ProductTypeFields, ProductTypePicker, priceLabelFor, type DeliveryForm } from './SellerProductType';
 import { ProductTypeBadge } from './ProductTypeIcon';
 import { typeInfo, type ProductType, type ProductTypeDetails } from '../services/productTypes';
@@ -221,8 +222,8 @@ const memo: {
   earnings?: { summary: any; commissionPercent: number; payouts: SellerPayout[]; charges?: any[]; escrowDays?: number };
 } = {};
 
-const inputCls = 'w-full px-3 py-2 bg-white border border-black/20 text-xs text-[#141413] focus:border-black focus:outline-none';
-const labelCls = 'block text-[11px] font-bold text-[#141413] mb-1';
+const inputCls = ui.input;
+const labelCls = ui.fieldLabel;
 
 const statusLabel: Record<string, string> = {
   PENDING_CONFIRMATION: 'New order',
@@ -474,15 +475,18 @@ export const SellerCenterView: React.FC = () => {
 
   if (seller.status === 'PENDING') {
     return shell(
-      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
-        <h1 className="text-2xl font-display">Your application is under review</h1>
-        <p className="text-sm text-[#454441]">
-          We have received the application for <strong>{seller.shopName}</strong>. The {storeName} team will review and
-          approve it. Once approved you can start adding products here.
-        </p>
-        <button type="button" onClick={loadMe} className="px-4 py-2 border border-black/20 text-xs font-semibold cursor-pointer">
-          <RefreshCw className="w-3.5 h-3.5 inline mr-1" /> Check again
-        </button>
+      <div className="max-w-xl mx-auto px-4 py-16">
+        <div className={`${ui.card} p-8 text-center space-y-4`}>
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-100 flex items-center justify-center text-2xl">⏳</div>
+          <h1 className="text-[22px] font-bold tracking-tight">Your application is under review</h1>
+          <p className="text-[13px] text-[#55534E]">
+            We have received the application for <strong>{seller.shopName}</strong>. The {storeName} team will review and approve it. Once approved you
+            can start adding products here.
+          </p>
+          <button type="button" onClick={loadMe} className={ui.secondary}>
+            <RefreshCw className="w-3.5 h-3.5" /> Check again
+          </button>
+        </div>
       </div>
     );
   }
@@ -490,7 +494,7 @@ export const SellerCenterView: React.FC = () => {
   if (seller.status === 'SUSPENDED') {
     return shell(
       <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-3">
-        <h1 className="text-2xl font-display">
+        <h1 className="text-[22px] font-bold tracking-tight">
           Your seller account is {(seller as any).permanentlySuspended ? 'permanently suspended' : 'suspended'}
         </h1>
         <p className="text-sm text-[#454441]">{seller.statusReason || `Please contact ${storeName} for more information.`}</p>
@@ -668,13 +672,15 @@ export const SellerCenterView: React.FC = () => {
         </div>
       )}
       {tab === 'RULES' && (
-        <div className="bg-white border border-black/10 p-5 space-y-3">
+        <Panel
+          title="Supplier Code of Conduct"
+          subtitle={`You accepted these rules on ${
+            (seller as any).conductAcceptedAt ? new Date((seller as any).conductAcceptedAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'long', year: 'numeric' }) : 'joining'
+          }`}
+          icon={<ShieldCheck className="w-4 h-4" />}
+        >
           <PolicyDocument intro={SUPPLIER_CODE.intro} sections={SUPPLIER_CODE.sections} />
-          <p className="text-[11px] text-[#575653]">
-            You accepted these rules on{' '}
-            {(seller as any).conductAcceptedAt ? new Date((seller as any).conductAcceptedAt).toLocaleDateString('en-PK') : 'joining'}.
-          </p>
-        </div>
+        </Panel>
       )}
       {tab === 'REVIEWS' && <ReviewsTab onSeen={clearActivity} />}
       {tab === 'QUESTIONS' && <QuestionsInbox mode="seller" onWaitingChange={setQuestionsWaiting} />}
@@ -683,15 +689,15 @@ export const SellerCenterView: React.FC = () => {
         (sellerPrivate ? (
           <ProfileTab seller={seller} privateData={sellerPrivate} onSaved={loadMe} />
         ) : (
-          <p className="text-xs text-[#575653]">Loading your profile...</p>
+          <Loading text="Loading your profile..." />
         ))}
       {tab === 'PROFILE' && (
         // The rules this shop has agreed to follow
-        <details className="group bg-white border border-black/10">
-          <summary className="list-none cursor-pointer px-5 py-4 flex items-center justify-between gap-3">
+        <details className={`group ${ui.card}`}>
+          <summary className="list-none cursor-pointer px-5 py-4 flex items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
             <span>
-              <strong className="block text-sm">Seller Rules (Supplier Code of Conduct)</strong>
-              <span className="text-xs text-[#575653]">
+              <strong className="block text-[14px]">Seller Rules (Supplier Code of Conduct)</strong>
+              <span className="text-[12px] text-[#6B6963]">
                 Accepted on{' '}
                 {(seller as any).conductAcceptedAt ? new Date((seller as any).conductAcceptedAt).toLocaleDateString('en-PK') : 'joining'} · tap to
                 read
@@ -700,7 +706,7 @@ export const SellerCenterView: React.FC = () => {
             <span className="text-xs font-semibold text-[#0E7A43] group-open:hidden">Show</span>
             <span className="text-xs font-semibold text-[#0E7A43] hidden group-open:inline">Hide</span>
           </summary>
-          <div className="px-5 pb-5 border-t border-black/[0.06] pt-4">
+          <div className="px-5 pb-5 border-t border-[#EFEDE8] pt-4">
             <PolicyDocument intro={SUPPLIER_CODE.intro} sections={SUPPLIER_CODE.sections} compact />
           </div>
         </details>
@@ -762,35 +768,40 @@ const AutoFixBox: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   };
 
   return (
-    <div className="p-3 bg-white border border-emerald-200 rounded-lg space-y-2 text-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={run}
-          className="px-5 py-2.5 bg-[#0E7A43] hover:bg-[#0B5E34] text-white text-sm font-bold rounded disabled:opacity-60 cursor-pointer"
-        >
-          {busy ? 'Fixing your account health...' : '⚡ Auto-fix account health'}
-        </button>
-        <div className="flex flex-wrap items-center gap-3 text-[#575653]">
-          <span>
-            {count ? `${count} thing${count > 1 ? 's' : ''} can be fixed now` : 'Nothing to fix right now'}
-            {plan.lastRunAt ? ` · last run ${new Date(plan.lastRunAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}
-          </span>
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input type="checkbox" checked={plan.enabled} onChange={(e) => toggle(e.target.checked)} />
-            Also every day
+    <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2.5 text-[12.5px]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-bold text-emerald-950">
+            {count ? `${count} thing${count > 1 ? 's' : ''} the coach can fix for you` : '✓ Nothing to fix right now'}
+          </div>
+          <div className="text-[11.5px] text-emerald-900/70">
+            {plan.lastRunAt
+              ? `Last run ${new Date(plan.lastRunAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`
+              : 'Hides out-of-stock products and improves weak descriptions'}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-emerald-200 text-[12px] font-semibold cursor-pointer">
+            <input type="checkbox" checked={plan.enabled} onChange={(e) => toggle(e.target.checked)} className="accent-[#0E7A43]" />
+            Every day
           </label>
-          {count > 0 && (
-            <button type="button" onClick={() => setOpen((o) => !o)} className="underline cursor-pointer">
-              {open ? 'Hide details' : 'What will it change?'}
-            </button>
-          )}
+          <button type="button" disabled={busy} onClick={run} className={ui.primary}>
+            {busy ? 'Fixing...' : '⚡ Auto-fix now'}
+          </button>
         </div>
       </div>
-      {result && <p className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-900">{result} Anything still listed below needs you: press its “Fix it” button — once you fix it, it disappears from the list.</p>}
+      {count > 0 && (
+        <button type="button" onClick={() => setOpen((o) => !o)} className={ui.link}>
+          {open ? 'Hide details' : 'What will it change?'}
+        </button>
+      )}
+      {result && (
+        <p className="px-3 py-2 rounded-lg bg-white border border-emerald-200 text-emerald-900">
+          {result} Anything still listed below needs you: press its “Fix it” button.
+        </p>
+      )}
       {open && (
-        <div className="p-2 bg-[#FBFBF9] border border-black/10 space-y-2">
+        <div className="px-3 py-2.5 rounded-lg bg-white border border-[#E7E5DF] space-y-2">
           {plan.hide.length > 0 && (
             <div>
               <strong>Hide (out of stock, so no order gets cancelled):</strong>
@@ -850,23 +861,23 @@ const BrandFixActions: React.FC<{
   };
   return (
     <div className="w-full space-y-2">
-      <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={busy} onClick={selfFix} className="mt-1 px-3 py-1.5 bg-[#0E7A43] text-white font-bold cursor-pointer disabled:opacity-50">
+      <div className="flex flex-wrap gap-2 mt-1">
+        <button type="button" disabled={busy} onClick={selfFix} className={ui.primary}>
           {busy ? 'Fixing...' : '✨ Self fix it'}
         </button>
-        <button type="button" onClick={() => setListOpen((o) => !o)} className="mt-1 px-3 py-1.5 bg-white border border-black/25 font-semibold cursor-pointer">
+        <button type="button" onClick={() => setListOpen((o) => !o)} className={ui.secondary}>
           {listOpen ? 'Hide list' : `Fix it myself (${products.length})`}
         </button>
       </div>
       {listOpen && (
-        <ul className="bg-white border border-black/10 divide-y divide-black/[0.06] max-h-72 overflow-y-auto">
+        <ul className="bg-white rounded-xl border border-[#E7E5DF] divide-y divide-[#EFEDE8] max-h-72 overflow-y-auto">
           {products.map((p) => (
             <li key={p.id} className="px-3 py-2 flex items-center gap-2">
               <span className="flex-1 min-w-0 truncate" title={p.name}>
                 {p.name}
               </span>
-              <span className="shrink-0 px-1.5 py-0.5 bg-rose-100 text-rose-900 text-[10px] font-bold">{p.brand}</span>
-              <button type="button" onClick={() => onEdit(p.id)} className="shrink-0 px-2 py-1 border border-black/30 font-semibold cursor-pointer">
+              <span className={`${ui.chip} ${chipTone.red} shrink-0`}>{p.brand}</span>
+              <button type="button" onClick={() => onEdit(p.id)} className={`${ui.secondary} !py-1 shrink-0`}>
                 Edit
               </button>
             </li>
@@ -914,14 +925,14 @@ const RewriteAllButton: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   if (job?.running) {
     const pct = Math.round((job.done / Math.max(1, job.total)) * 100);
     return (
-      <div className="mt-1 flex items-center gap-2">
-        <div className="w-40 h-2 bg-black/10 rounded">
-          <div className="h-2 bg-[#0E7A43] rounded" style={{ width: `${pct}%` }} />
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <div className="w-40 h-2 bg-[#EFEDE8] rounded-full overflow-hidden">
+          <div className="h-2 bg-[#0E7A43] rounded-full transition-all" style={{ width: `${pct}%` }} />
         </div>
-        <span>
+        <span className="tabular-nums">
           Writing {job.done} / {job.total}… (you can leave this page)
         </span>
-        <button type="button" onClick={() => api('/api/seller/coach/rewrite-all', { method: 'POST', body: JSON.stringify({ stop: true }) }).then((d) => setJob(d.job))} className="underline cursor-pointer">
+        <button type="button" onClick={() => api('/api/seller/coach/rewrite-all', { method: 'POST', body: JSON.stringify({ stop: true }) }).then((d) => setJob(d.job))} className={ui.link}>
           Stop
         </button>
       </div>
@@ -929,7 +940,7 @@ const RewriteAllButton: React.FC<{ onDone: () => void }> = ({ onDone }) => {
   }
   return (
     <span className="mt-1 flex flex-wrap items-center gap-2">
-      <button type="button" disabled={starting} onClick={start} className="px-3 py-1.5 bg-[#0E7A43] text-white font-bold disabled:opacity-50 cursor-pointer">
+      <button type="button" disabled={starting} onClick={start} className={ui.primary}>
         {starting ? 'Starting...' : '✍️ Write them all with AI'}
       </button>
       {job && !job.running && job.done > 0 && <span className="text-emerald-800">Last run: {job.done} written.</span>}
@@ -958,40 +969,46 @@ const FlashDealBox: React.FC<{ productId: string; price: number; current: { pric
     }
   };
   return (
-    <div className="sm:col-span-2 p-3 border border-rose-200 bg-rose-50/40 space-y-2">
-      <span className="text-[11px] font-bold text-[#B91C1C] block">⚡ Flash deal (limited-time price with a countdown in the store)</span>
+    <div className="sm:col-span-2 p-3.5 rounded-xl border border-rose-200 bg-rose-50/50 space-y-2.5 text-[12.5px]">
+      <div className="flex items-center gap-1.5">
+        <span className="font-bold text-rose-800">⚡ Flash deal</span>
+        <span className="text-[11.5px] text-[#6B6963]">limited-time price with a countdown in the store</span>
+        <HelpDot id="seller.deals" />
+      </div>
       {deal ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`${ui.chip} ${chipTone.red}`}>Live</span>
           <span>
             Deal price <strong>{formatPKR(Number(deal.price))}</strong> until{' '}
             {new Date(deal.endsAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
           </span>
-          <button type="button" disabled={busy} onClick={() => save({ clear: true })} className="px-2 py-1 border border-black/20 cursor-pointer">
+          <button type="button" disabled={busy} onClick={() => save({ clear: true })} className={ui.secondary}>
             End deal
           </button>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <input className={`${inputCls} w-32`} value={dealPrice} onChange={(e) => setDealPrice(e.target.value)} placeholder="Deal price" inputMode="numeric" />
-                    <HelpDot id="seller.deals" />
-          <span>for</span>
-          <select className={`${inputCls} w-32`} value={hours} onChange={(e) => setHours(e.target.value)}>
-            {['6', '12', '24', '48', '72', '168'].map((h) => (
-              <option key={h} value={h}>
-                {Number(h) < 48 ? `${h} hours` : `${Number(h) / 24} days`}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={busy || !(Number(dealPrice) > 0 && Number(dealPrice) < price)}
-            onClick={() => save({ flashPrice: Number(dealPrice), endsAt: new Date(Date.now() + Number(hours) * 3600_000).toISOString() })}
-            className="px-3 py-1.5 bg-[#B91C1C] text-white font-bold disabled:opacity-40 cursor-pointer"
-          >
-            Start deal
-          </button>
-          <span className="text-[#575653]">must be lower than {formatPKR(price)}; you pay for the discount</span>
-        </div>
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <input className={`${inputCls} !w-32`} value={dealPrice} onChange={(e) => setDealPrice(e.target.value)} placeholder="Deal price" inputMode="numeric" />
+            <span className="text-[#6B6963]">for</span>
+            <select className={`${inputCls} !w-32`} value={hours} onChange={(e) => setHours(e.target.value)}>
+              {['6', '12', '24', '48', '72', '168'].map((h) => (
+                <option key={h} value={h}>
+                  {Number(h) < 48 ? `${h} hours` : `${Number(h) / 24} days`}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={busy || !(Number(dealPrice) > 0 && Number(dealPrice) < price)}
+              onClick={() => save({ flashPrice: Number(dealPrice), endsAt: new Date(Date.now() + Number(hours) * 3600_000).toISOString() })}
+              className={ui.dangerSolid}
+            >
+              Start deal
+            </button>
+          </div>
+          <p className="text-[11.5px] text-[#8A8780]">Must be lower than {formatPKR(price)}. You pay for the discount.</p>
+        </>
       )}
     </div>
   );
@@ -1017,22 +1034,20 @@ const ConductGate: React.FC<{ shopName: string; onAccepted: (version: string) =>
   };
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <div className="bg-white border border-black/10 p-5 sm:p-7 space-y-4">
-        <h1 className="text-2xl font-display">Seller Rules — please read and accept</h1>
-        <p className="text-xs text-[#575653]">
-          {shopName}: to keep selling, accept the store's Supplier Code of Conduct. Several rules are applied automatically.
-        </p>
+      <div className={`${ui.card} p-5 sm:p-7 space-y-4`}>
+        <div>
+          <div className={ui.label}>Seller rules</div>
+          <h1 className="text-[22px] font-bold tracking-tight">Please read and accept</h1>
+          <p className="text-[12.5px] text-[#6B6963] mt-1">
+            {shopName}: to keep selling, accept the store's Supplier Code of Conduct. Several rules are applied automatically.
+          </p>
+        </div>
         <PolicyDocument intro={SUPPLIER_CODE.intro} sections={SUPPLIER_CODE.sections} />
-        <label className="flex items-start gap-2 text-sm font-semibold cursor-pointer pt-2 border-t border-black/10">
-          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-1" />
+        <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#F7F6F2] border border-[#E7E5DF] text-[13px] font-semibold cursor-pointer">
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 w-4 h-4 accent-[#0E7A43]" />
           I have read these rules and my shop will follow them.
         </label>
-        <button
-          type="button"
-          disabled={!agreed || saving}
-          onClick={accept}
-          className="px-6 py-2.5 bg-[#0E7A43] text-white text-sm font-bold disabled:opacity-40 cursor-pointer"
-        >
+        <button type="button" disabled={!agreed || saving} onClick={accept} className={`${ui.primary} !px-6 !py-2.5 !text-[13px]`}>
           {saving ? 'Saving...' : 'Accept and continue'}
         </button>
       </div>
@@ -1078,82 +1093,106 @@ const ReturnsTab: React.FC = () => {
     }
   };
 
-  if (!list) return <p className="text-xs text-[#575653]">Loading return requests...</p>;
+  if (!list) return <Loading text="Loading return requests..." />;
+  const open = list.filter((r) => r.status === 'OPEN').length;
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-[#454441]">
-        Customers can ask for a return or replacement within 7 days of delivery. The store decides each request; give your side
-        before it does. Upheld complaints count against the product (3 customers = delisted; fake = locked) and the return shipping
-        is taken off your payout.
-      </p>
+    <div className="space-y-4">
+      <HowItWorks title="How returns work">
+        <p>Customers can ask for a return or replacement within 7 days of delivery. The store decides each request, so give your side before it does.</p>
+        <p>Upheld complaints count against the product (3 customers = delisted, fake = locked) and the return shipping is taken off your payout.</p>
+      </HowItWorks>
       {list.length === 0 ? (
-        <p className="p-4 bg-white border border-black/10 text-xs text-[#575653]">No return requests. Keep it up!</p>
+        <Panel>
+          <Empty icon="↩️" title="No return requests" text="Keep it up! Requests from customers will show here." />
+        </Panel>
       ) : (
-        list.map((r) => (
-          <div key={r.id} className="p-4 bg-white border border-black/10 space-y-2 text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <strong className="font-mono">{r.orderNumber}</strong>
-              <span
-                className={`px-2 py-0.5 text-[10px] font-bold ${
-                  r.status === 'OPEN' ? 'bg-amber-100 text-amber-900' : r.status === 'APPROVED' ? 'bg-rose-100 text-rose-900' : 'bg-emerald-100 text-emerald-900'
-                }`}
-              >
-                {r.status === 'OPEN' ? 'Waiting for the store' : r.status === 'APPROVED' ? 'Return approved' : 'Rejected'}
-              </span>
-              <span className="text-[#575653]">{new Date(r.createdAt).toLocaleDateString('en-PK')}</span>
-              {r.fault === 'SELLER' && <span className="text-rose-700 font-bold">Your responsibility · −{formatPKR(r.returnCharge || 0)}</span>}
-            </div>
-            <p>
-              <strong>{REASON_LABEL[r.reason] || r.reason}</strong> · wants a {r.resolution === 'REPLACEMENT' ? 'replacement' : 'refund'} ·{' '}
-              {(r.items || []).map((it: any) => it.name).join(', ')}
-            </p>
-            <p className="whitespace-pre-line text-[#454441]">"{r.details}"</p>
-            {r.photos?.length > 0 && (
-              <div className="flex gap-2">
-                {r.photos.map((p: string) => (
-                  <a key={p} href={p} target="_blank" rel="noopener noreferrer">
-                    <img src={p} alt="" className="w-16 h-16 object-cover border border-black/10" />
-                  </a>
-                ))}
-              </div>
-            )}
-            {r.sellerResponse && (
-              <p className="pl-3 border-l-2 border-[#0E7A43]">
-                <strong>Your reply:</strong> {r.sellerResponse}
-              </p>
-            )}
-            {r.decisionNote && (
-              <p className="pl-3 border-l-2 border-black/30">
-                <strong>Store decision:</strong> {r.decisionNote}
-              </p>
-            )}
-            {r.status === 'OPEN' &&
-              (replyFor === r.id ? (
-                <div className="space-y-2">
-                  <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3} maxLength={1500} className={inputCls} placeholder="Your side (e.g. the item was checked before dispatch; packing photo...)" />
-                  <div className="flex gap-2">
-                    <button type="button" disabled={saving} onClick={() => send(r.id)} className="px-3 py-1.5 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer">
-                      {saving ? 'Sending...' : 'Send to the store'}
-                    </button>
-                    <button type="button" onClick={() => setReplyFor('')} className="px-3 py-1.5 border border-black/20 cursor-pointer">
-                      Cancel
-                    </button>
+        <>
+          {open > 0 && (
+            <Callout tone="warning" icon="⏳">
+              <strong>{open}</strong> request{open > 1 ? 's are' : ' is'} waiting for the store. Give your side before it decides.
+            </Callout>
+          )}
+          {list.map((r) => {
+            const tone = r.status === 'OPEN' ? chipTone.amber : r.status === 'APPROVED' ? chipTone.red : chipTone.green;
+            return (
+              <article key={r.id} className={`${ui.card} text-[12.5px] overflow-hidden`}>
+                <header className="px-4 py-3 flex flex-wrap items-center gap-2 border-b border-[#EFEDE8] bg-[#FBFBF9]">
+                  <span className="font-mono font-bold text-[13px]">{r.orderNumber}</span>
+                  <span className={`${ui.chip} ${tone}`}>
+                    {r.status === 'OPEN' ? 'Waiting for the store' : r.status === 'APPROVED' ? 'Return approved' : 'Rejected'}
+                  </span>
+                  <span className={`${ui.chip} ${chipTone.grey}`}>{r.resolution === 'REPLACEMENT' ? 'Wants a replacement' : 'Wants a refund'}</span>
+                  {r.fault === 'SELLER' && <span className={`${ui.chip} ${chipTone.red}`}>Your responsibility · −{formatPKR(r.returnCharge || 0)}</span>}
+                  <span className="ml-auto text-[11px] text-[#8A8780]">{new Date(r.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}</span>
+                </header>
+                <div className="p-4 space-y-3">
+                  <div>
+                    <div className={ui.label}>Reason</div>
+                    <div className="font-semibold">{REASON_LABEL[r.reason] || r.reason}</div>
+                    <div className="text-[#6B6963] truncate">{(r.items || []).map((it: any) => it.name).join(', ')}</div>
                   </div>
+                  <blockquote className="px-3 py-2 rounded-lg bg-[#F7F6F2] text-[#3A3936] whitespace-pre-line">“{r.details}”</blockquote>
+                  {r.photos?.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {r.photos.map((p: string) => (
+                        <a key={p} href={p} target="_blank" rel="noopener noreferrer">
+                          <img src={p} alt="Customer photo" className="w-16 h-16 rounded-lg object-cover border border-[#E7E5DF]" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {r.sellerResponse && replyFor !== r.id && (
+                    <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                      <div className="text-[11px] font-bold text-emerald-800">Your reply</div>
+                      {r.sellerResponse}
+                    </div>
+                  )}
+                  {r.decisionNote && (
+                    <div className="px-3 py-2 rounded-lg bg-[#F2F1EC] border border-[#E7E5DF]">
+                      <div className="text-[11px] font-bold text-[#55534E]">Store decision</div>
+                      {r.decisionNote}
+                    </div>
+                  )}
+                  {r.status === 'OPEN' &&
+                    (replyFor === r.id ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={reply}
+                          onChange={(e) => setReply(e.target.value)}
+                          rows={3}
+                          maxLength={1500}
+                          className={inputCls}
+                          placeholder="Your side (e.g. the item was checked before dispatch; packing photo...)"
+                        />
+                        <div className="flex gap-2">
+                          <button type="button" disabled={saving || !reply.trim()} onClick={() => send(r.id)} className={ui.primary}>
+                            {saving ? 'Sending...' : 'Send to the store'}
+                          </button>
+                          <button type="button" onClick={() => setReplyFor('')} className={ui.secondary}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyFor(r.id);
+                            setReply(r.sellerResponse || '');
+                          }}
+                          className={r.sellerResponse ? ui.secondary : ui.primary}
+                        >
+                          {r.sellerResponse ? 'Edit your reply' : 'Give your side'}
+                        </button>{' '}
+                        <HelpDot id="seller.returns.reply" />
+                      </div>
+                    ))}
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReplyFor(r.id);
-                    setReply(r.sellerResponse || '');
-                  }}
-                  className="text-[#0E7A43] font-semibold underline cursor-pointer"
-                >
-                  {r.sellerResponse ? 'Edit your reply' : 'Give your side'} <HelpDot id="seller.returns.reply" />
-                </button>
-              ))}
-          </div>
-        ))
+              </article>
+            );
+          })}
+        </>
       )}
     </div>
   );
@@ -1221,128 +1260,65 @@ const ReviewsTab: React.FC<{ onSeen: () => void }> = ({ onSeen }) => {
 
   if (error) {
     return (
-      <div className="p-4 bg-rose-50 border border-rose-300 text-xs text-rose-950 space-y-2">
-        <p>{error}</p>
-        <button type="button" onClick={load} className="px-3 py-1.5 border border-rose-400 font-semibold cursor-pointer">
-          Try again
-        </button>
-      </div>
+      <Callout tone="danger" icon="⚠️" action={<button type="button" onClick={load} className={ui.secondary}>Try again</button>}>
+        {error}
+      </Callout>
     );
   }
-  if (!data) return <p className="text-xs text-[#575653]">Loading your reviews...</p>;
+  if (!data) return <Loading text="Loading your reviews..." />;
 
   const s = data.summary;
   const reacted = (products || [])
     .filter((p) => (p.likes || 0) + (p.dislikes || 0) > 0)
     .sort((a, b) => (b.likes || 0) + (b.dislikes || 0) - ((a.likes || 0) + (a.dislikes || 0)));
+  const when = (iso: string) => new Date(iso).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 bg-white border border-black/10">
-          <p className="text-[10px] uppercase tracking-wider text-[#575653] font-bold">Customer rating</p>
-          <p className="text-2xl font-display">{s.ratingCount ? s.ratingAvg.toFixed(1) : '—'}</p>
-          <p className="text-xs text-[#F5A524]">{s.ratingCount ? starText(s.ratingAvg) : 'No ratings yet'}</p>
-        </div>
-        <div className="p-4 bg-white border border-black/10">
-          <p className="text-[10px] uppercase tracking-wider text-[#575653] font-bold">Reviews</p>
-          <p className="text-2xl font-display">{s.ratingCount}</p>
-          <p className="text-xs text-[#575653]">{s.ratingCount ? `${s.positivePercent}% positive` : 'From delivered orders'}</p>
-        </div>
-        <div className="p-4 bg-white border border-black/10">
-          <p className="text-[10px] uppercase tracking-wider text-[#575653] font-bold">Product likes</p>
-          <p className="text-2xl font-display text-emerald-700">👍 {s.likes}</p>
-        </div>
-        <div className="p-4 bg-white border border-black/10">
-          <p className="text-[10px] uppercase tracking-wider text-[#575653] font-bold">Product dislikes</p>
-          <p className="text-2xl font-display text-rose-700">👎 {s.dislikes}</p>
-        </div>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Stat
+          label="Customer rating"
+          value={s.ratingCount ? s.ratingAvg.toFixed(1) : '—'}
+          hint={<span className="text-[#F5A524] text-[13px]">{s.ratingCount ? starText(s.ratingAvg) : 'No ratings yet'}</span>}
+          icon={Star}
+          tone="bg-amber-100 text-amber-800"
+        />
+        <Stat
+          label="Reviews"
+          value={s.ratingCount}
+          hint={s.ratingCount ? `${s.positivePercent}% positive` : 'From delivered orders'}
+          icon={MessageSquare}
+          tone="bg-sky-100 text-sky-800"
+        />
+        <Stat label="Product likes" value={`👍 ${s.likes}`} valueClass="text-emerald-700" hint="Customers who liked a product" />
+        <Stat label="Product dislikes" value={`👎 ${s.dislikes}`} valueClass="text-rose-700" hint="Read why in the reviews below" />
       </div>
 
-      <section className="p-4 bg-white border border-black/10 space-y-2">
-        <h2 className="text-sm font-bold">Notifications</h2>
-        {data.activity.length === 0 ? (
-          <p className="text-xs text-[#575653]">New reviews, likes and dislikes on your products will show here.</p>
-        ) : (
-          <ul className="divide-y divide-black/[0.06] max-h-72 overflow-y-auto">
-            {data.activity.map((a) => (
-              <li key={a.id} className="py-2 text-xs flex justify-between gap-3">
-                <span>{a.text}</span>
-                <span className="text-[#575653] whitespace-nowrap">
-                  {new Date(a.at).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="p-4 bg-white border border-black/10 space-y-2">
-        <h2 className="text-sm font-bold">Likes & dislikes per product</h2>
-        {products === null ? (
-          <p className="text-xs text-[#575653]">Loading...</p>
-        ) : reacted.length === 0 ? (
-          <p className="text-xs text-[#575653]">No customer has liked or disliked your products yet.</p>
-        ) : (
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-[#575653]">
-                <th className="py-1 font-semibold">Product</th>
-                <th className="py-1 font-semibold text-right">👍 Likes</th>
-                <th className="py-1 font-semibold text-right">👎 Dislikes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-black/[0.06]">
-              {reacted.map((p) => (
-                <tr key={p.id}>
-                  <td className="py-1.5 pr-2 truncate max-w-[220px]">{p.name}</td>
-                  <td className="py-1.5 text-right text-emerald-700 font-bold">{p.likes || 0}</td>
-                  <td className="py-1.5 text-right text-rose-700 font-bold">{p.dislikes || 0}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section className="p-4 bg-white border border-black/10 space-y-2">
-        <h2 className="text-sm font-bold">Customer reviews <HelpDot id="seller.reviews.reply" /></h2>
+      <Panel title="Customer reviews" help={<HelpDot id="seller.reviews.reply" />} subtitle="Your reply shows on your shop page for everyone." flush>
         {data.feedback.length === 0 ? (
-          <p className="text-xs text-[#575653]">No reviews yet. Customers can rate you after their order is delivered.</p>
+          <Empty icon="⭐" title="No reviews yet" text="Customers can rate you after their order is delivered." />
         ) : (
-          <ul className="divide-y divide-black/[0.06]">
+          <ul className="divide-y divide-[#EFEDE8]">
             {data.feedback.map((f) => (
-              <li key={f.id} className="py-3 space-y-1 text-xs">
+              <li key={f.id} className="px-4 sm:px-5 py-4 space-y-2 text-[12.5px]">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[#F5A524] text-sm">{starText(f.rating)}</span>
+                  <span className="text-[#F5A524] text-[15px] leading-none">{starText(f.rating)}</span>
                   <strong>{f.customerName}</strong>
-                  <span className="text-[#575653]">Order {f.orderNumber} · {new Date(f.createdAt).toLocaleDateString('en-PK')}</span>
-                  {f.status === 'HIDDEN' && (
-                    <span className="px-1.5 py-0.5 bg-black/5 text-[10px] font-bold">Hidden by the store</span>
-                  )}
+                  {f.status === 'HIDDEN' && <span className={`${ui.chip} ${chipTone.grey}`}>Hidden by the store</span>}
+                  <span className="ml-auto text-[11px] text-[#8A8780]">
+                    Order {f.orderNumber} · {new Date(f.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short' })}
+                  </span>
                 </div>
-                {f.comment && <p className="whitespace-pre-line">{f.comment}</p>}
-                {f.productNames?.length > 0 && <p className="text-[#575653] truncate">Bought: {f.productNames.join(', ')}</p>}
+                {f.comment && <p className="whitespace-pre-line text-[#2A2A28]">{f.comment}</p>}
+                {f.productNames?.length > 0 && <p className="text-[11.5px] text-[#8A8780] truncate">Bought: {f.productNames.join(', ')}</p>}
                 {replyFor === f.id ? (
                   <div className="space-y-2">
-                    <textarea
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      maxLength={600}
-                      rows={2}
-                      className={inputCls}
-                      placeholder="Your public reply"
-                    />
+                    <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} maxLength={600} rows={2} className={inputCls} placeholder="Your public reply" />
                     <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={saving}
-                        onClick={() => saveReply(f.id)}
-                        className="px-3 py-1.5 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer"
-                      >
+                      <button type="button" disabled={saving} onClick={() => saveReply(f.id)} className={ui.primary}>
                         {saving ? 'Saving...' : 'Save reply'}
                       </button>
-                      <button type="button" onClick={() => setReplyFor('')} className="px-3 py-1.5 border border-black/20 cursor-pointer">
+                      <button type="button" onClick={() => setReplyFor('')} className={ui.secondary}>
                         Cancel
                       </button>
                     </div>
@@ -1350,9 +1326,10 @@ const ReviewsTab: React.FC<{ onSeen: () => void }> = ({ onSeen }) => {
                 ) : (
                   <>
                     {f.sellerReply && (
-                      <p className="pl-3 border-l-2 border-[#0E7A43] text-[#454441]">
-                        <strong>Your reply:</strong> {f.sellerReply}
-                      </p>
+                      <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                        <div className="text-[11px] font-bold text-emerald-800">Your reply</div>
+                        {f.sellerReply}
+                      </div>
                     )}
                     <button
                       type="button"
@@ -1360,9 +1337,9 @@ const ReviewsTab: React.FC<{ onSeen: () => void }> = ({ onSeen }) => {
                         setReplyFor(f.id);
                         setReplyText(f.sellerReply || '');
                       }}
-                      className="text-[#0E7A43] font-semibold underline cursor-pointer"
+                      className={ui.link}
                     >
-                      {f.sellerReply ? 'Edit reply' : 'Reply'}
+                      {f.sellerReply ? 'Edit reply' : '↩ Reply'}
                     </button>
                   </>
                 )}
@@ -1370,7 +1347,53 @@ const ReviewsTab: React.FC<{ onSeen: () => void }> = ({ onSeen }) => {
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="Likes & dislikes per product" flush>
+          {products === null ? (
+            <div className="p-4">
+              <Loading rows={2} />
+            </div>
+          ) : reacted.length === 0 ? (
+            <Empty icon="👍" title="No likes or dislikes yet" />
+          ) : (
+            <table className="w-full text-[12.5px]">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-[#8A8780]">
+                  <th className="px-4 sm:px-5 py-2 font-bold">Product</th>
+                  <th className="px-2 py-2 font-bold text-right">Likes</th>
+                  <th className="px-4 sm:px-5 py-2 font-bold text-right">Dislikes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#EFEDE8]">
+                {reacted.map((p) => (
+                  <tr key={p.id}>
+                    <td className="px-4 sm:px-5 py-2 truncate max-w-[220px]">{p.name}</td>
+                    <td className="px-2 py-2 text-right text-emerald-700 font-bold tabular-nums">{p.likes || 0}</td>
+                    <td className="px-4 sm:px-5 py-2 text-right text-rose-700 font-bold tabular-nums">{p.dislikes || 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Panel>
+
+        <Panel title="Recent activity" subtitle="New reviews, likes and dislikes" flush>
+          {data.activity.length === 0 ? (
+            <Empty icon="🔔" title="Nothing new" text="New reviews, likes and dislikes on your products will show here." />
+          ) : (
+            <ul className="divide-y divide-[#EFEDE8] max-h-80 overflow-y-auto">
+              {data.activity.map((a) => (
+                <li key={a.id} className="px-4 sm:px-5 py-2.5 text-[12.5px] flex justify-between gap-3">
+                  <span>{a.text}</span>
+                  <span className="text-[11px] text-[#8A8780] whitespace-nowrap">{when(a.at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
     </div>
   );
 };
@@ -1424,85 +1447,64 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
     { label: 'Ready for payout', value: summary ? formatPKR(summary.available) : '…', tab: 'EARNINGS' as Tab, icon: Wallet, tone: 'bg-emerald-100 text-emerald-800', hint: 'From delivered orders' },
     { label: 'Paid out so far', value: summary ? formatPKR(summary.paid) : '…', tab: 'EARNINGS' as Tab, icon: Store, tone: 'bg-violet-100 text-violet-800', hint: 'Sent to your account' },
   ];
+  const lowStock = coach?.lowStock || [];
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => {
-          const Icon = c.icon;
-          return (
-            <button
-              key={c.label}
-              type="button"
-              onClick={() => onGo(c.tab)}
-              className={`p-4 text-left rounded-2xl border cursor-pointer transition-shadow hover:shadow-md ${
-                c.strong ? 'bg-amber-50 border-amber-300' : 'bg-white border-[#E7E5DF]'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="text-[12px] font-semibold text-[#6B6963]">{c.label}</div>
-                <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${c.tone}`}>
-                  <Icon className="w-4.5 h-4.5" />
-                </span>
-              </div>
-              <div className="text-2xl font-bold tracking-tight mt-1">{c.value}</div>
-              <div className="text-[11px] text-[#8A8780] mt-0.5">{c.hint}</div>
-            </button>
-          );
-        })}
-      </div>
       {freeUntil && freeUntil > Date.now() && (
-        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs">
-          🎉 <strong>0% commission</strong> on every sale until{' '}
-          {new Date(freeUntil).toLocaleDateString('en-PK', { day: 'numeric', month: 'long', year: 'numeric' })} — list your products and
-          start selling!
-        </div>
+        <Callout tone="success" icon="🎉">
+          <strong>0% commission</strong> on every sale until{' '}
+          {new Date(freeUntil).toLocaleDateString('en-PK', { day: 'numeric', month: 'long', year: 'numeric' })}. List your products and start selling!
+        </Callout>
       )}
-      {/* Inventory at a glance: new orders today and products running out */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="p-4 bg-white border border-black/10">
-          <div className="text-[11px] text-[#575653]">New orders today</div>
-          <div className="text-xl font-bold font-mono mt-1">{coach ? coach.newOrdersToday ?? 0 : '…'}</div>
-        </div>
-        <button type="button" onClick={() => onGo('PRODUCTS')} className="p-4 bg-white border border-black/10 text-left cursor-pointer">
-          <div className="text-[11px] text-[#575653]">Running low (5 or fewer left)</div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {cards.map((c) => (
+          <Stat key={c.label} label={c.label} value={c.value} hint={c.hint} icon={c.icon} tone={c.tone} highlight={c.strong} onClick={() => onGo(c.tab)} />
+        ))}
+      </div>
+
+      {/* Today: new orders and products running out */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat label="New orders today" value={coach ? coach.newOrdersToday ?? 0 : '…'} icon={ShoppingCart} tone="bg-emerald-100 text-emerald-800" onClick={() => onGo('ORDERS')} />
+        <button type="button" onClick={() => onGo('PRODUCTS')} className={`${ui.card} sm:col-span-2 p-4 text-left cursor-pointer transition-shadow hover:shadow-md`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[12px] font-semibold text-[#6B6963]">Running low (5 or fewer left)</div>
+            {lowStock.length > 0 && <span className={`${ui.chip} ${chipTone.amber}`}>{lowStock.length} products</span>}
+          </div>
           {!coach ? (
-            <div className="text-xs mt-1">…</div>
-          ) : !coach.lowStock?.length ? (
-            <div className="text-xs mt-1 text-emerald-700 font-semibold">All live products have enough stock.</div>
+            <div className="mt-2 h-4 w-40 rounded bg-[#F2F1EC] animate-pulse" />
+          ) : !lowStock.length ? (
+            <div className="mt-2 text-[13px] text-emerald-700 font-semibold">✓ All live products have enough stock.</div>
           ) : (
-            <ul className="mt-1 space-y-0.5 text-xs">
-              {coach.lowStock.map((p) => (
+            <ul className="mt-2 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-[12.5px]">
+              {lowStock.slice(0, 6).map((p) => (
                 <li key={p.id} className="flex justify-between gap-2">
                   <span className="truncate">{p.name}</span>
-                  <span className={`font-mono font-bold ${p.stock <= 2 ? 'text-rose-700' : 'text-amber-700'}`}>{p.stock} left</span>
+                  <span className={`font-bold tabular-nums ${p.stock <= 2 ? 'text-rose-700' : 'text-amber-700'}`}>{p.stock} left</span>
                 </li>
               ))}
             </ul>
           )}
         </button>
       </div>
+
       {/* Shop Coach: health, charts and what to fix (also in the AI Assistant) */}
-      <div className="p-4 bg-[#FBFBF9] border border-black/10 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Bot className="w-5 h-5 text-[#0E7A43]" />
-            <strong className="text-sm">Shop Coach</strong> <HelpDot id="seller.tab.DASHBOARD" />
-            <span className="text-[11px] text-[#575653]">your shop's performance and what to improve</span>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => onGo('AI')} className="px-3 py-1.5 bg-[#0E7A43] text-white text-xs font-bold cursor-pointer">
-              Ask the AI coach
+      <Panel
+        icon={<Bot className="w-4 h-4" />}
+        title="Shop Coach"
+        help={<HelpDot id="seller.tab.DASHBOARD" />}
+        subtitle="How your shop is doing and what to improve"
+        actions={
+          <>
+            <button type="button" disabled={coachBusy} onClick={() => loadCoach(true)} className={ui.secondary}>
+              <RefreshCw className={`w-3.5 h-3.5 ${coachBusy ? 'animate-spin' : ''}`} /> Refresh
             </button>
-            <button
-              type="button"
-              disabled={coachBusy}
-              onClick={() => loadCoach(true)}
-              className="px-3 py-1.5 border border-black/20 text-xs font-semibold disabled:opacity-50 cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 inline mr-1 ${coachBusy ? 'animate-spin' : ''}`} /> Refresh
+            <button type="button" onClick={() => onGo('AI')} className={ui.primary}>
+              <Bot className="w-3.5 h-3.5" /> Ask the AI coach
             </button>
-          </div>
-        </div>
+          </>
+        }
+      >
+       <div className="space-y-3">
         <AutoFixBox onDone={() => loadCoach(true)} />
         {coach ? (
           <ShopCoachReport
@@ -1528,7 +1530,7 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
                   }}
                 />
               ) : action === 'ADD_AI_KEY' ? (
-                <button type="button" onClick={() => onGo('AI' as Tab)} className="mt-1 px-3 py-1.5 bg-[#0E7A43] text-white font-bold cursor-pointer">
+                <button type="button" onClick={() => onGo('AI' as Tab)} className={`mt-1 ${ui.primary}`}>
                   🔑 Add my free AI key
                 </button>
               ) : action === 'MAKE_VIDEOS' ? (
@@ -1543,17 +1545,25 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
               ) : null
             }
           />
+        ) : coachBusy ? (
+          <Loading text="Preparing your shop report..." rows={2} />
         ) : (
-          <p className="text-xs text-[#575653]">{coachBusy ? 'Preparing your shop report...' : 'The shop report is not available right now.'}</p>
+          <Empty icon="📊" title="The shop report is not available right now" text="Press Refresh in a minute." />
         )}
-      </div>
-      <div className="p-4 bg-white border border-black/10 text-xs text-[#454441] space-y-1">
-        <strong className="block text-[#141413]">When an order comes in <HelpDot id="seller.order.flow" /></strong>
-        <p>1. Check the order (ask the customer in the order chat if anything is unclear), then press <strong>Confirm</strong>.</p>
-        <p>2. Pack the item, then press <strong>Packed</strong>.</p>
-        <p>3. Hand the parcel to the courier, enter the courier and tracking number, then press <strong>Ship</strong>.</p>
-        <p>4. When the courier delivers it, press <strong>Delivered</strong>. Your earning then becomes ready for payout.</p>
-      </div>
+       </div>
+      </Panel>
+
+      <HowItWorks title="When an order comes in: the 4 steps">
+        <ol className="list-decimal pl-5 space-y-1">
+          <li>Check the order (ask the customer in the order chat if anything is unclear), then press <strong>Confirm</strong>.</li>
+          <li>Pack the item, then press <strong>Packed</strong>.</li>
+          <li>Hand the parcel to the courier, enter the courier and tracking number, then press <strong>Ship</strong>.</li>
+          <li>When the courier delivers it, press <strong>Delivered</strong>. Your earning then becomes ready for payout.</li>
+        </ol>
+        <div>
+          <HelpDot id="seller.order.flow" />
+        </div>
+      </HowItWorks>
     </div>
   );
 };
@@ -2397,7 +2407,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
     const kind = typeInfo(ptype);
     const withVariants = kind.countsStock && editing.variants.length > 0;
     return (
-      <div className="bg-white border border-black/10 p-4 sm:p-6 space-y-4">
+      <div className={`${ui.card} p-4 sm:p-6 space-y-4`}>
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#EFEDE8]">
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setEditing(null)} className={ui.secondary}>
@@ -2410,7 +2420,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           </span>
         </div>
         {editing.adminHiddenReason && (
-          <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs">
+          <div className="px-3.5 py-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-[12.5px]">
             The store has hidden this product: <strong>{editing.adminHiddenReason}</strong>. You can still edit it; please contact the
             store to make it live again.
           </div>
@@ -2462,7 +2472,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             storeCategories={categoryNames}
             suggestions={nameSuggestions}
           />
-          <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
+          <div className="sm:col-span-2 p-3.5 rounded-xl border border-[#E7E5DF] bg-[#FBFBF9] space-y-2">
             <span className={labelCls}>Brand * <HelpDot id="seller.product.brand" /></span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(
@@ -2473,8 +2483,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               ).map(([value, title, hint]) => (
                 <label
                   key={value}
-                  className={`p-2.5 border cursor-pointer flex gap-2 ${
-                    editing.info.brandType === value ? 'border-[#0E7A43] bg-[#0E7A43]/[0.06]' : 'border-black/15 bg-white hover:border-black/40'
+                  className={`p-3 rounded-xl border cursor-pointer flex gap-2.5 transition-colors ${
+                    editing.info.brandType === value ? 'border-[#0E7A43] bg-[#0E7A43]/[0.06] ring-1 ring-[#0E7A43]/30' : 'border-[#DCD9D2] bg-white hover:border-[#A8A59D]'
                   }`}
                 >
                   <input
@@ -2482,10 +2492,10 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
                     name="brandType"
                     checked={editing.info.brandType === value}
                     onChange={() => setEditing((p) => (p ? { ...p, info: { ...p.info, brandType: value } } : p))}
-                    className="mt-0.5"
+                    className="mt-0.5 accent-[#0E7A43]"
                   />
                   <span>
-                    <span className="block text-xs font-bold text-[#141413]">{title}</span>
+                    <span className="block text-[13px] font-bold text-[#141413]">{title}</span>
                     <span className="block text-[11px] text-[#575653]">{hint}</span>
                   </span>
                 </label>
@@ -2517,7 +2527,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             </>
           )}
           <FormSection n={2} title="Photos & video" hint={kind.ships ? 'The first photo is the main one customers see' : 'A cover picture: book cover, app screen, sample of your work'} />
-          <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9]">
+          <div className="sm:col-span-2 p-3.5 rounded-xl border border-[#E7E5DF] bg-[#FBFBF9]">
             <ProductMediaEditor
               images={editing.images}
               videoUrl={editing.videoUrl}
@@ -2529,7 +2539,7 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             {!editing.videoUrl && (
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[11.5px]">
                 {editing.id && editing.images.length ? (
-                  <button type="button" onClick={() => setVideoFor(true)} className="px-3 py-1.5 bg-[#0E7A43] text-white font-bold cursor-pointer">
+                  <button type="button" onClick={() => setVideoFor(true)} className={ui.primary}>
                     ✨ No video? Make one with AI
                   </button>
                 ) : (
@@ -2561,8 +2571,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
           {!kind.countsStock && !editing.id && <p className="sm:col-span-2 text-[11.5px] text-[#6B6963]">A deal price can be set after the first save.</p>}
           {/* Only branded products need the proof; "No brand" hides it */}
           {editing.info.brandType === 'BRANDED' && (
-          <div className="sm:col-span-2 p-3 border border-black/10 bg-[#FBFBF9] space-y-2">
-            <span className="text-[11px] font-bold text-[#141413] block">
+          <div className="sm:col-span-2 p-3.5 rounded-xl border border-[#E7E5DF] bg-[#FBFBF9] space-y-2">
+            <span className="text-[12.5px] font-bold text-[#141413] block">
               Purchase invoice or brand approval (needed for branded electronics and well-known brands)
             </span>
             <p className="text-[11px] text-[#575653]">
@@ -2571,19 +2581,19 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
             <div className="flex flex-wrap items-center gap-2">
               {editing.brandProofUrl ? (
                 <>
-                  <a href={editing.brandProofUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-[#0E7A43] font-semibold underline">
+                  <a href={editing.brandProofUrl} target="_blank" rel="noopener noreferrer" className={ui.link}>
                     View uploaded file
                   </a>
                   <button
                     type="button"
                     onClick={() => setEditing((p) => (p ? { ...p, brandProofUrl: '' } : p))}
-                    className="px-2 py-1 border border-black/20 text-[11px] cursor-pointer"
+                    className={`${ui.secondary} !py-1`}
                   >
                     Remove
                   </button>
                 </>
               ) : (
-                <label className="px-3 py-1.5 border border-black/20 text-xs font-semibold cursor-pointer hover:border-black flex items-center gap-1.5">
+                <label className={ui.secondary}>
                   <Upload className="w-3.5 h-3.5" /> Upload invoice (PDF or picture)
                   <input
                     type="file"
@@ -2866,8 +2876,14 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
                     />
                   )}
                   {p.status !== 'ARCHIVED' && (
-                    <button type="button" onClick={() => archive(p)} className={`${ui.danger} !px-3 !py-1.5 ml-auto`}>
-                      Remove
+                    <button
+                      type="button"
+                      onClick={() => archive(p)}
+                      aria-label={`Remove ${p.name}`}
+                      title="Remove from the store"
+                      className={`${ui.danger} !px-2 !py-1.5 ml-auto`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
@@ -3003,36 +3019,41 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   };
 
   return (
-    <div className="bg-white border border-black/10 p-5 space-y-4 text-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-display">Bulk listing from CSV <HelpDot id="seller.bulk" /></h2>
-        <button type="button" onClick={onClose} className="px-4 py-2 border border-black/20 cursor-pointer">
-          Back
+    <div className={`${ui.card} p-4 sm:p-6 space-y-4 text-[12.5px]`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#EFEDE8]">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={onClose} className={ui.secondary}>
+            ← Back
+          </button>
+          <h2 className="text-lg font-bold tracking-tight">Bulk listing from CSV</h2>
+          <HelpDot id="seller.bulk" />
+        </div>
+        <button type="button" onClick={downloadTemplate} className={ui.secondary}>
+          <Download className="w-3.5 h-3.5" /> Sample file
         </button>
       </div>
 
-      <div className="p-3 bg-[#F4F3EF] border border-black/10 space-y-1.5 text-[#141413]">
+      <HowItWorks title="How to make the file">
         <p>
-          Make a product list in Excel or Google Sheets and save it as <strong>CSV</strong>. Export files from Daraz, Shopify
-          or WooCommerce also work.
+          Make a product list in Excel or Google Sheets and save it as <strong>CSV</strong>. Export files from Daraz, Shopify or WooCommerce also work.
         </p>
         <p>
-          Required columns: <strong>name, price, category</strong>. Optional: sku, old_price, stock, image_url,
-          short_description, description, weight_kg. Product source: <strong>source</strong> (Oshi, YourMart, HHC, Markaz, or
-          empty for your own stock), source_link, source_price. Only you and the store team see the source.
+          Required columns: <strong>name, price, category</strong>. Optional: sku, old_price, stock, image_url, short_description, description,
+          weight_kg. Product source: <strong>source</strong> (Oshi, YourMart, HHC, Markaz, or empty for your own stock), source_link, source_price.
+          Only you and the store team see the source.
         </p>
         <p>
-          <strong>No double listings:</strong> the same file cannot be uploaded twice. In a new file, a product that is already in
-          your shop (same sku, same name, or same source link) is not listed again: only its price is updated when it changed.
+          <strong>No double listings:</strong> the same file cannot be uploaded twice. A product already in your shop (same sku, name or source link) is
+          not listed again: only its price is updated when it changed.
         </p>
-        <button type="button" onClick={downloadTemplate} className="mt-1 px-3 py-1.5 bg-white border border-black/30 font-semibold flex items-center gap-1 cursor-pointer">
-          <Download className="w-3.5 h-3.5" /> Download a sample (template) file
-        </button>
-      </div>
+      </HowItWorks>
 
-      <label className="block p-6 border-2 border-dashed border-black/25 text-center cursor-pointer hover:bg-black/[0.02]">
-        <Upload className="w-6 h-6 mx-auto mb-2 text-[#454441]" />
-        <span className="font-bold text-[#141413]">{fileName ? `${fileName}: click to choose another file` : 'Choose a CSV file'}</span>
+      <label className="block p-8 rounded-2xl border-2 border-dashed border-[#C9C6BE] bg-[#FBFBF9] text-center cursor-pointer transition-colors hover:border-[#0E7A43] hover:bg-emerald-50/40">
+        <span className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-white border border-[#E7E5DF] flex items-center justify-center">
+          <Upload className="w-5 h-5 text-[#0E7A43]" />
+        </span>
+        <span className="block font-bold text-[13px] text-[#141413]">{fileName ? fileName : 'Choose a CSV file'}</span>
+        <span className="block text-[11.5px] text-[#8A8780]">{fileName ? 'Tap to choose another file' : 'From Excel, Google Sheets, Daraz or Shopify'}</span>
         <input
           type="file"
           accept=".csv,.tsv,.txt,text/csv"
@@ -3063,12 +3084,12 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
                 ))}
               </datalist>
             </div>
-            <label className="flex items-center gap-2 font-semibold text-[#141413] sm:pt-5">
-              <input type="checkbox" checked={asDraft} onChange={(e) => setAsDraft(e.target.checked)} />
+            <label className="flex items-center gap-2 font-semibold text-[#141413] sm:pt-6">
+              <input type="checkbox" checked={asDraft} onChange={(e) => setAsDraft(e.target.checked)} className="w-4 h-4 accent-[#0E7A43]" />
               Save all as Draft (I will review them and make them live later)
             </label>
             {rowsWithoutSource > 0 && (
-              <div className={`sm:col-span-2 p-3 border-2 ${defaultSource ? 'border-violet-300 bg-violet-50/60' : 'border-amber-500 bg-amber-50'}`}>
+              <div className={`sm:col-span-2 p-3.5 rounded-xl border-2 ${defaultSource ? 'border-violet-300 bg-violet-50/60' : 'border-amber-400 bg-amber-50'}`}>
                 <label className={labelCls}>
                   Where do these products come from? ({rowsWithoutSource} of {rows.length} products have no source in the file) *
                 </label>
@@ -3078,8 +3099,8 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
                       key={s}
                       type="button"
                       onClick={() => setDefaultSource(s)}
-                      className={`px-2.5 py-1.5 border text-xs font-semibold cursor-pointer ${
-                        defaultSource === s ? 'border-violet-700 bg-violet-700 text-white' : 'border-black/15 bg-white hover:border-black'
+                      className={`px-3 py-1.5 rounded-lg border text-[12px] font-semibold cursor-pointer ${
+                        defaultSource === s ? 'border-violet-700 bg-violet-700 text-white' : 'border-[#DCD9D2] bg-white hover:border-violet-400'
                       }`}
                     >
                       {s === DIRECT_SOURCE ? 'Direct seller (own stock)' : s}
@@ -3094,34 +3115,30 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
             )}
           </div>
 
-          <p className="text-[#141413]">
-            <strong>{ready.length}</strong> products ready
-            {skipped > 0 && (
-              <>
-                {' '}· <strong className="text-rose-800">{skipped}</strong> will be skipped (see the reason below)
-              </>
-            )}
-          </p>
+          <div className="flex flex-wrap gap-2">
+            <span className={`${ui.chip} ${chipTone.green} !text-[12px] !px-3 !py-1`}>✓ {ready.length} products ready</span>
+            {skipped > 0 && <span className={`${ui.chip} ${chipTone.red} !text-[12px] !px-3 !py-1`}>{skipped} will be skipped (reason in the table)</span>}
+          </div>
 
-          <div className="max-h-80 overflow-auto border border-black/10">
+          <div className="max-h-80 overflow-auto rounded-xl border border-[#E7E5DF]">
             <table className="w-full text-left">
-              <thead className="bg-[#F4F3EF] sticky top-0">
+              <thead className="bg-[#F7F6F2] sticky top-0 text-[11px] uppercase tracking-wider text-[#8A8780]">
                 <tr>
-                  <th className="p-2">Line</th>
-                  <th className="p-2">Image</th>
-                  <th className="p-2">Name</th>
-                  <th className="p-2">Price</th>
-                  <th className="p-2">Stock</th>
-                  <th className="p-2">Category</th>
-                  <th className="p-2">Check</th>
+                  <th className="p-2 font-bold">Line</th>
+                  <th className="p-2 font-bold">Image</th>
+                  <th className="p-2 font-bold">Name</th>
+                  <th className="p-2 font-bold">Price</th>
+                  <th className="p-2 font-bold">Stock</th>
+                  <th className="p-2 font-bold">Category</th>
+                  <th className="p-2 font-bold">Check</th>
                 </tr>
               </thead>
               <tbody>
                 {prepared.slice(0, 300).map((r) => (
-                  <tr key={r.row} className={`border-t border-black/[0.06] ${r.problem ? 'bg-rose-50' : ''}`}>
+                  <tr key={r.row} className={`border-t border-[#EFEDE8] ${r.problem ? 'bg-rose-50' : ''}`}>
                     <td className="p-2 font-mono">{r.row}</td>
                     <td className="p-2">
-                      {r.primaryImage ? <img src={r.primaryImage} alt="" className="w-9 h-9 object-cover" loading="lazy" decoding="async" /> : '—'}
+                      {r.primaryImage ? <img src={r.primaryImage} alt="" className="w-9 h-9 rounded-md object-cover" loading="lazy" decoding="async" /> : '—'}
                     </td>
                     <td className="p-2 max-w-[220px] truncate">{r.name || '—'}</td>
                     <td className="p-2 font-mono">{r.price ? formatPKR(r.price) : '—'}</td>
@@ -3139,7 +3156,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
             type="button"
             disabled={!ready.length || !!progress}
             onClick={upload}
-            className="w-full py-2.5 bg-[#141413] text-white text-sm font-bold disabled:opacity-50 cursor-pointer"
+            className={`${ui.primary} w-full !py-2.5 !text-[13px]`}
           >
             {progress ? `Uploading... ${progress.done} / ${progress.total}` : `Upload ${ready.length} products`}
           </button>
@@ -3147,24 +3164,31 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
       )}
 
       {sameFile && (
-        <div className="p-3 border-2 border-amber-500 bg-amber-50 text-amber-950 font-semibold">⚠ {sameFile}</div>
+        <Callout tone="warning" icon="⚠️">
+          <strong>{sameFile}</strong>
+        </Callout>
       )}
 
       {result && (
-        <div className="p-3 border border-emerald-400 bg-emerald-50 text-emerald-950 space-y-1">
+        <Callout
+          tone="success"
+          icon="✓"
+          action={
+            <button type="button" onClick={onDone} className={ui.primary}>
+              View products
+            </button>
+          }
+        >
           <p>
-            ✓ {result.created} new products listed · {result.updated} already in your shop, price updated · {result.unchanged} already in
-            your shop, no change (not listed again)
+            <strong>{result.created}</strong> new products listed · <strong>{result.updated}</strong> price updated · <strong>{result.unchanged}</strong> already
+            in your shop (not listed again)
           </p>
           {result.errors.length > 0 && (
-            <p className="text-rose-800">
+            <p className="text-rose-800 mt-1">
               {result.errors.length} lines were not saved: {result.errors.slice(0, 5).map((e) => `line ${e.row} (${e.error})`).join(', ')}
             </p>
           )}
-          <button type="button" onClick={onDone} className="mt-1 px-4 py-1.5 bg-[#141413] text-white font-semibold cursor-pointer">
-            View products
-          </button>
-        </div>
+        </Callout>
       )}
     </div>
   );
@@ -3180,10 +3204,11 @@ const THREAD_CATEGORY_LABELS: Record<string, string> = {
   OTHER: 'Other',
 };
 const threadStatusLabel: Record<string, string> = { OPEN: 'Waiting for store', ANSWERED: 'Store replied', CLOSED: 'Closed' };
+// Coloured bar on the left of a notice: blue info, amber warning, red urgent
 const noticeTone: Record<string, string> = {
-  INFO: 'bg-sky-50 border-sky-300 text-sky-950',
-  WARNING: 'bg-amber-50 border-amber-400 text-amber-950',
-  URGENT: 'bg-rose-50 border-rose-400 text-rose-950',
+  INFO: 'border-l-sky-400!',
+  WARNING: 'border-l-amber-400!',
+  URGENT: 'border-l-rose-500! bg-rose-50/40',
 };
 const when = (iso: string) =>
   new Date(iso).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
@@ -3222,7 +3247,7 @@ const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<v
       .catch(() => {});
   }, [inbox?.unread.notices, inbox?.unread.coach]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!inbox) return <p className="text-xs text-[#575653]">Loading messages...</p>;
+  if (!inbox) return <Loading text="Loading messages..." />;
 
   const readAt = seenBefore ?? inbox.noticesReadAt;
   const isNew = (n: StoreNotice) => String(n.createdAt) > readAt;
@@ -3236,27 +3261,35 @@ const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<v
     { id: 'COACH', label: '🤖 AI Coach', hint: 'Tips from the AI Shop Coach. They are advice, not orders: use them to sell more.' },
   ];
 
-  const noticeList = (list: StoreNotice[], empty: string) =>
+  const noticeList = (list: StoreNotice[], icon: string, empty: string) =>
     list.length === 0 ? (
-      <p className="p-4 bg-white border border-black/10 text-[#575653]">{empty}</p>
+      <Panel>
+        <Empty icon={icon} title={empty} />
+      </Panel>
     ) : (
       list.slice(0, 20).map((n) => (
-        <div key={n.id} className={`p-3 border ${noticeTone[n.level] || noticeTone.INFO}`}>
-          <div className="text-[10px] font-bold uppercase tracking-wider opacity-70">{NOTICE_FROM[n.source || 'STORE']}</div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <strong className="text-[13px]">
-              {n.level === 'URGENT' ? '⚠️ ' : n.level === 'WARNING' ? '❗ ' : ''}
-              {n.title}
-            </strong>
-            <span className="opacity-70">
-              {when(n.createdAt)}
-              {isNew(n) && <span className="ml-1 font-bold">· New</span>}
-            </span>
+        <article key={n.id} className={`${ui.card} border-l-4 ${noticeTone[n.level] || noticeTone.INFO} p-4`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={ui.label}>{NOTICE_FROM[n.source || 'STORE']}</span>
+            {n.level === 'URGENT' && <span className={`${ui.chip} ${chipTone.red}`}>Urgent</span>}
+            {isNew(n) && <span className={`${ui.chip} ${chipTone.green}`}>New</span>}
+            <span className="ml-auto text-[11px] text-[#8A8780]">{when(n.createdAt)}</span>
           </div>
-          <p className="mt-1 whitespace-pre-line">{n.body}</p>
-        </div>
+          <h3 className="mt-1 text-[13.5px] font-bold text-[#141413]">{n.title}</h3>
+          <p className="mt-1 text-[12.5px] text-[#3A3936] whitespace-pre-line leading-relaxed">{n.body}</p>
+        </article>
       ))
     );
+  const linkCard = (icon: string, title: string, text: string, go: () => void) => (
+    <button type="button" onClick={go} className={`${ui.card} w-full p-4 text-left flex items-center gap-3 cursor-pointer transition-shadow hover:shadow-md`}>
+      <span className="w-10 h-10 rounded-xl bg-[#F2F1EC] flex items-center justify-center text-lg shrink-0">{icon}</span>
+      <span className="flex-1 min-w-0">
+        <strong className="block text-[13px]">{title}</strong>
+        <span className="block text-[12px] text-[#6B6963]">{text}</span>
+      </span>
+      <span className="text-[#8A8780] text-lg">›</span>
+    </button>
+  );
 
   if (composing) {
     return (
@@ -3276,120 +3309,93 @@ const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<v
   }
 
   return (
-    <div className="space-y-4 text-xs">
-      <div className="grid grid-cols-3 gap-1.5" role="tablist">
-        {boxes.map((b) => {
-          const count = newIn(b.id);
-          const on = shown === b.id;
-          return (
-            <button
-              key={b.id}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => setBox(b.id)}
-              className={`relative px-2 py-2.5 rounded-lg border text-[12px] font-bold cursor-pointer ${
-                on ? 'bg-[#141413] text-white border-[#141413]' : 'bg-white border-black/15 text-[#3A3936] hover:bg-[#F2F1EC]'
-              }`}
-            >
-              {b.label}
-              {count > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center">
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
+    <div className="space-y-4 text-[12.5px]">
+      <div className="space-y-1.5">
+        <SegTabs
+          value={shown}
+          onChange={setBox}
+          items={boxes.map((b) => ({ id: b.id, label: b.label, count: newIn(b.id) || undefined }))}
+        />
+        <p className="text-[12px] text-[#6B6963]">{boxes.find((b) => b.id === shown)!.hint}</p>
       </div>
-      <p className="text-[#575653]">{boxes.find((b) => b.id === shown)!.hint}</p>
 
       {shown === 'CUSTOMER' && (
-        <section className="space-y-2">
-          {noticeList(inBox('CUSTOMER'), 'No returns or complaints from customers. 👍')}
-          <button
-            type="button"
-            onClick={() => onTab('QUESTIONS')}
-            className="w-full p-3 bg-white border border-black/10 text-left cursor-pointer hover:bg-black/[0.02]"
-          >
-            <strong>❓ Customer questions about your products</strong>
-            <span className="block text-[#575653]">They are in the Questions tab. Tap to open and reply.</span>
-          </button>
+        <section className="space-y-3">
+          {noticeList(inBox('CUSTOMER'), '🛍️', 'No returns or complaints from customers 👍')}
+          {linkCard('❓', 'Customer questions about your products', 'They are in the Questions tab. Tap to open and reply.', () => onTab('QUESTIONS'))}
         </section>
       )}
 
       {shown === 'COACH' && (
-        <section className="space-y-2">
-          {noticeList(inBox('COACH'), 'No tips from the AI coach yet.')}
-          <button
-            type="button"
-            onClick={() => onTab('DASHBOARD')}
-            className="w-full p-3 bg-white border border-black/10 text-left cursor-pointer hover:bg-black/[0.02]"
-          >
-            <strong>📊 See the full Shop Coach report</strong>
-            <span className="block text-[#575653]">On the Dashboard, with a fix button next to each problem.</span>
-          </button>
+        <section className="space-y-3">
+          {noticeList(inBox('COACH'), '🤖', 'No tips from the AI coach yet')}
+          {linkCard('📊', 'See the full Shop Coach report', 'On the Dashboard, with a fix button next to each problem.', () => onTab('DASHBOARD'))}
         </section>
       )}
 
       {shown === 'STORE' && (
-      <section className="space-y-2">
-        <h2 className="text-sm font-bold text-[#141413]">Notices from the store</h2>
-        {noticeList(inBox('STORE'), 'No notices from the store yet.')}
-      </section>
-      )}
+        <>
+          <Panel
+            title="Conversations with the store"
+            subtitle="Complaints and questions you sent to the store team"
+            flush
+            actions={
+              <>
+                <button type="button" onClick={reload} className={ui.secondary} aria-label="Refresh">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" onClick={() => setComposing(true)} className={ui.primary}>
+                  <Plus className="w-4 h-4" /> New message
+                </button>
+                <HelpDot id="seller.messages.new" />
+              </>
+            }
+          >
+            {inbox.threads.length === 0 ? (
+              <Empty icon="💬" title="No conversations yet" text="Have a problem with an order, a payout or your listings? Send the store a message." />
+            ) : (
+              <ul className="divide-y divide-[#EFEDE8]">
+                {inbox.threads.map((t) => (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenId(t.id)}
+                      className={`w-full px-4 sm:px-5 py-3 text-left flex items-center gap-3 cursor-pointer hover:bg-[#FBFBF9] ${t.unreadForSeller ? 'bg-emerald-50/50' : ''}`}
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${t.unreadForSeller ? 'bg-emerald-600' : 'bg-transparent'}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <strong className="text-[13px] truncate">{t.subject}</strong>
+                          <span
+                            className={`${ui.chip} shrink-0 ${
+                              t.status === 'ANSWERED' ? chipTone.green : t.status === 'CLOSED' ? chipTone.grey : chipTone.amber
+                            }`}
+                          >
+                            {threadStatusLabel[t.status] || t.status}
+                          </span>
+                        </span>
+                        <span className="block text-[12px] text-[#6B6963] truncate">
+                          {t.lastFrom === 'ADMIN' ? 'Store: ' : 'You: '}
+                          {t.lastMessagePreview}
+                        </span>
+                      </span>
+                      <span className="text-right text-[11px] text-[#8A8780] shrink-0 hidden sm:block">
+                        {THREAD_CATEGORY_LABELS[t.category] || t.category}
+                        <br />
+                        {when(t.lastMessageAt)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
 
-      {shown === 'STORE' && (
-      <section className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-bold text-[#141413]">Your conversations with the store</h2>
-          <div className="flex gap-2">
-            <button type="button" onClick={reload} className="px-3 py-1.5 border border-black/20 bg-white cursor-pointer">
-              <RefreshCw className="w-3.5 h-3.5 inline mr-1" /> Refresh
-            </button>
-            <button
-              type="button"
-              onClick={() => setComposing(true)}
-              className="px-4 py-1.5 bg-[#141413] text-white font-bold flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> New complaint / message <HelpDot id="seller.messages.new" />
-            </button>
-          </div>
-        </div>
-        {inbox.threads.length === 0 ? (
-          <p className="p-4 bg-white border border-black/10 text-[#575653]">
-            No conversations yet. Have a problem with an order, a payout or your listings? Send the store a message.
-          </p>
-        ) : (
-          <div className="bg-white border border-black/10 divide-y divide-black/[0.06]">
-            {inbox.threads.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setOpenId(t.id)}
-                className={`w-full p-3 text-left flex flex-wrap items-center justify-between gap-2 cursor-pointer hover:bg-black/[0.02] ${
-                  t.unreadForSeller ? 'bg-emerald-50/60' : ''
-                }`}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    {t.unreadForSeller && <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />}
-                    <strong className="text-[13px] truncate">{t.subject}</strong>
-                  </span>
-                  <span className="block text-[#575653] truncate">
-                    {t.lastFrom === 'ADMIN' ? 'Store: ' : 'You: '}
-                    {t.lastMessagePreview}
-                  </span>
-                </span>
-                <span className="text-right text-[#575653] shrink-0">
-                  <span className="block font-semibold text-[#141413]">{threadStatusLabel[t.status] || t.status}</span>
-                  {THREAD_CATEGORY_LABELS[t.category] || t.category} · {when(t.lastMessageAt)}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+          <section className="space-y-3">
+            <h2 className={ui.label}>Notices from the store</h2>
+            {noticeList(inBox('STORE'), '📋', 'No notices from the store yet')}
+          </section>
+        </>
       )}
     </div>
   );
@@ -3403,7 +3409,6 @@ const NewThreadForm: React.FC<{ onCancel: () => void; onSent: (id: string) => vo
     setForm((f) => ({ ...f, [k]: e.target.value }));
   return (
     <form
-      className="bg-white border border-black/10 p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs"
       onSubmit={async (e) => {
         e.preventDefault();
         setSending(true);
@@ -3417,7 +3422,17 @@ const NewThreadForm: React.FC<{ onCancel: () => void; onSent: (id: string) => vo
         }
       }}
     >
-      <h2 className="sm:col-span-2 text-lg font-display">New complaint / message to the store <HelpDot id="seller.messages.new" /></h2>
+     <Panel
+       title="New message to the store"
+       help={<HelpDot id="seller.messages.new" />}
+       subtitle="The store team usually replies within a day"
+       actions={
+         <button type="button" onClick={onCancel} className={ui.secondary}>
+           ← Back
+         </button>
+       }
+     >
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label className={labelCls}>What is it about?</label>
         <select className={inputCls} value={form.category} onChange={set('category')}>
@@ -3441,13 +3456,15 @@ const NewThreadForm: React.FC<{ onCancel: () => void; onSent: (id: string) => vo
         <textarea className={inputCls} rows={6} value={form.text} onChange={set('text')} placeholder="Explain the problem in detail." required />
       </div>
       <div className="sm:col-span-2 flex gap-2">
-        <button type="submit" disabled={sending} className="px-5 py-2 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer">
+        <button type="submit" disabled={sending} className={ui.primary}>
           {sending ? 'Sending...' : 'Send to store'}
         </button>
-        <button type="button" onClick={onCancel} className="px-5 py-2 border border-black/20 cursor-pointer">
-          Back
+        <button type="button" onClick={onCancel} className={ui.secondary}>
+          Cancel
         </button>
       </div>
+      </div>
+     </Panel>
     </form>
   );
 };
@@ -3486,30 +3503,30 @@ const ThreadView: React.FC<{ id: string; onBack: () => void; onChanged: () => Pr
   };
 
   return (
-    <div className="bg-white border border-black/10 p-4 space-y-4 text-xs">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-display">{thread?.subject || 'Loading...'}</h2>
-          {thread && (
-            <p className="text-[#575653]">
-              {THREAD_CATEGORY_LABELS[thread.category] || thread.category}
-              {thread.orderNumber ? ` · Order ${thread.orderNumber}` : ''} · {threadStatusLabel[thread.status] || thread.status}
-            </p>
-          )}
-        </div>
-        <button type="button" onClick={onBack} className="px-4 py-1.5 border border-black/20 cursor-pointer">
-          Back
+    <Panel
+      title={thread?.subject || 'Loading...'}
+      subtitle={
+        thread
+          ? `${THREAD_CATEGORY_LABELS[thread.category] || thread.category}${thread.orderNumber ? ` · Order ${thread.orderNumber}` : ''} · ${threadStatusLabel[thread.status] || thread.status}`
+          : undefined
+      }
+      actions={
+        <button type="button" onClick={onBack} className={ui.secondary}>
+          ← Back
         </button>
-      </div>
-      <div className="space-y-2 max-h-[55vh] overflow-y-auto">
+      }
+      flush
+    >
+      <div className="p-4 space-y-2.5 max-h-[55vh] overflow-y-auto bg-[#F7F6F2] text-[12.5px]">
+        {!thread && <Loading rows={2} />}
         {(thread?.messages || []).map((m) => (
           <div key={m.id} className={`flex ${m.from === 'SELLER' ? 'justify-end' : 'justify-start'}`}>
             <div
-              className={`max-w-[85%] px-3 py-2 border whitespace-pre-line ${
-                m.from === 'SELLER' ? 'bg-[#141413] text-white border-[#141413]' : 'bg-emerald-50 border-emerald-300 text-[#141413]'
+              className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl whitespace-pre-line ${
+                m.from === 'SELLER' ? 'bg-[#0E7A43] text-white rounded-br-sm' : 'bg-white border border-[#E7E5DF] rounded-bl-sm'
               }`}
             >
-              <div className={`text-[10px] font-bold mb-0.5 ${m.from === 'SELLER' ? 'text-white/70' : 'text-emerald-800'}`}>
+              <div className={`text-[10.5px] font-bold mb-0.5 ${m.from === 'SELLER' ? 'text-white/75' : 'text-emerald-800'}`}>
                 {m.from === 'SELLER' ? 'You' : 'Store team'} · {when(m.at)}
               </div>
               {m.text}
@@ -3518,28 +3535,17 @@ const ThreadView: React.FC<{ id: string; onBack: () => void; onChanged: () => Pr
         ))}
       </div>
       {thread && (
-        <div className="space-y-2 pt-2 border-t border-black/10">
-          {thread.status === 'CLOSED' && (
-            <p className="text-[#575653]">The store closed this conversation. Writing again will reopen it.</p>
-          )}
-          <textarea
-            className={inputCls}
-            rows={3}
-            value={reply}
-            onChange={(e) => setReply(e.target.value)}
-            placeholder="Write a reply..."
-          />
-          <button
-            type="button"
-            disabled={sending || !reply.trim()}
-            onClick={send}
-            className="px-5 py-2 bg-[#141413] text-white font-bold disabled:opacity-50 cursor-pointer"
-          >
-            {sending ? 'Sending...' : 'Send'}
-          </button>
+        <div className="p-4 space-y-2 border-t border-[#EFEDE8]">
+          {thread.status === 'CLOSED' && <Callout tone="neutral">The store closed this conversation. Writing again will reopen it.</Callout>}
+          <textarea className={inputCls} rows={3} value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Write a reply..." />
+          <div className="flex justify-end">
+            <button type="button" disabled={sending || !reply.trim()} onClick={send} className={ui.primary}>
+              {sending ? 'Sending...' : 'Send reply'}
+            </button>
+          </div>
         </div>
       )}
-    </div>
+    </Panel>
   );
 };
 
@@ -3556,70 +3562,101 @@ const EarningsTab: React.FC = () => {
       })
       .catch((err) => showToast(err.message));
   }, [showToast]);
-  if (!data) return <p className="text-xs text-[#575653]">Loading...</p>;
+  if (!data) return <Loading text="Loading your earnings..." />;
   const s = data.summary;
+  const escrow = data.escrowDays ?? 7;
+  // The money flow, left to right: not delivered → return period → ready → paid
+  const flow = [
+    { label: 'Upcoming', value: s.pending, hint: 'Orders not delivered yet', icon: Truck, tone: 'bg-sky-100 text-sky-800' },
+    { label: 'On hold', value: s.onHold ?? 0, hint: `${escrow}-day return period`, icon: RotateCcw, tone: 'bg-amber-100 text-amber-800' },
+    { label: 'Ready for payout', value: s.available, hint: 'The store sends this to your bank', icon: Wallet, tone: 'bg-emerald-100 text-emerald-800', strong: true },
+    { label: 'Paid out', value: s.paid, hint: 'Already in your account', icon: Store, tone: 'bg-violet-100 text-violet-800' },
+  ];
+  const extra: [string, number, string, string?][] = [
+    [`Store commission (${data.commissionPercent}%)`, -Number(s.commission), 'On every sale'],
+    ...(Number(s.returnCharges) > 0 ? ([['Return charges', -Number(s.returnCharges), 'Taken off your next payout', 'text-rose-700']] as [string, number, string, string][]) : []),
+    ...(Number(s.supplierCost) > 0
+      ? ([
+          ['Supplier cost', -Number(s.supplierCost), 'Dropshipping cost of your orders'],
+          ['Estimated profit', Number(s.profit), 'Earnings minus supplier cost (returns not included)', 'text-emerald-700'],
+        ] as [string, number, string, string?][])
+      : []),
+  ];
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          ['Ready for payout', s.available, 'Return period over, not yet paid out'],
-          ['On hold (return period)', s.onHold ?? 0, `Delivered less than ${data.escrowDays ?? 7} days ago`],
-          ['Upcoming earnings', s.pending, 'Orders not delivered yet'],
-          ...(Number(s.returnCharges) > 0 ? [['Return charges', -Number(s.returnCharges), 'Taken off your next payout']] : []),
-          ['Paid out', s.paid, 'Already sent to your bank'],
-          ['Store commission', s.commission, `${data.commissionPercent}% per sale`],
-          ...(Number(s.supplierCost) > 0
-            ? [
-                ['Supplier cost', s.supplierCost, 'Dropshipping cost of your orders'],
-                ['Estimated profit', s.profit, 'Earnings minus supplier cost (returns not included)'],
-              ]
-            : []),
-        ].map(([label, value, hint]) => (
-          <div key={label as string} className="p-4 bg-white border border-black/10">
-            <div className="text-[11px] text-[#575653]">{label}</div>
-            <div className="text-xl font-bold font-mono mt-1">{formatPKR(Number(value))}</div>
-            <div className="text-[10px] text-[#575653] mt-1">{hint}</div>
-          </div>
+        {flow.map((f) => (
+          <Stat
+            key={f.label}
+            label={f.label}
+            value={formatPKR(Number(f.value))}
+            hint={f.hint}
+            icon={f.icon}
+            tone={f.tone}
+            valueClass={f.strong ? 'text-emerald-700' : ''}
+          />
         ))}
       </div>
-      <p className="text-xs text-[#454441]">
-        The store collects the customer's Cash on Delivery payment. Once an order is delivered, your earning (amount −
-        commission + shipping) is held for the customer's {data.escrowDays ?? 7}-day return period, then moves to "Ready for
-        payout" and the store transfers it to your bank account. Return shipping for returns that were your fault is taken
-        off the payout.
-      </p>
+
+      <Panel title="Breakdown" flush>
+        <ul className="divide-y divide-[#EFEDE8] text-[12.5px]">
+          {extra.map(([label, value, hint, cls]) => (
+            <li key={label} className="px-4 sm:px-5 py-2.5 flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">{label}</div>
+                <div className="text-[11.5px] text-[#8A8780]">{hint}</div>
+              </div>
+              <span className={`font-bold tabular-nums ${cls || ''}`}>
+                {value < 0 ? '− ' : ''}
+                {formatPKR(Math.abs(value))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+
+      <HowItWorks title="How payouts work">
+        <p>The store collects the customer's Cash on Delivery payment.</p>
+        <p>
+          Once an order is delivered, your earning (amount − commission + shipping) is held for the customer's {escrow}-day return period, then moves to
+          “Ready for payout” and the store transfers it to your bank account.
+        </p>
+        <p>Return shipping for returns that were your fault is taken off the payout.</p>
+      </HowItWorks>
+
       {Array.isArray(data.charges) && data.charges.length > 0 && (
-        <div className="bg-white border border-black/10">
-          <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Return charges (unpaid)</div>
-          <ul className="divide-y divide-black/[0.06] text-xs">
+        <Panel title="Return charges (unpaid)" subtitle="Taken off your next payout" flush>
+          <ul className="divide-y divide-[#EFEDE8] text-[12.5px]">
             {data.charges.map((c: any) => (
-              <li key={c.id} className="px-4 py-2 flex flex-wrap justify-between gap-2">
-                <span>Order {c.orderNumber}</span>
-                <span className="text-[#575653]">{c.reason}</span>
-                <span className="font-mono font-bold text-rose-700">−{formatPKR(c.amount)}</span>
+              <li key={c.id} className="px-4 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono font-semibold">{c.orderNumber}</span>
+                <span className="flex-1 text-[#6B6963] truncate">{c.reason}</span>
+                <span className="font-bold tabular-nums text-rose-700">− {formatPKR(c.amount)}</span>
               </li>
             ))}
           </ul>
-        </div>
+        </Panel>
       )}
-      <div className="bg-white border border-black/10">
-        <div className="px-4 py-2 border-b border-black/10 text-xs font-bold">Payouts <HelpDot id="seller.earnings.payouts" /></div>
+
+      <Panel title="Payout history" help={<HelpDot id="seller.earnings.payouts" />} flush>
         {data.payouts.length === 0 ? (
-          <p className="p-4 text-xs text-[#575653]">No payouts yet.</p>
+          <Empty icon="💸" title="No payouts yet" text="Your first payout comes after your first delivered order clears the return period." />
         ) : (
-          <ul className="divide-y divide-black/[0.06] text-xs">
+          <ul className="divide-y divide-[#EFEDE8] text-[12.5px]">
             {data.payouts.map((p) => (
-              <li key={p.id} className="px-4 py-2 flex flex-wrap justify-between gap-2">
-                <span>{new Date(p.paidAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                <span className="font-mono font-bold">{formatPKR(p.amount)}</span>
-                <span className="text-[#575653]">
-                  {p.orderIds.length} orders · Ref {p.reference}
-                </span>
+              <li key={p.id} className="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-semibold">{new Date(p.paidAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                  <div className="text-[11.5px] text-[#8A8780]">
+                    {p.orderIds.length} order{p.orderIds.length === 1 ? '' : 's'} · Ref {p.reference}
+                  </div>
+                </div>
+                <span className="text-[14px] font-bold tabular-nums text-emerald-700">{formatPKR(p.amount)}</span>
               </li>
             ))}
           </ul>
         )}
-      </div>
+      </Panel>
     </div>
   );
 };
@@ -3676,7 +3713,7 @@ const ShopNameEditor: React.FC<{ seller: SellerShop; onSaved: () => void }> = ({
     }
   };
   return (
-    <div className="sm:col-span-2 p-3 rounded-xl bg-[#F7F6F2] border border-[#E7E5DF] space-y-2">
+    <div className="space-y-2">
       <label className={labelCls}>
         Shop name <HelpDot id="seller.shopName" />
       </label>
@@ -3737,7 +3774,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
 
   return (
     <form
-      className="bg-white border border-black/10 p-5 grid grid-cols-1 sm:grid-cols-2 gap-4"
+      className="space-y-4"
       onSubmit={async (e) => {
         e.preventDefault();
         setSaving(true);
@@ -3752,18 +3789,17 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
         }
       }}
     >
-      <div className="sm:col-span-2 flex flex-wrap items-center gap-4">
-        <SellerAvatar src={photo} name={seller.shopName} size={88} className="border border-black/10" />
-        <div className="space-y-2 text-xs text-[#575653]">
+      <Panel title="Shop" subtitle="How customers see your shop">
+       <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-4">
+        <SellerAvatar src={photo} name={seller.shopName} size={80} className="border border-[#E7E5DF]" />
+        <div className="space-y-2 text-[12.5px] text-[#6B6963]">
           <div>
-            Shop: <strong className="text-[#141413]">{seller.shopName}</strong> · {seller.ownerEmail}
+            <div className="text-[15px] font-bold text-[#141413]">{seller.shopName}</div>
+            {seller.ownerEmail}
           </div>
           <div className="flex flex-wrap gap-2">
-            <label
-              className={`px-3 py-1.5 bg-[#141413] text-white font-semibold flex items-center gap-1 cursor-pointer ${
-                photoBusy ? 'opacity-50 pointer-events-none' : ''
-              }`}
-            >
+            <label className={`${ui.dark} ${photoBusy ? 'opacity-50 pointer-events-none' : ''}`}>
               <Camera className="w-3.5 h-3.5" /> {photoBusy ? 'Saving...' : seller.logoUrl ? 'Change picture' : 'Add picture'}
               <input
                 type="file"
@@ -3782,12 +3818,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
               />
             </label>
             {seller.logoUrl && (
-              <button
-                type="button"
-                disabled={photoBusy}
-                onClick={() => savePhoto('')}
-                className="px-3 py-1.5 border border-black/30 text-[#141413] font-semibold cursor-pointer disabled:opacity-50"
-              >
+              <button type="button" disabled={photoBusy} onClick={() => savePhoto('')} className={ui.secondary}>
                 Remove
               </button>
             )}
@@ -3795,33 +3826,46 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
         </div>
       </div>
       <ShopNameEditor seller={seller} onSaved={onSaved} />
-      <div>
-        <label className={labelCls}>Mobile</label>
-        <input className={inputCls} value={form.phone} onChange={set('phone')} />
-      </div>
-      <div>
-        <label className={labelCls}>City</label>
-        <input className={inputCls} value={form.city} onChange={set('city')} />
-      </div>
-      <div className="sm:col-span-2">
-        <label className={labelCls}>Address</label>
-        <textarea className={inputCls} rows={2} value={form.address} onChange={set('address')} />
-      </div>
-      <div>
-        <label className={labelCls}>Bank / wallet <HelpDot id="seller.tab.PROFILE" /></label>
-        <input className={inputCls} value={form.bankName} onChange={set('bankName')} />
-      </div>
-      <div>
-        <label className={labelCls}>Account title</label>
-        <input className={inputCls} value={form.accountTitle} onChange={set('accountTitle')} />
-      </div>
-      <div className="sm:col-span-2">
-        <label className={labelCls}>Account number / IBAN (payouts are sent here)</label>
-        <input className={inputCls} value={form.accountNumber} onChange={set('accountNumber')} />
-      </div>
-      <div className="sm:col-span-2">
-        <button type="submit" disabled={saving} className="px-5 py-2 bg-[#141413] text-white text-xs font-bold disabled:opacity-50 cursor-pointer">
-          {saving ? 'Saving...' : 'Save'}
+       </div>
+      </Panel>
+
+      <Panel title="Contact & pickup" subtitle="The courier picks up parcels from this address">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Mobile</label>
+            <input className={inputCls} value={form.phone} onChange={set('phone')} inputMode="tel" placeholder="03xx xxxxxxx" />
+          </div>
+          <div>
+            <label className={labelCls}>City</label>
+            <input className={inputCls} value={form.city} onChange={set('city')} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Pickup address</label>
+            <textarea className={inputCls} rows={2} value={form.address} onChange={set('address')} />
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title="Payout account" help={<HelpDot id="seller.tab.PROFILE" />} subtitle="Your earnings are sent here">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Bank / wallet</label>
+            <input className={inputCls} value={form.bankName} onChange={set('bankName')} placeholder="e.g. Meezan Bank, JazzCash" />
+          </div>
+          <div>
+            <label className={labelCls}>Account title</label>
+            <input className={inputCls} value={form.accountTitle} onChange={set('accountTitle')} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={labelCls}>Account number / IBAN</label>
+            <input className={inputCls} value={form.accountNumber} onChange={set('accountNumber')} />
+          </div>
+        </div>
+      </Panel>
+
+      <div className="sticky bottom-20 lg:bottom-4 z-10 flex justify-end">
+        <button type="submit" disabled={saving} className={`${ui.primary} !px-6 !py-2.5 shadow-lg`}>
+          {saving ? 'Saving...' : 'Save changes'}
         </button>
       </div>
     </form>

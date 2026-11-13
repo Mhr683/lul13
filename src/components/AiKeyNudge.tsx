@@ -103,7 +103,7 @@ export const AiKeyNudge: React.FC<{ onAddKey: () => void }> = ({ onAddKey }) => 
             ? `Your shop gets only ${perDay} AI uses a day from the store. With your own free Google AI key you get 150 a day: AI videos, AI descriptions and the AI Assistant whenever you need them.`
             : open.reason || `Without your own key you get ${perDay} AI uses a day. Add your free key to keep using AI videos, descriptions and the AI Assistant today.`}
         </p>
-        <div className="p-3 bg-[#FBFBF9] border border-black/10 rounded-lg space-y-2">
+        <div className="p-3 bg-[#FBFBF9] rounded-xl border border-[#E7E5DF] rounded-lg space-y-2">
           <div className="text-xs font-bold">How to get it</div>
           <AiKeySteps />
         </div>

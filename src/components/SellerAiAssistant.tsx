@@ -84,7 +84,7 @@ export const SellerAiAssistant: React.FC<{
   };
 
   return (
-    <div className="bg-white border border-black/10 flex flex-col h-[70vh] min-h-[420px]">
+    <div className="bg-white rounded-xl border border-[#E7E5DF] flex flex-col h-[70vh] min-h-[420px]">
       <div className="px-4 py-3 border-b border-black/10 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Bot className="w-5 h-5 text-[#0E7A43]" />
@@ -112,7 +112,7 @@ export const SellerAiAssistant: React.FC<{
                   key={s}
                   type="button"
                   onClick={() => send(s)}
-                  className="px-3 py-1.5 border border-black/15 rounded-full text-xs hover:border-[#0E7A43] flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-1.5 border border-[#DCD9D2] rounded-full text-xs hover:border-[#0E7A43] flex items-center gap-1 cursor-pointer"
                 >
                   <Sparkles className="w-3 h-3 text-[#0E7A43]" /> {s}
                 </button>
@@ -130,7 +130,7 @@ export const SellerAiAssistant: React.FC<{
                 </div>
               ))}
               {m.actions?.map((a) => (
-                <div key={a.actionId} className="bg-white text-[#141413] border border-black/15 rounded p-2.5 space-y-2 text-xs">
+                <div key={a.actionId} className="bg-white text-[#141413] border border-[#DCD9D2] rounded p-2.5 space-y-2 text-xs">
                   <div className="font-bold">{a.title}</div>
                   <ul className="space-y-0.5 max-h-40 overflow-y-auto">
                     {a.changes.map((c, k) => (
@@ -151,14 +151,14 @@ export const SellerAiAssistant: React.FC<{
                         type="button"
                         disabled={a.state === 'busy'}
                         onClick={() => apply(a)}
-                        className="px-3 py-1.5 bg-[#0E7A43] text-white font-bold flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                        className="px-3 py-1.5 bg-[#0E7A43] text-white rounded-lg font-bold flex items-center gap-1 disabled:opacity-50 cursor-pointer"
                       >
                         <Check className="w-3.5 h-3.5" /> {a.state === 'busy' ? 'Applying...' : 'Apply'}
                       </button>
                       <button
                         type="button"
                         onClick={() => updateAction(a.actionId, { state: 'cancelled', result: 'Cancelled.' })}
-                        className="px-3 py-1.5 border border-black/20 flex items-center gap-1 cursor-pointer"
+                        className="px-3 py-1.5 rounded-lg border border-[#DCD9D2] flex items-center gap-1 cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" /> Cancel
                       </button>
@@ -185,9 +185,9 @@ export const SellerAiAssistant: React.FC<{
           onChange={(e) => setInput(e.target.value)}
           maxLength={2000}
           placeholder="Ask your assistant..."
-          className="flex-1 min-w-0 px-3 py-2 border border-black/20 text-sm focus:border-black focus:outline-none"
+          className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-[#DCD9D2] text-sm focus:border-black focus:outline-none"
         />
-        <button type="submit" disabled={busy || !input.trim()} className="px-4 py-2 bg-[#141413] text-white disabled:opacity-40 cursor-pointer" aria-label="Send">
+        <button type="submit" disabled={busy || !input.trim()} className="px-4 py-2 bg-[#141413] text-white rounded-lg disabled:opacity-40 cursor-pointer" aria-label="Send">
           <Send className="w-4 h-4" />
         </button>
       </form>

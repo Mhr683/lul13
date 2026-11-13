@@ -84,6 +84,18 @@
   outline-offset: 1px;
   border-color: #0e7a43;
 }
+/* Seller Center reads like a work tool: one clean sans font for headings too, and numbers keep that
+   font (only aligned), so amounts don't look typed on a typewriter. Order numbers stay .font-mono. */
+.seller-ui h1,
+.seller-ui h2,
+.seller-ui h3,
+.seller-ui h4 {
+  font-family: var(--font-sans);
+  letter-spacing: -0.01em;
+}
+.seller-ui .tabular-nums:not(.font-mono) {
+  font-family: inherit;
+}
 .seller-ui main [class*='bg-amber-50'].border,
 .seller-ui main [class*='bg-emerald-50'].border,
 .seller-ui main [class*='bg-sky-50'].border,

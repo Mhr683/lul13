@@ -112,7 +112,7 @@ export const ProductMediaEditor: React.FC<{
     setImages(next);
   };
 
-  const btn = 'px-3 py-1.5 border border-black/20 text-xs font-semibold flex items-center gap-1.5 cursor-pointer hover:border-black disabled:opacity-50';
+  const btn = 'px-3 py-1.5 rounded-lg border border-[#DCD9D2] text-xs font-semibold flex items-center gap-1.5 cursor-pointer hover:border-black disabled:opacity-50';
 
   return (
     <div className="space-y-3">
@@ -125,7 +125,7 @@ export const ProductMediaEditor: React.FC<{
 
       <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
         {images.map((src, i) => (
-          <div key={src} className={`relative aspect-square border ${i === 0 ? 'border-[#0E7A43] border-2' : 'border-black/15'} bg-[#F7F6F2]`}>
+          <div key={src} className={`relative aspect-square border ${i === 0 ? 'border-[#0E7A43] border-2' : 'border-[#DCD9D2]'} bg-[#F7F6F2]`}>
             <img src={src} alt="" className="w-full h-full object-cover" loading="lazy" />
             {i === 0 && (
               <span className="absolute left-0 top-0 px-1 bg-[#0E7A43] text-white text-[9px] font-bold">MAIN</span>
@@ -193,7 +193,7 @@ export const ProductMediaEditor: React.FC<{
           value={link}
           onChange={(e) => setLink(e.target.value)}
           placeholder="or paste a picture link (optional)"
-          className="flex-1 min-w-0 px-3 py-1.5 bg-white border border-black/20 text-xs focus:border-black focus:outline-none"
+          className="flex-1 min-w-0 px-3 py-1.5 bg-white rounded-lg border border-[#DCD9D2] text-xs focus:border-black focus:outline-none"
         />
         <button type="button" onClick={addLink} disabled={!link.trim()} className={btn}>
           <Link2 className="w-3.5 h-3.5" /> Add link
@@ -224,7 +224,7 @@ export const ProductMediaEditor: React.FC<{
               value={videoLink}
               onChange={(e) => setVideoLink(e.target.value)}
               placeholder="or paste a YouTube / video link (optional)"
-              className="flex-1 min-w-[180px] px-3 py-1.5 bg-white border border-black/20 text-xs focus:border-black focus:outline-none"
+              className="flex-1 min-w-[180px] px-3 py-1.5 bg-white rounded-lg border border-[#DCD9D2] text-xs focus:border-black focus:outline-none"
             />
             <button
               type="button"
