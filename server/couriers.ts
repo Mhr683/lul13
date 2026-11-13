@@ -103,6 +103,15 @@ export function orderStatusFromCourier(text: string): 'DELIVERED' | 'RETURNED' |
   return null;
 }
 
+/** A courier status that is a failed delivery attempt, or the start of the parcel's way back */
+export function deliveryProblemFromCourier(text: string): 'ATTEMPT' | 'RETURN_START' | null {
+  const s = String(text || '').toLowerCase();
+  if (!s || orderStatusFromCourier(s) === 'RETURNED') return null;
+  if (/refused|being return|return(ing)? (in process|in transit|initiated|to (shipper|origin|merchant|vendor))|ready for return|\brto\b|cancel/.test(s)) return 'RETURN_START';
+  if (/undeliver|not delivered|attempt|not available|unreachable|not respond|reattempt|re-attempt|address (issue|incomplete|not found)/.test(s)) return 'ATTEMPT';
+  return null;
+}
+
 // ---------------------------------------------------------------- courier adapters
 
 interface BookInput {
@@ -636,7 +645,10 @@ export function registerCourierRoutes(app: express.Express, d: CourierDeps) {
             await doc.ref.update({ 'courierBooking.lastCheckedAt': now });
             continue;
           }
-          const next = orderStatusFromCourier(t.status);
+          let next = orderStatusFromCourier(t.status);
+          const returning = Boolean(o.delivery?.returnStartedAt);
+          // A parcel on its way back is never "delivered" or "out for delivery" again
+          if (returning && next !== 'RETURNED') next = null;
           const order = ['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'RETURNED'];
           // The order only moves forward (never back from "out for delivery" to "shipped")
           const moves = next && order.indexOf(next) > order.indexOf(o.status) && !(next === 'SHIPPED' && order.includes(o.status));
@@ -645,14 +657,35 @@ export function registerCourierRoutes(app: express.Express, d: CourierDeps) {
             'courierBooking.lastCheckedAt': now,
             ...(next === 'DELIVERED' || next === 'RETURNED' ? { 'courierBooking.active': false } : {}),
           };
+          // Failed attempts and the way back are kept for the seller's parcel count (same fields as
+          // POST /api/seller/orders/delivery); each new courier status is counted once
+          const delivery = { ...(o.delivery || {}) };
+          const problem = returning ? null : deliveryProblemFromCourier(t.status);
+          if (problem === 'ATTEMPT') {
+            delivery.attempts = [...(Array.isArray(delivery.attempts) ? delivery.attempts : []), { at: now, reason: t.status.slice(0, 120), by: 'COURIER' }].slice(-20);
+          } else if (problem === 'RETURN_START') {
+            Object.assign(delivery, { returnStartedAt: now, returnReason: t.status.slice(0, 120), returnBy: 'COURIER' });
+          }
+          if (next === 'RETURNED') Object.assign(delivery, { returnStartedAt: delivery.returnStartedAt || now, returnReceivedAt: now });
+          const deliveryUpdate = problem || next === 'RETURNED' ? { delivery } : {};
           if (moves) {
-            const updates: Record<string, any> & { status: string } = { status: next!, updatedAt: now, ...bookingUpdate };
+            const updates: Record<string, any> & { status: string } = { status: next!, updatedAt: now, ...bookingUpdate, ...deliveryUpdate };
             if (next === 'DELIVERED' && o.paymentMethod === 'COD') updates.paymentStatus = 'PAID';
+            if (next === 'RETURNED' && o.paymentMethod === 'CARD' && o.paymentStatus === 'PAID') updates.paymentStatus = 'REFUND_PENDING';
             await d.applyOrderStatusWithStock(doc.ref, updates);
           } else {
             await doc.ref.update({
               ...bookingUpdate,
-              trackingEvents: d.appendTrackingEvent(o.trackingEvents, { at: now, note: `${b.courier}: ${t.status}` }),
+              ...deliveryUpdate,
+              trackingEvents: d.appendTrackingEvent(o.trackingEvents, {
+                at: now,
+                note:
+                  problem === 'RETURN_START'
+                    ? `${b.courier}: ${t.status}. The parcel is going back to the seller.`
+                    : problem === 'ATTEMPT'
+                      ? `${b.courier}: delivery attempt ${delivery.attempts.length}: ${t.status}`
+                      : `${b.courier}: ${t.status}`,
+              }),
             });
           }
           if (o.sellerId) d.forgetOrders(o.sellerId);

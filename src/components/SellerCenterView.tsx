@@ -132,7 +132,31 @@ type SellerOrder = Order & {
   supplierCost?: number;
   /** Packing steps after "Complete packing" (server/marketplace.ts POST /api/seller/orders/step) */
   fulfilment?: { LABEL?: string; READY?: string };
+  /** After the parcel left: failed attempts and the way back (POST /api/seller/orders/delivery, courier check) */
+  delivery?: {
+    attempts?: { at: string; reason: string; by: 'SELLER' | 'COURIER' }[];
+    returnStartedAt?: string;
+    returnReason?: string;
+    returnBy?: 'SELLER' | 'COURIER';
+    returnReceivedAt?: string;
+  };
 };
+
+// Every order sits in exactly one box, so the boxes always add up to the total (parcel count)
+type ParcelBucket = 'OPEN' | 'ON_WAY' | 'RETURNING' | 'DELIVERED' | 'RETURNED' | 'CANCELLED';
+const bucketOf = (o: SellerOrder): ParcelBucket => {
+  if (o.status === 'DELIVERED') return 'DELIVERED';
+  if (['RETURNED', 'REFUNDED'].includes(o.status)) return 'RETURNED';
+  if (['CANCELLED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'].includes(o.status)) return 'CANCELLED';
+  if (o.delivery?.returnStartedAt) return 'RETURNING';
+  if (['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status)) return 'ON_WAY';
+  return 'OPEN';
+};
+const isReturning = (o: SellerOrder) => bucketOf(o) === 'RETURNING';
+
+async function postOrderAction(o: SellerOrder, body: Record<string, any>, path = '/api/seller/orders/status') {
+  await api(path, { method: 'POST', body: JSON.stringify({ orderId: o.id, ...body }) });
+}
 type ListProduct = Pick<Product, 'id' | 'sku' | 'name' | 'price' | 'stock' | 'category' | 'status' | 'primaryImage' | 'productType'> & {
   compareAtPrice?: number;
   adminHidden?: boolean;
@@ -1067,6 +1091,50 @@ const REASON_LABEL: Record<string, string> = {
   FAKE: 'Fake or replica product',
 };
 
+/** Returns tab: parcels the courier is bringing back (not delivered), shown with the usual order card */
+const ComingBackParcels: React.FC = () => {
+  const { showToast } = useStore();
+  const [orders, setOrders] = useState<SellerOrder[] | null>(memo.orders || null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const d = await api('/api/seller/orders');
+      memo.orders = d.orders;
+      setOrders(d.orders);
+    } catch {
+      setOrders((o) => o || []);
+    }
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const act: OrderAct = async (o, body, path) => {
+    setBusy(o.id);
+    try {
+      await postOrderAction(o, body, path);
+      showToast(`${o.orderNumber}: saved.`);
+      await load();
+    } catch (err: any) {
+      showToast(err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const list = (orders || []).filter(isReturning);
+  const back = (orders || []).filter((o) => o.delivery?.returnStartedAt && bucketOf(o) === 'RETURNED').length;
+  if (!orders || (!list.length && !back)) return null;
+  return (
+    <div className="space-y-3">
+      <Callout tone={list.length ? 'warning' : 'info'} icon="↩️">
+        <strong>{list.length}</strong> parcel{list.length === 1 ? ' is' : 's are'} coming back to you (not delivered) · <strong>{back}</strong> already received back.
+      </Callout>
+      {list.map((o) => (
+        <SellerOrderCard key={o.id} order={o} busy={busy === o.id} act={act} chatUnread={0} onChatRead={() => {}} />
+      ))}
+    </div>
+  );
+};
+
 const ReturnsTab: React.FC = () => {
   const { showToast } = useStore();
   const [list, setList] = useState<any[] | null>(null);
@@ -1100,6 +1168,7 @@ const ReturnsTab: React.FC = () => {
   const open = list.filter((r) => r.status === 'OPEN').length;
   return (
     <div className="space-y-4">
+      <ComingBackParcels />
       <HowItWorks title="How returns work">
         <p>Customers can ask for a return or replacement within 7 days of delivery. The store decides each request, so give your side before it does.</p>
         <p>Upheld complaints count against the product (3 customers = delisted, fake = locked) and the return shipping is taken off your payout.</p>
@@ -1664,10 +1733,77 @@ const ChatAiSwitch: React.FC = () => {
   );
 };
 
+type OrderFilter = 'OPEN' | 'SHIPPED' | 'RETURNING' | 'DONE' | 'ALL';
+const inFilter = (o: SellerOrder, f: OrderFilter) => {
+  const b = bucketOf(o);
+  if (f === 'OPEN') return b === 'OPEN';
+  if (f === 'SHIPPED') return b === 'ON_WAY';
+  if (f === 'RETURNING') return b === 'RETURNING';
+  if (f === 'DONE') return b === 'DELIVERED' || b === 'RETURNED' || b === 'CANCELLED';
+  return true;
+};
+
+const PARCEL_BOXES: { id: ParcelBucket; label: string; filter: OrderFilter; tone: string }[] = [
+  { id: 'OPEN', label: 'To ship', filter: 'OPEN', tone: 'bg-amber-50 border-amber-200 text-amber-950' },
+  { id: 'ON_WAY', label: 'On the way', filter: 'SHIPPED', tone: 'bg-sky-50 border-sky-200 text-sky-950' },
+  { id: 'RETURNING', label: 'Coming back', filter: 'RETURNING', tone: 'bg-rose-50 border-rose-200 text-rose-950' },
+  { id: 'DELIVERED', label: 'Delivered', filter: 'DONE', tone: 'bg-emerald-50 border-emerald-200 text-emerald-950' },
+  { id: 'RETURNED', label: 'Returned', filter: 'DONE', tone: 'bg-orange-50 border-orange-200 text-orange-950' },
+  { id: 'CANCELLED', label: 'Cancelled', filter: 'DONE', tone: 'bg-[#F2F1EC] border-[#E2DFD8] text-[#3A3936]' },
+];
+
+/** Parcel count: every order in one box, with its value; the boxes add up to the total */
+const ParcelCount: React.FC<{ orders: SellerOrder[]; onPick: (f: OrderFilter) => void }> = ({ orders, onPick }) => {
+  const sums = Object.fromEntries(PARCEL_BOXES.map((b) => [b.id, { n: 0, value: 0 }])) as Record<ParcelBucket, { n: number; value: number }>;
+  let attempts = 0;
+  for (const o of orders) {
+    const s = sums[bucketOf(o)];
+    s.n++;
+    s.value += Number(o.total) || 0;
+    attempts += o.delivery?.attempts?.length || 0;
+  }
+  const counted = PARCEL_BOXES.reduce((t, b) => t + sums[b.id].n, 0);
+  const finished = sums.DELIVERED.n + sums.RETURNED.n + sums.RETURNING.n;
+  const returnRate = finished ? Math.round(((sums.RETURNED.n + sums.RETURNING.n) / finished) * 100) : 0;
+  return (
+    <section className={`${ui.card} p-3 space-y-2`}>
+      <div className="flex items-center gap-1 text-[13px] font-bold text-[#141413]">
+        Parcel count <HelpDot id="seller.order.count" />
+      </div>
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+        {PARCEL_BOXES.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            onClick={() => onPick(b.filter)}
+            className={`p-2 rounded-xl border text-left cursor-pointer hover:brightness-95 ${b.tone}`}
+          >
+            <div className="text-[10.5px] font-semibold opacity-80">{b.label}</div>
+            <div className="text-[18px] font-bold leading-tight">{sums[b.id].n}</div>
+            <div className="text-[10px] opacity-75">{formatPKR(sums[b.id].value)}</div>
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#6B6963]">
+        <span>
+          Total orders: <strong className="text-[#141413]">{orders.length}</strong>{' '}
+          {counted === orders.length ? <span className="text-emerald-700 font-semibold">✓ all counted</span> : <span className="text-rose-700 font-semibold">check</span>}
+        </span>
+        <span>
+          Return rate: <strong className={returnRate > 15 ? 'text-rose-700' : 'text-[#141413]'}>{returnRate}%</strong>
+        </span>
+        <span>
+          Failed delivery attempts: <strong className="text-[#141413]">{attempts}</strong>
+        </span>
+      </div>
+    </section>
+  );
+};
+
 const OrdersTab: React.FC<{ refreshKey?: string }> = ({ refreshKey }) => {
   const { showToast } = useStore();
   const [orders, setOrders] = useState<SellerOrder[] | null>(memo.orders || null);
-  const [filter, setFilter] = useState<'OPEN' | 'SHIPPED' | 'DONE' | 'ALL'>('OPEN');
+  const [filter, setFilter] = useState<OrderFilter>('OPEN');
   const [busy, setBusy] = useState<string | null>(null);
 
   // New customer messages per order (order chat)
@@ -1697,18 +1833,12 @@ const OrdersTab: React.FC<{ refreshKey?: string }> = ({ refreshKey }) => {
     load();
   }, [refreshKey, load]);
 
-  const visible = useMemo(() => {
-    const list = orders || [];
-    if (filter === 'OPEN') return list.filter((o) => OPEN_STATUSES.includes(o.status));
-    if (filter === 'SHIPPED') return list.filter((o) => ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status));
-    if (filter === 'DONE') return list.filter((o) => !OPEN_STATUSES.includes(o.status) && !['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status));
-    return list;
-  }, [orders, filter]);
+  const visible = useMemo(() => (orders || []).filter((o) => inFilter(o, filter)), [orders, filter]);
 
   const act = async (o: SellerOrder, body: Record<string, any>, path = '/api/seller/orders/status') => {
     setBusy(o.id);
     try {
-      await api(path, { method: 'POST', body: JSON.stringify({ orderId: o.id, ...body }) });
+      await postOrderAction(o, body, path);
       showToast(`${o.orderNumber}: saved.`);
       await load();
     } catch (err: any) {
@@ -1718,17 +1848,12 @@ const OrdersTab: React.FC<{ refreshKey?: string }> = ({ refreshKey }) => {
     }
   };
 
-  const countOf = (f: 'OPEN' | 'SHIPPED' | 'DONE' | 'ALL') => {
-    const list = orders || [];
-    if (f === 'OPEN') return list.filter((o) => OPEN_STATUSES.includes(o.status)).length;
-    if (f === 'SHIPPED') return list.filter((o) => ['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
-    if (f === 'DONE') return list.filter((o) => !OPEN_STATUSES.includes(o.status) && !['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o.status)).length;
-    return list.length;
-  };
+  const countOf = (f: OrderFilter) => (orders || []).filter((o) => inFilter(o, f)).length;
 
   return (
     <div className="space-y-4">
       <ChatAiSwitch />
+      {orders && orders.length > 0 && <ParcelCount orders={orders} onPick={setFilter} />}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SegTabs
           value={filter}
@@ -1736,6 +1861,7 @@ const OrdersTab: React.FC<{ refreshKey?: string }> = ({ refreshKey }) => {
           items={[
             { id: 'OPEN', label: 'To ship', count: countOf('OPEN') },
             { id: 'SHIPPED', label: 'On the way', count: countOf('SHIPPED') },
+            { id: 'RETURNING', label: 'Coming back', count: countOf('RETURNING') },
             { id: 'DONE', label: 'Completed', count: countOf('DONE') },
             { id: 'ALL', label: 'All', count: countOf('ALL') },
           ]}
@@ -1819,6 +1945,11 @@ const stepsDone = (o: SellerOrder) => {
       return 7;
     case 'DELIVERED':
       return 8;
+    case 'RETURNED':
+    case 'REFUNDED':
+      // Came back without being delivered: the road stopped where the parcel turned back
+      if (!o.delivery?.returnStartedAt) return 0;
+      return (o.trackingEvents || []).some((e: any) => e.status === 'OUT_FOR_DELIVERY') ? 7 : 6;
     default:
       return 0;
   }
@@ -1853,7 +1984,8 @@ const FulfilmentTrack: React.FC<{
     <ol ref={scroller} className="flex overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Order progress">
       {FULFIL_STEPS.map((s, i) => {
         const isDone = i < done;
-        const isNext = i === done;
+        // A parcel turned back has no next step on this road (see ReturnTrack)
+        const isNext = i === done && !o.delivery?.returnStartedAt;
         const canPress = isNext && s.key !== 'SHIPPED' && !busy;
         return (
           <li key={s.key} className="flex-1 min-w-[72px] flex flex-col items-center text-center">
@@ -1891,6 +2023,151 @@ const FulfilmentTrack: React.FC<{
         );
       })}
     </ol>
+  );
+};
+
+type OrderAct = (o: SellerOrder, body: Record<string, any>, path?: string) => Promise<void>;
+const DELIVERY_API = '/api/seller/orders/delivery';
+const PROBLEM_REASONS = ['Customer not reachable', 'Customer refused the parcel', 'Customer cancelled at the door', 'Wrong or incomplete address', 'Customer asked for another day'];
+
+/** The way back: not delivered → on the way back to you → received back */
+const ReturnTrack: React.FC<{ order: SellerOrder; busy: boolean; act: OrderAct }> = ({ order: o, busy, act }) => {
+  const dl = o.delivery || {};
+  const received = Boolean(dl.returnReceivedAt) || ['RETURNED', 'REFUNDED'].includes(o.status);
+  const steps = [
+    { label: 'Not delivered', at: dl.returnStartedAt, done: true },
+    { label: 'Coming back to you', at: dl.returnStartedAt, done: true },
+    { label: 'Received back', at: dl.returnReceivedAt, done: received },
+  ];
+  return (
+    <div className="pt-3 border-t border-rose-200 space-y-2">
+      <div className="text-[12px] font-bold text-rose-900 flex items-center gap-1">
+        ↩ Return: {dl.returnReason} {dl.returnBy === 'COURIER' && <span className="font-normal text-rose-700">(reported by the courier)</span>}
+      </div>
+      <ol className="flex">
+        {steps.map((s, i) => (
+          <li key={s.label} className="flex-1 flex flex-col items-center text-center">
+            <span className={`h-7 flex items-end text-[10.5px] leading-tight font-semibold ${s.done ? 'text-rose-900' : 'text-[#141413]'}`}>{s.label}</span>
+            <div className="flex items-center w-full mt-1">
+              <span className={`h-[3px] flex-1 ${i === 0 ? 'invisible' : s.done ? 'bg-rose-600' : 'bg-[#141413]/20'}`} />
+              <span
+                className={`w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-[11px] font-bold text-white ${
+                  s.done ? 'bg-rose-600' : 'bg-[#141413] ring-4 ring-amber-300 animate-pulse'
+                }`}
+              >
+                {s.done ? '✓' : ''}
+              </span>
+              <span className={`h-[3px] flex-1 ${i === steps.length - 1 ? 'invisible' : steps[i + 1].done ? 'bg-rose-600' : 'bg-[#141413]/20'}`} />
+            </div>
+            <span className="mt-1 h-6 text-[9.5px] leading-tight text-[#8A8780]">{s.done ? shortWhen(s.at) : 'Next'}</span>
+          </li>
+        ))}
+      </ol>
+      {!received && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              window.confirm(`Do you have parcel ${o.orderNumber} back in your hands? Its stock will be added back.`) &&
+              act(o, { action: 'RETURN_RECEIVED' }, DELIVERY_API)
+            }
+            className={`${ui.primary} !bg-rose-700 hover:!bg-rose-800`}
+          >
+            📦 Return received
+          </button>
+          <span className="text-[11px] text-[#8A8780]">Press only when the parcel is back with you. Check it is complete.</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** On the way: a failed delivery attempt, or the parcel turning back */
+const DeliveryProblem: React.FC<{ order: SellerOrder; busy: boolean; act: OrderAct }> = ({ order: o, busy, act }) => {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState(PROBLEM_REASONS[0]);
+  const [other, setOther] = useState('');
+  const why = reason === 'OTHER' ? other.trim() : reason;
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className={`${ui.secondary} !border-orange-300 !text-orange-900`}>
+        ⚠️ Delivery problem? <HelpDot id="seller.order.delivery" />
+      </button>
+    );
+  }
+  return (
+    <div className="p-3 rounded-xl bg-orange-50 border border-orange-200 space-y-2">
+      <div className="font-bold text-orange-950">What happened with the delivery?</div>
+      <select value={reason} onChange={(e) => setReason(e.target.value)} className={`${ui.field} w-full`}>
+        {PROBLEM_REASONS.map((r) => (
+          <option key={r}>{r}</option>
+        ))}
+        <option value="OTHER">Something else...</option>
+      </select>
+      {reason === 'OTHER' && (
+        <input value={other} onChange={(e) => setOther(e.target.value)} maxLength={120} placeholder="Write the reason" className={`${ui.field} w-full`} />
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy || why.length < 3}
+          onClick={() => act(o, { action: 'ATTEMPT', reason: why }, DELIVERY_API).then(() => setOpen(false))}
+          className={ui.secondary}
+        >
+          Attempt failed, rider will try again
+        </button>
+        <button
+          type="button"
+          disabled={busy || why.length < 3}
+          onClick={() =>
+            window.confirm('Mark this parcel as coming back to you? It will move to "Coming back" and will not earn a payout.') &&
+            act(o, { action: 'RETURN_START', reason: why }, DELIVERY_API).then(() => setOpen(false))
+          }
+          className={ui.dangerSolid}
+        >
+          ↩ Parcel is coming back
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="px-2 text-[12px] font-semibold text-[#6B6963] cursor-pointer">
+          Close
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/** Everywhere the parcel has been: every tracking line, newest first */
+const ParcelHistory: React.FC<{ order: SellerOrder }> = ({ order: o }) => {
+  const [all, setAll] = useState(false);
+  const events = [...(o.trackingEvents || [])].reverse();
+  if (!events.length) return null;
+  const shown = all ? events : events.slice(0, 4);
+  return (
+    <div className="p-3 rounded-xl border border-[#E7E5DF] bg-white">
+      <div className="text-[12px] font-bold text-[#141413] mb-2">Parcel history</div>
+      <ul className="space-y-2 border-l-2 border-[#E7E5DF] pl-3">
+        {shown.map((e: any, i: number) => (
+          <li key={`${e.at}-${i}`} className="relative">
+            <span className={`absolute -left-[19px] top-1 w-2.5 h-2.5 rounded-full ${i === 0 ? 'bg-[#0E7A43]' : 'bg-[#C9C6BE]'}`} />
+            <div className="text-[#141413]">
+              {e.location && (
+                <span className="inline-flex items-center gap-0.5 font-semibold mr-1">
+                  <MapPin className="w-3 h-3" />
+                  {e.location} ·
+                </span>
+              )}
+              {e.note}
+            </div>
+            <div className="text-[10px] text-[#8A8780]">{shortWhen(e.at)}</div>
+          </li>
+        ))}
+      </ul>
+      {events.length > 4 && (
+        <button type="button" onClick={() => setAll(!all)} className="mt-2 text-[11.5px] font-semibold text-[#0E7A43] cursor-pointer">
+          {all ? 'Show less' : `Show all ${events.length}`}
+        </button>
+      )}
+    </div>
   );
 };
 
@@ -1940,7 +2217,9 @@ const SellerOrderCard: React.FC<{
   };
 
   const isNew = ['PENDING_CONFIRMATION', 'PENDING'].includes(o.status);
-  const nextStep = closed ? undefined : FULFIL_STEPS[stepsDone(o)];
+  const returning = isReturning(o);
+  const attempts = o.delivery?.attempts || [];
+  const nextStep = closed || returning ? undefined : FULFIL_STEPS[stepsDone(o)];
   // Tracking number form: at the "Hand over to courier" step (supplier orders: any time after
   // "Sent to supplier", since the supplier packs and ships them)
   const showShipForm = !closed && !shipped && !isNew && (nextStep?.key === 'SHIPPED' || hasSupplier);
@@ -1964,6 +2243,12 @@ const SellerOrderCard: React.FC<{
           <span className={`${ui.chip} ${statusTone(o.status)}`}>{statusLabel[o.status] || o.status}</span>
           <span className={`${ui.chip} bg-white border-[#DCD9D2] text-[#3A3936]`}>{o.paymentMethod === 'COD' ? 'Cash on Delivery' : o.paymentMethod}</span>
           {o.cancelRequest?.status === 'PENDING' && !closed && <span className={`${ui.chip} bg-rose-50 border-rose-300 text-rose-800`}>Cancel requested</span>}
+          {returning && <span className={`${ui.chip} bg-rose-50 border-rose-300 text-rose-800`}>↩ Coming back</span>}
+          {attempts.length > 0 && (
+            <span className={`${ui.chip} bg-orange-50 border-orange-300 text-orange-900`}>
+              {attempts.length} failed attempt{attempts.length > 1 ? 's' : ''}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[#8A8780]">
@@ -1974,9 +2259,10 @@ const SellerOrderCard: React.FC<{
       </div>
 
       <div className="p-4 space-y-4">
-        {!closed || o.status === 'DELIVERED' ? (
+        {!closed || o.status === 'DELIVERED' || o.delivery?.returnStartedAt ? (
           <div className="p-3 rounded-xl border border-[#E7E5DF] bg-[#FBFBF9] space-y-3">
             <FulfilmentTrack order={o} busy={busy} onStep={doStep} />
+            {o.delivery?.returnStartedAt && <ReturnTrack order={o} busy={busy} act={act} />}
             {nextStep && (
               <div className="pt-3 border-t border-[#EFEDE8] space-y-2">
                 {showShipForm && (
@@ -2097,6 +2383,7 @@ const SellerOrderCard: React.FC<{
               </span>
             </div>
             {o.payoutId && <div className="text-emerald-800 font-semibold">✓ {o.payoutId === 'OWN_SHOP' ? 'Settled' : 'Paid out'}</div>}
+            {(returning || bucketOf(o) === 'RETURNED') && <div className="text-rose-700 font-semibold">Not delivered: no payout for this order</div>}
           </div>
         </div>
 
@@ -2182,13 +2469,14 @@ const SellerOrderCard: React.FC<{
         {/* ---------------- next step: one main button, the rest in "More" */}
         {!closed && (
           <div className="pt-3 border-t border-[#EFEDE8] space-y-3">
+            {shipped && !returning && <DeliveryProblem order={o} busy={busy} act={act} />}
             <div className="flex flex-wrap items-center gap-2">
-              {o.status === 'SHIPPED' && (
+              {o.status === 'SHIPPED' && !returning && (
                 <button type="button" disabled={busy} onClick={() => act(o, { status: 'DELIVERED' })} className={ui.secondary}>
                   ✓ Delivered (skip Out for delivery)
                 </button>
               )}
-              {shipped && o.trackingNumber && (
+              {shipped && !returning && o.trackingNumber && (
                 <a href={trackingWhatsApp} target="_blank" rel="noopener noreferrer" className={ui.whatsapp}>
                   Send tracking on WhatsApp
                 </a>
@@ -2228,6 +2516,7 @@ const SellerOrderCard: React.FC<{
             <Truck className="w-3.5 h-3.5" /> {o.courierName}: <span className="font-mono font-semibold text-[#2A2A28]">{o.trackingNumber}</span>
           </div>
         )}
+        {o.trackingNumber && <ParcelHistory order={o} />}
       </div>
     </div>
   );

@@ -222,6 +222,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     let earnings = 0;
     for (const o of orders) {
       if (CLOSED_STATUSES.includes(o.status)) continue;
+      // A parcel coming back to the seller will not earn anything
+      if (o.delivery?.returnStartedAt && o.status !== 'DELIVERED') continue;
       commission += Number(o.commissionAmount) || 0;
       supplierCost += Number(o.supplierCost) || 0;
       earnings += Number(o.sellerEarning) || 0;
@@ -1292,6 +1294,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (status === 'CANCELLED' && SHIPPED_OR_LATER.includes(order.status)) {
         return res.status(409).json({ error: 'A shipped order cannot be cancelled. Please contact the store for a return.' });
       }
+      if (order.delivery?.returnStartedAt && ['OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'].includes(status)) {
+        return res.status(409).json({ error: 'This parcel is coming back to you. Press "Return received" when you have it.' });
+      }
       const finalTracking = trackingNumber || order.trackingNumber || '';
       if (SHIPPED_OR_LATER.includes(status) && finalTracking.length < 4) {
         return res.status(400).json({ error: 'Enter the courier tracking number before marking the parcel as shipped.' });
@@ -1357,6 +1362,63 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       if (err?.message === 'NOT_PACKED') return res.status(409).json({ error: 'Press "Complete packing" first.' });
       if (err?.message === 'STEP_ORDER') return res.status(409).json({ error: 'Press "Attach label" first.' });
       console.error('[seller/orders/step] failed:', err);
+      res.status(503).json({ error: 'Could not save. Please try again.' });
+    }
+  });
+
+  // After the parcel left: a failed delivery attempt, the parcel coming back to the seller (refused,
+  // cancelled at the door, wrong address...) and the seller receiving it back. Kept on the order as
+  //   delivery { attempts: [{ at, reason, by }], returnStartedAt, returnReason, returnBy, returnReceivedAt }
+  // The connected-courier check (server/couriers.ts) fills the same fields by itself.
+  app.post('/api/seller/orders/delivery', requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const action = String(req.body?.action || '');
+    const reason = str(req.body?.reason, 120);
+    if (!['ATTEMPT', 'RETURN_START', 'RETURN_RECEIVED'].includes(action)) return res.status(400).json({ error: 'Unknown action.' });
+    if (action !== 'RETURN_RECEIVED' && reason.length < 3) return res.status(400).json({ error: 'Choose or write the reason.' });
+    if (contactReason(reason)) return res.status(400).json({ error: CONTACT_BLOCKED_TEXT, code: 'CONTACT_BLOCKED' });
+    try {
+      const own = await loadOwnOrder(uid, String(req.body?.orderId || ''));
+      if (!own) return res.status(404).json({ error: 'Order not found.' });
+      const now = new Date().toISOString();
+      if (action === 'RETURN_RECEIVED') {
+        const o = own.order;
+        if (!o.delivery?.returnStartedAt) return res.status(409).json({ error: 'This parcel is not marked as coming back.' });
+        if (o.status === 'RETURNED') return res.json({ success: true });
+        if (!SHIPPED_OR_LATER.includes(o.status) || o.status === 'DELIVERED') return res.status(409).json({ error: 'This order cannot be returned now.' });
+        const updates: Record<string, any> & { status: string } = {
+          status: 'RETURNED',
+          updatedAt: now,
+          delivery: { ...o.delivery, returnReceivedAt: now },
+          'courierBooking.active': false,
+        };
+        if (!o.courierBooking) delete updates['courierBooking.active'];
+        if (o.paymentMethod === 'CARD' && o.paymentStatus === 'PAID') updates.paymentStatus = 'REFUND_PENDING';
+        await d.applyOrderStatusWithStock(own.ref, updates);
+      } else {
+        await adminDb.runTransaction(async (tx) => {
+          const o = (await tx.get(own.ref)).data() as any;
+          if (!['SHIPPED', 'OUT_FOR_DELIVERY'].includes(o?.status)) throw new Error('NOT_ON_WAY');
+          const delivery = { ...(o.delivery || {}) };
+          if (delivery.returnStartedAt) throw new Error('RETURNING');
+          let note: string;
+          if (action === 'ATTEMPT') {
+            delivery.attempts = [...(Array.isArray(delivery.attempts) ? delivery.attempts : []), { at: now, reason, by: 'SELLER' }].slice(-20);
+            note = `Delivery attempt ${delivery.attempts.length} failed: ${reason}. The rider will try again.`;
+          } else {
+            Object.assign(delivery, { returnStartedAt: now, returnReason: reason, returnBy: 'SELLER' });
+            note = `The parcel could not be delivered (${reason}) and is going back to the seller.`;
+          }
+          tx.update(own.ref, { delivery, updatedAt: now, trackingEvents: d.appendTrackingEvent(o.trackingEvents, { at: now, note }) });
+        });
+      }
+      forgetOrders(uid);
+      res.json({ success: true });
+    } catch (err: any) {
+      if (err?.message === 'NOT_ON_WAY') return res.status(409).json({ error: 'Only a parcel with the courier can have a delivery problem.' });
+      if (err?.message === 'RETURNING') return res.status(409).json({ error: 'This parcel is already coming back.' });
+      if (d.isInsufficientStockError(err)) return res.status(409).json({ error: (err as Error).message });
+      console.error('[seller/orders/delivery] failed:', err);
       res.status(503).json({ error: 'Could not save. Please try again.' });
     }
   });

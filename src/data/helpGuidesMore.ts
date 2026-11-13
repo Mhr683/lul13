@@ -357,7 +357,9 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     title: 'Orders (order se delivery tak)',
     what: 'Har order ek card mein: upar number, status, payment aur raqam; beech mein customer, items aur paise; neeche agla qadam.',
     steps: [
-      'Upar ki pills se list chunein: "To ship", "On the way", "Completed", "All" (saath ginti likhi hoti hai).',
+      'Sab se upar "Parcel count": kitne bhejne hain, raaste mein, wapis aa rahe, delivered, returned, cancelled (raqam ke saath).',
+      'Pills se list chunein: "To ship", "On the way", "Coming back", "Completed", "All" (saath ginti likhi hoti hai).',
+      'Raaste mein masla ho to "⚠️ Delivery problem?": attempt fail ya parcel wapis. Har card par "Parcel history" mein parcel ki har jagah likhi hoti hai.',
       'Card par order ka raasta: 8 dot (Order accepted → Start packing → Complete packing → Attach label → Ready for pickup → Hand over to courier → Out for delivery → Delivered). Kaala dot = baaki, hara ✓ = ho gaya, peela ghera = agla kaam.',
       'Naya order: kuch poochhna ho to card ke "💬 Chat with ..." mein customer se poochhein, phir "✓ Accept order".',
       'Har kaam pura hone par agla dot ya neeche wala button dabayein. Customer ko har dafa update milti hai.',

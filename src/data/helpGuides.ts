@@ -66,8 +66,9 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
   },
   'seller.tab.RETURNS': {
     title: 'Returns (wapsi ki darkhwastein)',
-    what: 'Customer ne product wapis karne ki darkhwast di ho to yahan apna jawab dein.',
+    what: 'Raaste se wapis aate parcel (deliver nahi hue) sab se upar nazar aate hain. Neeche customer ki wapsi ki darkhwastein hain.',
     steps: [
+      'Upar "↩ Coming back" wale parcel: courier inhein wapis la raha hai. Parcel haath mein aaye to "📦 Return received" dabayein (stock wapis jud jata hai).',
       'Returns tab kholein. Har darkhwast mein customer ki wajah aur tasveer hoti hai.',
       '"Your side" mein apni baat likhein (jaise "dispatch se pehle check kiya tha, packing ki photo...").',
       'Bhej dein. Faisla store karta hai; "Store decision" mein nazar aata hai.',
@@ -338,6 +339,35 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Ship: courier ko dein aur tracking ke saath "Ship" (ya "Book & ship").',
       'Delivered: pahunch jaye to "✓ Delivered".',
     ],
+  },
+  'seller.order.count': {
+    title: 'Parcel count (pura hisaab)',
+    what: 'Har order sirf ek dabbe mein ginta hai, is liye sab dabbe jor kar hamesha kul orders ke barabar hote hain ("✓ all counted").',
+    steps: [
+      'To ship: abhi bhejne hain.',
+      'On the way: courier ke paas, customer ki taraf ja rahe hain.',
+      'Coming back: deliver nahi hue, aap ki taraf wapis aa rahe hain.',
+      'Delivered: customer ko mil gaye.',
+      'Returned: wapis aap ke paas pohanch gaye (ya customer ne baad mein wapis kiye).',
+      'Cancelled: cancel hue.',
+      'Har dabbe ke neeche un orders ki kul raqam hai. Dabba dabayein to wohi orders neeche khul jate hain.',
+    ],
+    tips: [
+      'Return rate = wapis aane wale parcel / (delivered + wapis). 15% se upar ho to laal: customer se order confirm karke bhejein.',
+      'Failed delivery attempts: rider kitni dafa parcel de na saka.',
+    ],
+  },
+  'seller.order.delivery': {
+    title: 'Delivery mein masla (attempt ya wapsi)',
+    what: 'Parcel courier ke paas ho aur deliver na ho sake to yahan likhein. Courier connected ho to yeh sab khud bhi likha jata hai.',
+    steps: [
+      '"⚠️ Delivery problem?" dabayein aur wajah chunein.',
+      'Rider dobara koshish karega: "Attempt failed, rider will try again". Card par "1 failed attempt" likha aata hai.',
+      'Customer ne parcel nahi liya / cancel kiya: "↩ Parcel is coming back". Order "Coming back" mein chala jata hai aur Returns tab ke upar bhi nazar aata hai.',
+      'Parcel wapis haath mein aaye to "📦 Return received" dabayein. Stock wapis jud jata hai aur order "Returned" mein gina jata hai.',
+      'Har qadam customer ko bhi update ki surat mein milta hai, aur card ke "Parcel history" mein har jagah aur waqt likha hota hai.',
+    ],
+    tips: ['Wapis aane wale parcel ki kamai payout mein nahi judti.'],
   },
   'seller.order.steps': {
     title: 'Order ka raasta (har kaam ka dot)',
