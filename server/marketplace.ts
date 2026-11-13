@@ -7,7 +7,8 @@ import { cleanProductInfo, type ProductInfo } from '../src/services/productInfo'
 import { famousBrandIn } from '../src/services/brandRules';
 import { cleanProductShipping, type ProductShipping } from '../src/services/productShipping';
 import { cleanVariants } from '../src/services/productVariants';
-import { normalizeSource } from '../src/services/productSource';
+import { normalizeSource, isDirectSource } from '../src/services/productSource';
+import { contactReason, CONTACT_BLOCKED_TEXT } from './orderChat';
 import { OPEN_STOCK, PRODUCT_TYPES, cleanDelivery, cleanTypeDetails, typeInfo, type ProductType } from '../src/services/productTypes';
 import type { ProductVariant } from '../src/types/store';
 import { KYC_LABELS, KYC_MAX_BYTES, idDocTypeFor, requiredKyc, type KycKind } from '../src/services/sellerOnboarding';
@@ -247,12 +248,31 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
   // Strip supplier/internal fields before sending an order to the seller
   /** Card order whose payment has not arrived (server/cardPayments.ts confirms or cancels it) */
   const awaitingCardPayment = (o: any) => o?.paymentMethod === 'CARD' && o?.paymentStatus !== 'PAID' && o?.status !== 'CANCELLED';
+  // The customer's phone reaches the seller only while the parcel is with the courier: from "Packed"
+  // (ready for pickup) until it is delivered. For items ordered from a supplier app the seller needs it
+  // a step earlier, once they press "Sent to supplier". The e-mail never reaches the seller. This keeps
+  // buyers and sellers from making the deal outside the store (they talk in the order chat).
+  const PHONE_STATUSES = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY'];
+  const scrubDigits = (s: unknown) => String(s ?? '').replace(/(\+?\d[\d\s\-.()]{6,}\d)/g, '•••');
   const sellerSafeOrder = (o: any) => {
-    const { orderAccessToken, ...rest } = o;
-    return {
+    const { orderAccessToken, customerEmail, ...rest } = o;
+    const viaSupplier = (o.supplierItems || []).some((s: any) => !isDirectSource(s?.supplierName));
+    const showPhone = PHONE_STATUSES.includes(o.status) || (viaSupplier && o.status === 'PROCESSING');
+    const out: any = {
       ...rest,
       items: (o.items || []).map(({ supplierName, supplierSku, supplierProductUrl, supplierCostPrice, ...item }: any) => item),
     };
+    if (!showPhone) {
+      out.customerPhone = '';
+      out.phoneHidden = true;
+      out.shippingAddressSummary = scrubDigits(o.shippingAddressSummary);
+      if (out.notes) out.notes = scrubDigits(out.notes);
+      if (o.shippingAddress && typeof o.shippingAddress === 'object') {
+        const { phone, phoneNumber, phoneCode, phoneE164, ...addr } = o.shippingAddress;
+        out.shippingAddress = addr;
+      }
+    }
+    return out;
   };
 
   // ---------------------------------------------------------------- seller: account
@@ -1295,6 +1315,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const location = str(req.body?.location, 120);
     const note = str(req.body?.note, 300);
     if (!location && !note) return res.status(400).json({ error: 'Enter a location or a message.' });
+    // Tracking notes reach the customer too: no contact details here either (see server/orderChat.ts)
+    if (contactReason(`${location} ${note}`)) return res.status(400).json({ error: CONTACT_BLOCKED_TEXT, code: 'CONTACT_BLOCKED' });
     try {
       const own = await loadOwnOrder(uid, String(req.body?.orderId || ''));
       if (!own) return res.status(404).json({ error: 'Order not found.' });

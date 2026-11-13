@@ -359,12 +359,13 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     steps: [
       'Upar ki pills se list chunein: "To ship", "On the way", "Completed", "All" (saath ginti likhi hoti hai).',
       'Card ke upar qadmon ki patti (1 Confirmed → 2 Packed → 3 Shipped → 4 Delivered) batati hai order kahan hai; peela gol = agla qadam.',
-      'Naya order: customer ko "Confirm on WhatsApp" se tasdeeq karein, phir hara "✓ Confirm order".',
+      'Naya order: kuch poochhna ho to card ke "💬 Chat with ..." mein customer se poochhein, phir hara "✓ Confirm order".',
       'Pack ho jaye to "📦 Mark as packed".',
       'Bhejna: courier connected ho to "Book & ship"; warna "Ship with a tracking number" mein courier chunein, tracking number likhein aur "Ship".',
       'Raste mein: "Send tracking on WhatsApp", phir pahunchne par "✓ Delivered" (courier connected ho to khud ho jata hai).',
-      'Kam istemal hone wale kaam "⋯ More" mein hain: parcel ki location likhna, customer ko paigham, aur order cancel karna (laal).',
-      'Customer ka number dabane se seedha call lagti hai.',
+      'Kam istemal hone wale kaam "⋯ More" mein hain: parcel ki location likhna aur order cancel karna (laal).',
+      'Customer ka number "📦 Packed" ke baad nazar aata hai (courier ke liye); us ko dabane se seedha call lagti hai. Order deliver hone par number phir chhup jata hai.',
+      'Chat mein number, email ya link bhejna mana hai: aisa paigham jata hi nahi.',
     ],
     tips: [
       'Order confirm hone ke 48 ghante ke andar courier ko dena zaroori hai.',

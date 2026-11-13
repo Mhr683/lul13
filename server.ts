@@ -42,6 +42,7 @@ import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/s
 import { createCatalogStore } from './server/catalogStore';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
+import { registerOrderChatRoutes } from './server/orderChat';
 import { registerProductExtrasRoutes } from './server/productExtras';
 import { cleanProductInfo } from './src/services/productInfo';
 import { registerFollowRoutes } from './server/follows';
@@ -4573,6 +4574,16 @@ registerFeedbackRoutes(app, {
   limitPerIp,
   callerUid: callerUidOf,
   storeMedia,
+});
+
+// Order chat between the customer and the seller (open while the order runs; no contact details)
+registerOrderChatRoutes(app, {
+  adminDb,
+  requireSeller: marketplace.requireSeller,
+  requireAdmin,
+  callerUid: callerUidOf,
+  limitPerIp,
+  HOUSE_SELLER_ID,
 });
 
 // Product page extras: back-in-stock alerts, questions & answers, bought together

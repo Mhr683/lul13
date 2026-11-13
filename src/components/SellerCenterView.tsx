@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { SellerAiAssistant } from './SellerAiAssistant';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
+import { OrderChat } from './OrderChat';
 import { ProductInfoEditor } from './ProductInfoEditor';
 import { SellerOnboardingWizard } from './SellerOnboardingWizard';
 import { ProductShippingEditor, emptyShipping, shippingFormOf, type ShippingForm } from './ProductShippingEditor';
@@ -1473,7 +1474,7 @@ const DashboardTab: React.FC<{ onGo: (t: Tab) => void; seller: SellerShop }> = (
       </div>
       <div className="p-4 bg-white border border-black/10 text-xs text-[#454441] space-y-1">
         <strong className="block text-[#141413]">When an order comes in <HelpDot id="seller.order.flow" /></strong>
-        <p>1. Call / WhatsApp the customer to confirm, then press <strong>Confirm</strong>.</p>
+        <p>1. Check the order (ask the customer in the order chat if anything is unclear), then press <strong>Confirm</strong>.</p>
         <p>2. Pack the item, then press <strong>Packed</strong>.</p>
         <p>3. Hand the parcel to the courier, enter the courier and tracking number, then press <strong>Ship</strong>.</p>
         <p>4. When the courier delivers it, press <strong>Delivered</strong>. Your earning then becomes ready for payout.</p>
@@ -1490,11 +1491,14 @@ const OrdersTab: React.FC = () => {
   const [filter, setFilter] = useState<'OPEN' | 'SHIPPED' | 'DONE' | 'ALL'>('OPEN');
   const [busy, setBusy] = useState<string | null>(null);
 
+  // New customer messages per order (order chat)
+  const [chatUnread, setChatUnread] = useState<Record<string, number>>({});
   const load = useCallback(async () => {
     try {
-      const d = await api('/api/seller/orders');
+      const [d, u] = await Promise.all([api('/api/seller/orders'), api('/api/seller/order-chats/unread').catch(() => ({ unread: {} }))]);
       memo.orders = d.orders;
       setOrders(d.orders);
+      setChatUnread(u.unread || {});
     } catch (err: any) {
       showToast(err.message);
       setOrders((o) => o || []);
@@ -1565,7 +1569,14 @@ const OrdersTab: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {visible.map((o) => (
-            <SellerOrderCard key={o.id} order={o} busy={busy === o.id} act={act} />
+            <SellerOrderCard
+              key={o.id}
+              order={o}
+              busy={busy === o.id}
+              act={act}
+              chatUnread={chatUnread[o.id] || 0}
+              onChatRead={() => setChatUnread((u) => ({ ...u, [o.id]: 0 }))}
+            />
           ))}
         </div>
       )}
@@ -1596,7 +1607,9 @@ const SellerOrderCard: React.FC<{
   order: SellerOrder;
   busy: boolean;
   act: (o: SellerOrder, body: Record<string, any>, path?: string) => Promise<void>;
-}> = ({ order: o, busy, act }) => {
+  chatUnread: number;
+  onChatRead: () => void;
+}> = ({ order: o, busy, act, chatUnread, onChatRead }) => {
   const { settings, showToast } = useStore();
   const [courier, setCourier] = useState(o.courierName || 'TCS');
   const [tracking, setTracking] = useState(o.trackingNumber || '');
@@ -1614,13 +1627,6 @@ const SellerOrderCard: React.FC<{
   });
   const profit = (Number(o.sellerEarning) || 0) - (Number(o.supplierCost) || 0);
 
-  const confirmText =
-    `Hello ${o.customerName}!\n\n` +
-    `We have received your order #${o.orderNumber} at ${storeName}:\n` +
-    (o.items || []).map((i) => `• ${i.name} x${i.quantity}`).join('\n') +
-    `\n\nTotal: ${formatPKR(o.total)} (${o.paymentMethod === 'COD' ? 'Cash on Delivery' : o.paymentMethod})\n` +
-    `Address: ${o.shippingAddressSummary || ''}\n\nPlease reply "YES" to confirm your order. Thank you!`;
-
   // Text to paste into the supplier's portal / WhatsApp when forwarding a dropshipping order
   const supplierText =
     `Order ${o.orderNumber}\n` +
@@ -1630,7 +1636,7 @@ const SellerOrderCard: React.FC<{
         return `• ${i.name} x${i.quantity}${s?.supplierSku ? ` (SKU ${s.supplierSku})` : ''}${s?.supplierProductUrl ? `\n  ${s.supplierProductUrl}` : ''}`;
       })
       .join('\n') +
-    `\n\nDeliver to: ${o.customerName}, ${o.customerPhone}\n${o.shippingAddressSummary || ''}\n` +
+    `\n\nDeliver to: ${o.customerName}, ${o.customerPhone || '(phone shows after you press "Sent to supplier")'}\n${o.shippingAddressSummary || ''}\n` +
     (o.paymentMethod === 'COD' ? `Collect cash on delivery: ${formatPKR(o.total)}\n` : 'Prepaid, do not collect cash\n');
 
   const copySupplierText = async () => {
@@ -1679,9 +1685,15 @@ const SellerOrderCard: React.FC<{
           <div className="space-y-1">
             <div className={ui.label}>Customer</div>
             <div className="font-semibold text-[13px]">{o.customerName}</div>
-            <a href={`tel:${o.customerPhone}`} className="font-mono text-[#0E7A43] font-semibold">
-              {o.customerPhone}
-            </a>
+            {o.customerPhone ? (
+              <a href={`tel:${o.customerPhone}`} className="font-mono text-[#0E7A43] font-semibold">
+                {o.customerPhone}
+              </a>
+            ) : (
+              <div className="text-[#8A8780] flex items-center gap-1">
+                📵 Phone shows after you press <strong>Packed</strong> <HelpDot id="seller.order.chat" />
+              </div>
+            )}
             <div className="text-[#6B6963] leading-relaxed">{o.shippingAddressSummary}</div>
           </div>
           <div className="space-y-2">
@@ -1745,6 +1757,9 @@ const SellerOrderCard: React.FC<{
             {o.payoutId && <div className="text-emerald-800 font-semibold">✓ {o.payoutId === 'OWN_SHOP' ? 'Settled' : 'Paid out'}</div>}
           </div>
         </div>
+
+        {/* Chat with the customer while the order runs (no phone numbers / links: server/orderChat.ts) */}
+        <OrderChat mode="seller" orderId={o.id} customerName={o.customerName} unread={chatUnread} onRead={onChatRead} />
 
         {hasSupplier && !closed && !shipped && (
           <div className="p-3 rounded-xl bg-violet-50 border border-violet-200 space-y-2">
@@ -1859,9 +1874,6 @@ const SellerOrderCard: React.FC<{
                   <button type="button" disabled={busy} onClick={() => act(o, { status: 'CONFIRMED' })} className={ui.primary}>
                     ✓ Confirm order
                   </button>
-                  <a href={whatsAppLink(o.customerPhone, confirmText)} target="_blank" rel="noopener noreferrer" className={ui.whatsapp}>
-                    Confirm on WhatsApp
-                  </a>
                 </>
               )}
               {canPack && (
@@ -1897,18 +1909,6 @@ const SellerOrderCard: React.FC<{
                       onClick: () => {
                         const location = window.prompt('Where is the parcel now? (e.g. "Lahore hub")');
                         if (location && location.trim()) act(o, { location: location.trim() }, '/api/seller/orders/event');
-                      },
-                    },
-                    {
-                      label: (
-                        <>
-                          <MessageSquare className="w-4 h-4" /> Message the customer
-                        </>
-                      ),
-                      disabled: busy,
-                      onClick: () => {
-                        const note = window.prompt('Message to the customer:');
-                        if (note && note.trim()) act(o, { note: note.trim() }, '/api/seller/orders/event');
                       },
                     },
                     !shipped && {

@@ -47,6 +47,7 @@ import { Product, PaymentMethod, Order } from '../types/store';
 import { ProductImage } from './ProductImage';
 import { OrderTimeline } from './OrderTimeline';
 import { CustomerNotificationsBell } from './CustomerNotificationsBell';
+import { OrderChat } from './OrderChat';
 import { rememberOrder, tokenForOrder } from '../services/myOrders';
 import { GlobalHeaderSearch } from './GlobalHeaderSearch';
 import { HeaderNavDropdowns } from './HeaderNavDropdowns';
@@ -5054,6 +5055,9 @@ export const StorefrontView: React.FC = () => {
 
                       {/* Cancel within the free-cancel time, or ask the seller (src/services/cancelPolicy.ts) */}
                       <OrderCancelBox order={order} token={order.orderAccessToken || tokenForOrder(order.orderNumber)} onDone={(m) => showToast?.(m)} />
+
+                      {/* Chat with the seller while the order runs (server/orderChat.ts) */}
+                      <OrderChat mode="customer" orderNumber={order.orderNumber} token={order.orderAccessToken || tokenForOrder(order.orderNumber) || ''} />
 
                       {/* Order Fulfillment Stepper Timeline */}
                       <div className="grid grid-cols-5 gap-2 pt-2">

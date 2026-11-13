@@ -41,7 +41,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     what: 'Har order ko Confirm → Packed → Ship → Delivered tak le jayein.',
     steps: [
       'Orders tab kholein. Upar filter se "naye", "ship karne wale" waghera chunein.',
-      'Naye order par customer ko "Confirm on WhatsApp" se tasdeeq karein, phir "✓ Confirm" dabayein.',
+      'Naya order dekhein. Customer se kuch poochhna ho to order card ke "💬 Chat" mein likhein, phir "✓ Confirm" dabayein.',
       'Parcel pack ho jaye to "📦 Packed" dabayein.',
       'Courier connected ho to "Book & ship" dabayein: tracking number khud aa jata hai. Warna courier chun kar tracking number likhein aur "Ship" dabayein.',
       'Customer ko "Send tracking on WhatsApp" se tracking bhej dein.',
@@ -329,7 +329,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
   'seller.order.flow': {
     title: 'Order aane par kya karein',
     steps: [
-      'Confirm: customer se WhatsApp par tasdeeq karein, phir "✓ Confirm".',
+      'Confirm: order dekhein; kuch poochhna ho to order card ke "💬 Chat" mein customer se poochhein, phir "✓ Confirm".',
       'Packed: parcel tayyar ho to "📦 Packed".',
       'Ship: courier ko dein aur tracking ke saath "Ship" (ya "Book & ship").',
       'Delivered: pahunch jaye to "✓ Delivered".',
@@ -356,6 +356,22 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Rider aap ke pickup address se parcel le jata hai. Delivery ki khabar khud aati rehti hai.',
     ],
     tips: ['COD ki raqam booking mein khud lag jati hai.'],
+  },
+  'seller.order.chat': {
+    title: 'Customer se chat aur customer ka number',
+    what: 'Har order par customer se chat hoti hai. Order khatam (delivered / cancel / return) to chat band. Customer ka number "Packed" dabane ke baad hi dikhta hai.',
+    steps: [
+      'Order card par hara "💬 Chat with ..." dabayein. Naye paigham par laal "new" likha hota hai.',
+      'Paigham likh kar bhejein. Customer ko apne order ke page par nazar aata hai.',
+      'Parcel tayyar ho to "📦 Mark as packed" dabayein: tab customer ka phone number courier ke liye nazar aa jata hai.',
+      'Parcel deliver hone par number aur chat dono band ho jate hain.',
+    ],
+    tips: [
+      'Chat mein phone number, email, link, "WhatsApp karo / call karo" likhna mana hai: aisa paigham jata hi nahi aur store ko pata chal jata hai.',
+      'Store se bahar deal karna Seller Rules ke khilaf hai: is mein na customer ki hifazat hai na aap ke paise ki.',
+      'Doosri app (Oshi, YourMart...) wale order par number "✓ Sent to supplier" dabane ke baad dikhta hai, taake supplier ko pata de saken.',
+      'Customer ka email seller ko kabhi nahi dikhta.',
+    ],
   },
   'seller.order.cancelRequest': {
     title: 'Customer ki cancel darkhwast',
