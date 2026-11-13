@@ -405,7 +405,8 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Parcel deliver hone par number aur chat dono band ho jate hain.',
       'Aap mojood na hon to "🤖 AI" aap ki taraf se customer ko foran jawab deta hai: order accept hua ya nahi, der kyun, order kahan hai (courier aur tracking number), cancel kaise hota hai. Us ke jawab par "🤖 AI replied for you" likha hota hai.',
       'AI kabhi bank / JazzCash / Easypaisa account ya koi number nahi deta, kabhi order cancel nahi karta aur refund ya delivery ki tareekh ka waada nahi karta: sirf store ke buttons aur qaanoon batata hai.',
-      'Aap khud jawab dein to AI 30 minute chup rehta hai. Band karna ho to chat ke upar "🤖 AI replies when I am away" ka tick hata dein.',
+      'Aap khud jawab dein to AI 30 minute chup rehta hai. Band / chalu karna ho to Orders page ke sab se upar (ya kisi chat ke upar) "🤖 AI replies..." ka tick lagayein ya hatayein.',
+      'Chat sirf chalte hue order par khulti hai (cancel / deliver hone ke baad band). AI ka jawab dekhne ke liye naya test order lagayein.',
     ],
     tips: [
       'Apni AI key (AI Assistant tab) ho to AI ke jawab us se bante hain aur zyada achhe hote hain; key na ho to store ka AI roz mehdood jawab deta hai, phir tayyar jawab chalte hain.',

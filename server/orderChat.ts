@@ -384,6 +384,10 @@ export function registerOrderChatRoutes(app: express.Express, d: OrderChatDeps) 
   });
 
   // The seller's switch: "AI replies to customers when I am away"
+  app.get('/api/seller/order-chat-ai', d.requireSeller, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, aiOn: await aiOn((req as any).user.uid) });
+  });
   app.post('/api/seller/order-chat-ai', d.requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     const on = req.body?.on !== false;

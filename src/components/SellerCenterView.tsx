@@ -1624,6 +1624,44 @@ const AlertsSetupCard: React.FC = () => {
   );
 };
 
+// "AI replies to customers when I am away": always on top of Orders, also when there is no order yet
+const ChatAiSwitch: React.FC = () => {
+  const { showToast } = useStore();
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    api('/api/seller/order-chat-ai')
+      .then((d) => setOn(d.aiOn !== false))
+      .catch(() => setOn(null));
+  }, []);
+  if (on === null) return null;
+  return (
+    <label className="flex items-start gap-3 p-3.5 rounded-xl bg-violet-50 border border-violet-200 text-[12.5px] text-violet-950 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={async (e) => {
+          const next = e.target.checked;
+          setOn(next);
+          try {
+            await api('/api/seller/order-chat-ai', { method: 'POST', body: JSON.stringify({ on: next }) });
+            showToast(next ? '🤖 AI will answer your customers when you are away.' : 'AI replies are off. Only you answer the order chats.');
+          } catch (err: any) {
+            setOn(!next);
+            showToast(err.message);
+          }
+        }}
+        className="mt-0.5 w-4 h-4 accent-violet-700 shrink-0"
+      />
+      <span className="flex-1">
+        <strong className="block text-[13px]">🤖 AI replies to my customers when I am away {on ? '(On)' : '(Off)'}</strong>
+        In the order chat it answers "is my order accepted?", "why so late?", "where is my order?" and how cancelling works. It never shares bank
+        details or numbers and never cancels an order. It stays quiet for 30 minutes after you write.
+      </span>
+      <HelpDot id="seller.order.chat" />
+    </label>
+  );
+};
+
 const OrdersTab: React.FC<{ refreshKey?: string }> = ({ refreshKey }) => {
   const { showToast } = useStore();
   const [orders, setOrders] = useState<SellerOrder[] | null>(memo.orders || null);
@@ -1688,6 +1726,7 @@ const OrdersTab: React.FC<{ refreshKey?: string }> = ({ refreshKey }) => {
 
   return (
     <div className="space-y-4">
+      <ChatAiSwitch />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SegTabs
           value={filter}
