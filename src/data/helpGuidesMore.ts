@@ -409,11 +409,12 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     what: 'Dukaan ka naam, tasveer, mobile, shehar, pata aur payout ka bank / wallet.',
     steps: [
       'Menu mein "Account → Profile" (ya upar apni tasveer → "Profile & payout") kholein.',
+      '"Shop" hisse mein naam ke neeche aap ka commission %, shehar aur followers ki ginti likhi hoti hai.',
       'Tasveer: "Add picture / Change picture".',
       'Dukaan ka naam: "Shop name" mein naya naam aur "Change name" (us ka apna ? dekhein).',
       'Mobile, City aur Address sahi likhein: courier yahin se parcel uthata hai.',
       'Bank / wallet, Account title aur Account number / IBAN: payouts yahin aate hain.',
-      'Neeche Save dabayein (naam ka apna button hai).',
+      'Neeche "Save changes" dabayein (naam ka apna button hai).',
     ],
   },
 

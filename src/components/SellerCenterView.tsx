@@ -687,7 +687,7 @@ export const SellerCenterView: React.FC = () => {
       {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} onTab={(t) => setTab(t as Tab)} />}
       {tab === 'PROFILE' &&
         (sellerPrivate ? (
-          <ProfileTab seller={seller} privateData={sellerPrivate} onSaved={loadMe} />
+          <ProfileTab seller={seller} privateData={sellerPrivate} onSaved={loadMe} commissionPercent={commissionPercent ?? 0} followers={followers} />
         ) : (
           <Loading text="Loading your profile..." />
         ))}
@@ -3739,10 +3739,12 @@ const ShopNameEditor: React.FC<{ seller: SellerShop; onSaved: () => void }> = ({
   );
 };
 
-const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onSaved: () => void }> = ({
+const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onSaved: () => void; commissionPercent: number; followers: number }> = ({
   seller,
   privateData,
   onSaved,
+  commissionPercent,
+  followers,
 }) => {
   const { showToast, firebaseUser } = useStore();
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -3797,6 +3799,14 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
           <div>
             <div className="text-[15px] font-bold text-[#141413]">{seller.shopName}</div>
             {seller.ownerEmail}
+          </div>
+          {/* Commission, city and followers (shown here instead of on every page) */}
+          <div className="flex flex-wrap gap-1.5">
+            <span className={`${ui.chip} ${chipTone.green}`}>Commission {commissionPercent}%</span>
+            {seller.city && <span className={`${ui.chip} ${chipTone.grey}`}>📍 {seller.city}</span>}
+            <span className={`${ui.chip} ${chipTone.blue}`}>
+              {followers.toLocaleString('en-PK')} {followers === 1 ? 'follower' : 'followers'}
+            </span>
           </div>
           <div className="flex flex-wrap gap-2">
             <label className={`${ui.dark} ${photoBusy ? 'opacity-50 pointer-events-none' : ''}`}>
