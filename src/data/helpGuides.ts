@@ -367,8 +367,9 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     steps: [
       'Profile kholein aur "Social media" hissa dekhein.',
       'Jis platform par aap ka page hai us ke khane mein page ka link paste karein (jaise facebook.com/aapkipage). Link app mein "Share" → "Copy link" se milta hai.',
-      'List mein na ho (Pinterest, Snapchat, Threads, website...) to "Add another link" dabayein: naam aur link likhein.',
-      '"Save links" dabayein. Ghalat link par laal likhai batati hai kya theek karna hai. Hatana ho to khana khali karke Save karein.',
+      'Usi khane ke saath hara "Connect" button dabayein: link foran save ho jata hai aur button ki jagah "✓ Connected" aa jata hai.',
+      'List mein na ho (Pinterest, Snapchat, Threads, website...) to "Add another link" dabayein: naam aur link likh kar uske saath "Connect" dabayein.',
+      'Ghalat link par laal likhai batati hai kya theek karna hai. Hatana ho to khana khali karein aur laal "Remove" dabayein (other links mein ✕).',
       '"Share my shop" se poori dukaan ka link kisi bhi app par bhejein.',
       'Product share karne ke liye Products mein "Share" dabayein: WhatsApp, Facebook, X, Telegram seedha khulte hain; Instagram, TikTok, YouTube ke liye caption aur link copy ho jata hai, app mein paste kar dein.',
     ],
