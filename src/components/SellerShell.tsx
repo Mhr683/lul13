@@ -214,7 +214,7 @@ export const SellerShell: React.FC<{
                 <h1 className="text-[22px] sm:text-2xl font-bold tracking-tight flex items-center gap-2">
                   {p.page.title} {p.page.help && <HelpDot id={p.page.help} />}
                 </h1>
-                <p className="text-[13px] text-[#6B6963] mt-0.5">{p.page.description}</p>
+                {p.page.description && <p className="text-[13px] text-[#6B6963] mt-0.5">{p.page.description}</p>}
               </div>
               <div className="text-[11px] text-[#8A8780]">{p.subtitle}</div>
             </div>

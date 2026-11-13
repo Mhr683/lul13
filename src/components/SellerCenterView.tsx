@@ -549,7 +549,7 @@ export const SellerCenterView: React.FC = () => {
 
   // Each page's title, one-line explanation and "?" guide (shown in the page header)
   const PAGES: Record<string, { title: string; description: string; help?: string }> = {
-    DASHBOARD: { title: 'Dashboard', description: 'Today at a glance: orders to ship, payouts, stock and what to improve.', help: 'seller.tab.DASHBOARD' },
+    DASHBOARD: { title: 'Dashboard', description: '', help: 'seller.tab.DASHBOARD' },
     ORDERS: { title: 'Orders', description: 'Confirm, pack, ship and deliver your orders.', help: 'seller.tab.ORDERS' },
     RETURNS: { title: 'Returns', description: 'Return requests from customers and your side of the story.', help: 'seller.tab.RETURNS' },
     PRODUCTS: { title: 'Products', description: 'Add, edit and bulk-upload the products of your shop.', help: 'seller.tab.PRODUCTS' },
