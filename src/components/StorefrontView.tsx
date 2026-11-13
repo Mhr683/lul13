@@ -1774,7 +1774,8 @@ export const StorefrontView: React.FC = () => {
                 }}
                 className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
               >
-                <span>Helpline</span>
+                {/* One entry for all help: AI chat, WhatsApp, e-mail (the Contact Us page stays in the footer) */}
+                <span>Helpline &amp; WhatsApp</span>
                 <Headphones className="w-4 h-4 text-emerald-600" />
               </button>
 
@@ -1855,19 +1856,6 @@ export const StorefrontView: React.FC = () => {
                 About Us
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setSubView('CONTACT_US');
-                  window.history.pushState({ inSite: true, y: 0 }, '', '#contact');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
-              >
-                <span>Contact &amp; WhatsApp Support</span>
-                <MessageCircle className="w-4 h-4 text-emerald-600" />
-              </button>
 
               {/* Mobile Legal & Customer Care Policies */}
               <div className="pt-2 border-t border-neutral-100 space-y-1">
