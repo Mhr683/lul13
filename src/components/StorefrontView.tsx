@@ -1468,9 +1468,9 @@ export const StorefrontView: React.FC = () => {
           <button
             type="button"
             onClick={openTrackPage}
-            className="text-amber-300 hover:text-amber-200 font-semibold flex items-center gap-1 cursor-pointer"
+            className="px-2.5 py-0.5 rounded-full bg-amber-400 hover:bg-amber-300 text-[#141413] font-bold flex items-center gap-1 cursor-pointer"
           >
-            <Package className="w-3 h-3" />
+            <Package className="w-3.5 h-3.5" />
             <span>Track order</span>
           </button>
           {/* Phones: the floating help button below already opens Help & Support */}
