@@ -317,6 +317,17 @@ export const StorefrontView: React.FC = () => {
   // URL routing. Every screen has its own address, so the browser's and the phone's back button
   // return to the previous screen (product -> list -> home) instead of leaving the site.
   useEffect(() => {
+    // A refresh always starts again on the home page (a shared link opened for the first time still
+    // goes straight to its product / shop / campaign)
+    try {
+      const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+      if (nav?.type === 'reload' && (window.location.hash || window.location.search || window.location.pathname !== '/')) {
+        window.history.replaceState({ ...(window.history.state || {}), y: 0 }, '', '/');
+        window.scrollTo(0, 0);
+      }
+    } catch {
+      /* old browser: keep the address */
+    }
     // The first history entry of the visit becomes a "leave the store" marker (the home page) with the
     // real entry on top, so the back button asks before leaving. Chrome's back button skips entries a
     // page adds before the visitor has touched it, so the marker is added on the first tap.
