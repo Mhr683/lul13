@@ -20,7 +20,7 @@ export const SOCIAL_PLATFORMS: {
   { id: 'YOUTUBE', label: 'YouTube', color: '#FF0000', hosts: /(^|\.)(youtube\.com|youtu\.be)$/i, example: 'youtube.com/@yourshop' },
   { id: 'TIKTOK', label: 'TikTok', color: '#111111', hosts: /(^|\.)tiktok\.com$/i, example: 'tiktok.com/@yourshop' },
   { id: 'X', label: 'X (Twitter)', color: '#000000', hosts: /(^|\.)(x\.com|twitter\.com)$/i, example: 'x.com/yourshop' },
-  { id: 'TELEGRAM', label: 'Telegram channel', color: '#229ED9', hosts: /(^|\.)(t\.me|telegram\.me)$/i, example: 't.me/yourchannel' },
+  { id: 'TELEGRAM', label: 'Telegram', color: '#229ED9', hosts: /(^|\.)(t\.me|telegram\.me)$/i, example: 't.me/yourchannel' },
   { id: 'WHATSAPP_CHANNEL', label: 'WhatsApp', color: '#25D366', hosts: /(^|\.)(whatsapp\.com|wa\.me)$/i, example: 'wa.me/923001234567 or whatsapp.com/channel/...' },
 ];
 export const MAX_SOCIAL_LINKS = 12;
@@ -62,6 +62,10 @@ export function checkSocialLink(raw: { platform?: string; url?: string; label?: 
   }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return { error: `${what}: this is not a valid link.` };
   u.protocol = 'https:';
+  // "Copy link" in the apps adds tracking bits (?si=, ?igsh=, ?s=20&t=...): keep the clean link
+  for (const k of [...u.searchParams.keys()]) {
+    if (/^(si|igsh|igshid|fbclid|mibextid|utm_\w+|s|t|ref|share_\w+|_r|_t|is_from_webapp|sender_device)$/i.test(k)) u.searchParams.delete(k);
+  }
   const host = u.hostname.toLowerCase().replace(/^www\.|^m\./, '');
   const url = u.toString().slice(0, 300);
   if (platform === 'OTHER') {
