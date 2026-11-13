@@ -66,7 +66,6 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
       content: `Hello! Welcome to ${storeName} support.\n\nI am the store's AI assistant. Ask me about products, payment, delivery or tracking. If you need a person, just say so and our team will reply in this chat.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       suggestedActions: [
-        'Track my order',
         'Payment methods (COD & Bank Transfer)',
         'Delivery & shipping times',
         whatsappNumberFormatted ? `Connect on WhatsApp (${whatsappNumberFormatted})` : 'Contact customer support',
@@ -239,7 +238,6 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
         content: `Assalam o Alaikum! Conversation refreshed. How may I assist your inquiry with ${storeName} today?`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         suggestedActions: [
-          'Track my order',
           'Cash on Delivery rules in Pakistan',
           'WhatsApp support',
           'Return & exchange policy',
@@ -340,7 +338,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     },
     {
       q: 'How do I track my order?',
-      a: 'Open "Track an order" on our website and enter your order number and phone number. If you have an account, your orders are also listed under My Account.',
+      a: 'Tap "Track order" at the very top of our website and enter your order number and phone number. If you have an account, your orders are also listed under My Account.',
     },
     {
       q: 'I received a damaged or wrong item. What should I do?',
@@ -538,13 +536,6 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
             {/* Quick Prompt Bar */}
             <div className="px-4 py-2 border-t border-black/5 bg-[#F6F5F0] flex items-center gap-2 overflow-x-auto scrollbar-none shrink-0 text-[11px]">
               <span className="text-black/60 text-[10px] font-mono shrink-0">Suggestions:</span>
-              <button
-                type="button"
-                onClick={() => handleSendAiMessage('When will my order be dispatched? Track status.')}
-                className="px-2 py-0.5 rounded bg-white border border-black/10 hover:border-black/30 whitespace-nowrap cursor-pointer"
-              >
-                📦 Track Order
-              </button>
               <button
                 type="button"
                 onClick={() => handleSendAiMessage('Is Cash on Delivery available in Lahore or Karachi?')}

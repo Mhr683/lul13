@@ -350,18 +350,10 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                       Need a return or replacement?
                     </h4>
                     <p className="text-xs text-emerald-800 mt-0.5">
-                      Open your delivered order on the tracking page and tap “Return or replace”. You can also reach us on WhatsApp.
+                      Open your delivered order with “Track order” at the very top of the page and tap “Return or replace”. You can also reach us on WhatsApp.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => onNavigate('ORDER_TRACKING')}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-[#141413] text-white text-xs font-semibold rounded cursor-pointer"
-                    >
-                      <Package className="w-4 h-4" />
-                      My orders
-                    </button>
                     <a
                       href={`https://wa.me/${cleanWa}?text=${encodeURIComponent('Assalam-o-Alaikum! I would like to request a return/refund for my order.')}`}
                       target="_blank"
@@ -400,24 +392,6 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
             {page === 'SHIPPING_POLICY' && (
               <div className="space-y-4">
                 {renderFormattedContent(settings.shippingPolicy)}
-                <div className="mt-8 p-5 bg-[#FAF9F5] border border-black/10 rounded flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="text-xs font-bold uppercase tracking-wider text-[#141413]">
-                      Have an existing order in transit?
-                    </div>
-                    <p className="text-xs text-[#575653]">
-                      Check real-time courier consignment status and dispatch timeline.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate('ORDER_TRACKING')}
-                    className="px-5 py-2.5 bg-[#141413] hover:bg-[#2A2A28] text-white text-xs font-semibold rounded shrink-0 cursor-pointer flex items-center gap-2 transition-colors"
-                  >
-                    <Search className="w-4 h-4" />
-                    Track Your Order
-                  </button>
-                </div>
               </div>
             )}
 
@@ -1015,19 +989,6 @@ export const StorePolicyPages: React.FC<StorePolicyPagesProps> = ({
                     }`}
                   >
                     <span>Contact Us</span>
-                    <ChevronRight className="w-3.5 h-3.5 opacity-60" />
-                  </button>
-                </li>
-                <li>
-                  <button
-                    onClick={() => onNavigate('ORDER_TRACKING')}
-                    className={`w-full text-left px-3 py-2 rounded flex items-center justify-between transition-colors cursor-pointer ${
-                      page === 'ORDER_TRACKING'
-                        ? 'bg-[#141413] text-white font-semibold'
-                        : 'text-[#444340] hover:bg-[#FAF9F5]'
-                    }`}
-                  >
-                    <span>Track Your Order</span>
                     <ChevronRight className="w-3.5 h-3.5 opacity-60" />
                   </button>
                 </li>

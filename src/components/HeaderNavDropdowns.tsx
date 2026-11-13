@@ -13,7 +13,6 @@ interface HeaderNavDropdownsProps {
   onSelectCategory: (category: string, subcategory?: string, collection?: string) => void;
   onNavigateHome: () => void;
   onNavigateOffers: () => void;
-  onOpenTrackOrder: () => void;
   onOpenContact: () => void;
   onOpenAbout: () => void;
 }
@@ -27,7 +26,6 @@ export const HeaderNavDropdowns: React.FC<HeaderNavDropdownsProps> = ({
   onSelectCategory,
   onNavigateHome,
   onNavigateOffers,
-  onOpenTrackOrder,
   onOpenContact,
   onOpenAbout,
 }) => {
