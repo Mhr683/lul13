@@ -31,6 +31,9 @@ type AdminSeller = SellerShop & {
 };
 
 async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  // Wait until Firebase has restored the saved sign-in: right after the app opens (often on a fast
+  // laptop) the request otherwise went out without the admin's token and failed
+  await auth.authStateReady();
   const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
   const res = await fetch(path, {
     ...init,
@@ -64,14 +67,17 @@ export const AdminSellersPanel: React.FC = () => {
 
   // The last list that loaded is kept on this device and shown when the database cannot answer
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
   const load = useCallback(async () => {
     try {
-      const [s, p] = await Promise.all([api('/api/admin/sellers'), api('/api/admin/payouts')]);
+      // The payouts list failing must not hide the sellers
+      const [s, p] = await Promise.all([api('/api/admin/sellers'), api('/api/admin/payouts').catch(() => ({ payouts: [] }))]);
       setSellers(s.sellers);
       setDefaultCommission(s.defaultCommission);
       setCommissionDraft(String(s.defaultCommission));
       setPayouts(p.payouts);
       setSavedAt(null);
+      setLoadError('');
       try {
         localStorage.setItem(
           SELLERS_CACHE_KEY,
@@ -80,6 +86,7 @@ export const AdminSellersPanel: React.FC = () => {
       } catch {}
     } catch (err: any) {
       showToast(err.message);
+      setLoadError(err.message || '');
       let cached: any = null;
       try {
         cached = JSON.parse(localStorage.getItem(SELLERS_CACHE_KEY) || 'null');
@@ -198,10 +205,18 @@ export const AdminSellersPanel: React.FC = () => {
       </div>
 
       {savedAt && (
-        <div className="p-3 bg-amber-50 border border-amber-400 text-amber-950 text-xs">
-          {savedAt === 'never'
-            ? 'The seller list could not be loaded right now (the database may have reached its daily limit, which resets at 12:00 noon Pakistan time). Press Refresh later.'
-            : `Showing the list saved on ${new Date(savedAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}; the database could not answer right now (daily limit resets at 12:00 noon Pakistan time).`}
+        <div className="p-3 bg-amber-50 border-2 border-amber-500 text-amber-950 text-xs flex flex-wrap items-center gap-3">
+          <span className="flex-1 min-w-[200px]">
+            <strong>
+              {savedAt === 'never'
+                ? 'The seller list could not be loaded.'
+                : `OLD LIST: saved on ${new Date(savedAt).toLocaleString('en-PK', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}. New sellers may be missing.`}
+            </strong>{' '}
+            Reason: {loadError || 'the server did not answer'}.
+          </span>
+          <button type="button" onClick={load} className="px-3 py-1.5 bg-amber-600 text-white font-semibold cursor-pointer">
+            Try again
+          </button>
         </div>
       )}
 

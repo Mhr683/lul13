@@ -3,6 +3,8 @@ import { auth } from '../lib/firebase';
 // Browser side of the courier connection (server/couriers.ts)
 
 export async function courierApi<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+  // Loaded as soon as the Orders page opens: wait for the saved sign-in first
+  await auth.authStateReady();
   const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
   const res = await fetch(path, {
     ...init,
