@@ -1006,6 +1006,12 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
           const changes: Record<string, any> = {};
           if (money(old.price) !== f.price) changes.price = f.price;
           if (money(old.compareAtPrice) !== compareAtPrice) changes.compareAtPrice = compareAtPrice;
+          // Photos sent with the file go on products that have none yet (pictures already there are kept)
+          const oldHasPicture = !!old.primaryImage || (Array.isArray(old.images) && old.images.length > 0);
+          if (!oldHasPicture && f.primaryImage) {
+            changes.primaryImage = f.primaryImage;
+            changes.images = f.images?.length ? f.images : [f.primaryImage];
+          }
           const supplier = readSupplier(rows[i] || {});
           const current = d.supplierOf(match.id) || {};
           const supplierChanged =

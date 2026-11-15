@@ -51,7 +51,7 @@ import { famousBrandIn } from '../services/brandRules';
 import { CategoryPicker, VariantsEditor, type VariantRow } from './SellerListingFields';
 import { groupOfCategory, suggestCategories } from '../data/productCategories';
 import { DIRECT_SOURCE, SOURCE_APPS, isDirectSource, normalizeSource } from '../services/productSource';
-import { fixLink } from './ProductMediaEditor';
+import { fixLink, shrinkImage, MAX_IMAGES } from './ProductMediaEditor';
 import { ShareProductButton, storeOrigin } from './ShareProductButton';
 import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services/vendorRules';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
@@ -59,7 +59,7 @@ import { callingCodeOf } from '../services/intlAddress';
 import { ShopCoachReport, type Coach } from './ShopCoachReport';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
-import { SELLER_CSV_TEMPLATE, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
+import { SELLER_CSV_TEMPLATE, matchPhotos, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AuthPanel } from './AuthPanel';
@@ -3376,6 +3376,24 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   const ready = prepared.filter((r) => !r.problem);
   const skipped = prepared.length - ready.length;
 
+  // Product photos chosen together with the file, matched to its lines by file name (see matchPhotos)
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoProgress, setPhotoProgress] = useState<{ done: number; total: number } | null>(null);
+  const photoMatch = useMemo(() => matchPhotos(rows, photos), [rows, photos]);
+  const thumbs = useMemo(() => {
+    const m = new Map<number, string>();
+    photoMatch.byRow.forEach((list, row) => m.set(row, URL.createObjectURL(list[0])));
+    return m;
+  }, [photoMatch]);
+  useEffect(() => () => thumbs.forEach((u) => URL.revokeObjectURL(u)), [thumbs]);
+  const rowsWithPhotos = ready.filter((r) => photoMatch.byRow.has(r.row)).length;
+  const addPhotos = (list: FileList | null) => {
+    const picked = Array.from(list || []).filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name));
+    if (!picked.length) return;
+    setResult(null);
+    setPhotos((prev) => [...prev.filter((p) => !picked.some((n) => n.name === p.name)), ...picked]);
+  };
+
   const readFile = async (file: File) => {
     setResult(null);
     if (file.size > 15 * 1024 * 1024) {
@@ -3397,6 +3415,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
       setFileHash('');
     }
     setFileName(file.name);
+    setPhotos([]);
     setRows(parsed.rows);
   };
 
@@ -3415,15 +3434,53 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
     const total = ready.length;
     const sum = { created: 0, updated: 0, unchanged: 0, errors: [] as { row: number; error: string }[] };
     let held = 0;
+    // Photos first: each one is uploaded and its link goes on its product line
+    const pictures = new Map<number, string[]>();
+    const toSend = ready.filter((r) => photoMatch.byRow.has(r.row));
+    const photoTotal = toSend.reduce((s, r) => s + Math.min(MAX_IMAGES, photoMatch.byRow.get(r.row)!.length), 0);
+    if (photoTotal) {
+      let done = 0;
+      setPhotoProgress({ done, total: photoTotal });
+      try {
+        for (const r of toSend) {
+          const urls: string[] = [];
+          for (const f of photoMatch.byRow.get(r.row)!.slice(0, MAX_IMAGES)) {
+            urls.push(await uploadMedia(await shrinkImage(f)));
+            setPhotoProgress({ done: ++done, total: photoTotal });
+          }
+          pictures.set(r.row, urls);
+        }
+      } catch (err: any) {
+        showToast(`Photos could not be uploaded: ${err.message} Nothing was listed; try again.`);
+        return;
+      } finally {
+        setPhotoProgress(null);
+      }
+    }
+    // The same file with photos added counts as a new upload (it puts pictures on products that have none)
+    let hashToSend = fileHash;
+    if (photoTotal && fileHash) {
+      try {
+        const sig = fileHash + '|' + photos.map((p) => `${p.name}:${p.size}`).sort().join('|');
+        const dg = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sig));
+        hashToSend = Array.from(new Uint8Array(dg), (b) => b.toString(16).padStart(2, '0')).join('');
+      } catch {}
+    }
     setProgress({ done: 0, total });
     try {
       for (let i = 0; i < total; i += BULK_CHUNK) {
-        const chunk = ready.slice(i, i + BULK_CHUNK).map(({ problem, ...r }) => r);
+        const chunk = ready.slice(i, i + BULK_CHUNK).map(({ problem, ...r }) => {
+          const urls = pictures.get(r.row);
+          if (!urls?.length) return r;
+          // A link already in the file stays the main picture, the chosen photos follow it
+          const images = Array.from(new Set([r.primaryImage, ...urls].filter(Boolean))).slice(0, MAX_IMAGES);
+          return { ...r, primaryImage: images[0], images };
+        });
         const d = await api('/api/seller/products/bulk', {
           method: 'POST',
           body: JSON.stringify({
             products: chunk,
-            fileHash,
+            fileHash: hashToSend,
             fileName,
             defaultSource,
             totalRows: total,
@@ -3483,6 +3540,11 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
         <p>
           <strong>No double listings:</strong> the same file cannot be uploaded twice. A product already in your shop (same sku, name or source link) is
           not listed again: only its price is updated when it changed.
+        </p>
+        <p>
+          <strong>Photos:</strong> after choosing the file, tap <strong>Choose photos</strong> and pick all product photos at once. Name each photo like
+          the product's sku (or 1.jpg, 2.jpg in the file's order); they are uploaded with the products. Products already in your shop without a picture
+          get theirs too.
         </p>
       </HowItWorks>
 
@@ -3553,6 +3615,47 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
             )}
           </div>
 
+          <div className={`p-3.5 rounded-xl border-2 ${photos.length ? 'border-emerald-300 bg-emerald-50/50' : 'border-dashed border-[#C9C6BE] bg-[#FBFBF9]'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-bold text-[13px] text-[#141413]">Product photos (optional)</p>
+                <p className="text-[11.5px] text-[#575653]">
+                  Name each photo like its product's <strong>sku</strong> (BKH-01.jpg), or <strong>1.jpg, 2.jpg</strong> in the file's order. More
+                  photos of one product: BKH-01-2.jpg, BKH-01-3.jpg.
+                </p>
+              </div>
+              <label className={`${ui.secondary} cursor-pointer`}>
+                <Camera className="w-3.5 h-3.5" /> {photos.length ? 'Add more photos' : 'Choose photos'}
+                <input
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    addPhotos(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+            {photos.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+                <span className={`${ui.chip} ${chipTone.green}`}>
+                  📷 {photos.length - photoMatch.unmatched.length} photos → {rowsWithPhotos} of {ready.length} products
+                </span>
+                {photoMatch.unmatched.length > 0 && (
+                  <span className={`${ui.chip} ${chipTone.red}`} title={photoMatch.unmatched.map((p) => p.name).join(', ')}>
+                    {photoMatch.unmatched.length} not matched: {photoMatch.unmatched.slice(0, 3).map((p) => p.name).join(', ')}
+                    {photoMatch.unmatched.length > 3 ? '…' : ''}
+                  </span>
+                )}
+                <button type="button" onClick={() => setPhotos([])} className="text-[11.5px] font-semibold text-[#575653] underline cursor-pointer">
+                  Remove photos
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <span className={`${ui.chip} ${chipTone.green} !text-[12px] !px-3 !py-1`}>✓ {ready.length} products ready</span>
             {skipped > 0 && <span className={`${ui.chip} ${chipTone.red} !text-[12px] !px-3 !py-1`}>{skipped} will be skipped (reason in the table)</span>}
@@ -3576,7 +3679,18 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
                   <tr key={r.row} className={`border-t border-[#EFEDE8] ${r.problem ? 'bg-rose-50' : ''}`}>
                     <td className="p-2 font-mono">{r.row}</td>
                     <td className="p-2">
-                      {r.primaryImage ? <img src={r.primaryImage} alt="" className="w-9 h-9 rounded-md object-cover" loading="lazy" decoding="async" /> : '—'}
+                      {thumbs.get(r.row) || r.primaryImage ? (
+                        <span className="relative inline-block">
+                          <img src={thumbs.get(r.row) || r.primaryImage} alt="" className="w-9 h-9 rounded-md object-cover" loading="lazy" decoding="async" />
+                          {(photoMatch.byRow.get(r.row)?.length || 0) > 1 && (
+                            <span className="absolute -top-1 -right-1 px-1 rounded bg-[#141413] text-white text-[9px] font-bold">
+                              {photoMatch.byRow.get(r.row)!.length}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="p-2 max-w-[220px] truncate">{r.name || '—'}</td>
                     <td className="p-2 font-mono">{r.price ? formatPKR(r.price) : '—'}</td>
@@ -3592,11 +3706,15 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
 
           <button
             type="button"
-            disabled={!ready.length || !!progress}
+            disabled={!ready.length || !!progress || !!photoProgress}
             onClick={upload}
             className={`${ui.primary} w-full !py-2.5 !text-[13px]`}
           >
-            {progress ? `Uploading... ${progress.done} / ${progress.total}` : `Upload ${ready.length} products`}
+            {photoProgress
+              ? `Uploading photos... ${photoProgress.done} / ${photoProgress.total}`
+              : progress
+              ? `Uploading... ${progress.done} / ${progress.total}`
+              : `Upload ${ready.length} products${rowsWithPhotos ? ` with photos` : ''}`}
           </button>
         </>
       )}

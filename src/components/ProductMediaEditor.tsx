@@ -8,7 +8,7 @@ import { HelpDot } from './HelpDot';
 export const MAX_IMAGES = 8;
 
 // Large phone photos are shrunk in the browser (longest side 1600 px, JPEG) before upload
-async function shrinkImage(file: File): Promise<Blob> {
+export async function shrinkImage(file: File): Promise<Blob> {
   if (file.size < 350 * 1024 || file.type === 'image/gif') return file;
   const url = URL.createObjectURL(file);
   try {

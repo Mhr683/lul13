@@ -26,6 +26,7 @@ export interface SellerCsvRow {
   supplierCostPrice: number;
   supplierProductUrl: string;
   supplierSku: string;
+  imageName: string;
   problem: string;
 }
 
@@ -146,8 +147,50 @@ export function parseSellerCsv(raw: string, usdToPkrRate: number): { rows: Selle
       })(),
       supplierProductUrl: (cell(cells, c.supplierLink).match(/https?:\/\/\S+/) || [''])[0].slice(0, 980),
       supplierSku: cell(cells, c.supplierSku).slice(0, 80),
+      // A photo's file name in the image column (e.g. "suit-01.jpg"), matched to photos chosen with the file
+      imageName: (cell(cells, c.image).split(/[,|;]+/).map((s) => s.trim()).find((u) => u && !/^https?:\/\//i.test(u)) || '')
+        .split(/[\\/]/)
+        .pop()!
+        .slice(0, 120),
       problem,
     });
   }
   return { rows };
+}
+
+// ---------------------------------------------------------------- photos chosen with the file
+// Each photo goes to the product whose SKU, image-column file name or product name equals the photo's
+// file name, or (a plain number) to that product in the file: "1.jpg" = first product. A trailing
+// "-2", "_2" or " (2)" makes it that product's 2nd, 3rd... picture: "BKH-01.jpg", "BKH-01-2.jpg".
+const photoKey = (s: string) => s.toLowerCase().replace(/\.[a-z0-9]{2,5}$/, '').replace(/[^a-z0-9]/g, '');
+
+export function matchPhotos<T extends { name: string }>(rows: SellerCsvRow[], photos: T[]): { byRow: Map<number, T[]>; unmatched: T[] } {
+  const keyToRow = new Map<string, number>();
+  const add = (key: string, row: number) => key && !keyToRow.has(key) && keyToRow.set(key, row);
+  rows.forEach((r) => add(photoKey(r.sku), r.row));
+  rows.forEach((r) => add(photoKey(r.imageName), r.row));
+  rows.forEach((r) => add(photoKey(r.name), r.row));
+  const found: { row: number; order: number; photo: T }[] = [];
+  const unmatched: T[] = [];
+  for (const photo of photos) {
+    const base = photo.name.replace(/\.[a-z0-9]{2,5}$/i, '');
+    let row = keyToRow.get(photoKey(base));
+    let order = 1;
+    if (row === undefined) {
+      const m = /^(.*?)[\s_-]*\(?(\d{1,2})\)?$/.exec(base);
+      if (m && m[1]) {
+        row = keyToRow.get(photoKey(m[1]));
+        order = Number(m[2]);
+        if (row === undefined && /^\d+$/.test(m[1].trim())) row = rows[Number(m[1].trim()) - 1]?.row;
+      }
+    }
+    if (row === undefined && /^\d+$/.test(base.trim())) row = rows[Number(base.trim()) - 1]?.row;
+    if (row === undefined) unmatched.push(photo);
+    else found.push({ row, order, photo });
+  }
+  const byRow = new Map<number, T[]>();
+  found
+    .sort((a, b) => a.order - b.order || a.photo.name.localeCompare(b.photo.name))
+    .forEach(({ row, photo }) => byRow.set(row, [...(byRow.get(row) || []), photo]));
+  return { byRow, unmatched };
 }
