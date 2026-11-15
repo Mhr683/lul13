@@ -447,6 +447,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Browser pehli dafa awaz tab chalata hai jab aap page par ek dafa kahin tap kar dein.',
       'Phone ki awaz (ringer / media volume) on rakhein. Seller Center app (Install) kar lein to behtar chalta hai.',
       'Install: upar "Install App" dabayein, seedha phone ka "Install" box khulta hai. Box na khule to app pehle se install hai (home screen par "Anokha Seller" dekhein) ya Chrome mein kholein.',
+      'Install mein koi bhi masla ho (WhatsApp / Facebook ke andar khula page, Redmi / Oppo / Vivo par install na hona, icon na milna, iPhone par Share na milna): "Install App" ke box mein neeche "Install mein masla?" kholein, har masle ka hal wahan likha hai. WhatsApp ke andar khula ho to "Chrome mein kholein" ka button bhi wahin hai.',
       'Agar Seller Center poori tarah band (swipe karke hata diya) ho to ghanti nahi bajti; dobara kholte hi naye order nazar aa jate hain.',
       'Notifications "Blocked" hon to browser mein address ke saath taale (🔒) ka nishan dabayein aur Notifications "Allow" karein.',
     ],

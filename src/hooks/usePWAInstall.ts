@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { browserEnv } from '../services/browserEnv';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -100,8 +101,8 @@ export function usePWAInstall() {
   }, []);
 
   const install = async (): Promise<InstallResult> => {
-    // Chrome / Edge on iPhone never offer it, so only wait on other devices
-    const p = deferredPrompt || earlyPrompt || (isIOS ? null : await waitForPrompt(2500));
+    // iPhones and in-app browsers (WhatsApp, Facebook...) never offer it: show the guide at once
+    const p = deferredPrompt || earlyPrompt || (isIOS || browserEnv().inApp ? null : await waitForPrompt(2500));
     if (!p) return 'unavailable';
     // A prompt can be shown only once; the browser sends a fresh one later if needed
     earlyPrompt = null;

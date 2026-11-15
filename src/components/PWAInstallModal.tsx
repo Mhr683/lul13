@@ -18,6 +18,7 @@ import {
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useStore } from '../context/StoreContext';
 import { portalAppName } from '../portalBranding';
+import { PWAInstallHelp } from './PWAInstallHelp';
 
 interface PWAInstallModalProps {
   isOpen: boolean;
@@ -190,6 +191,9 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
             </div>
           ) : (
             <>
+              {/* Opened inside WhatsApp / Facebook, or a browser that cannot install: the way out first */}
+              <PWAInstallHelp device={activeTab} appName={storeName} part="blocker" />
+
               {/* TAB 1: LAPTOP & PC */}
               {activeTab === 'desktop' && (
                 <div className="space-y-4">
@@ -398,6 +402,9 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Every common install problem with its fix */}
+              <PWAInstallHelp device={activeTab} appName={storeName} part="problems" />
             </>
           )}
         </div>
