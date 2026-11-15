@@ -432,8 +432,11 @@ Be the seller's coach and partner: when they ask about performance, details or a
       const actions: any[] = [];
       const reports: any[] = [];
       let text = '';
+      // The page gives up after ~100 s (the tunnel's limit), so stop calling tools well before that
+      const started = Date.now();
       // Up to 3 rounds: the model calls tools, sees their results, then answers
       for (let round = 0; round < 3; round++) {
+        if (round > 0 && Date.now() - started > 50_000) break;
         const response: any = await generate(contents);
         const calls = (response.functionCalls || []).filter((c: any) => TOOLS.some((t) => t.name === c.name)).slice(0, 4);
         if (!calls.length) {
@@ -455,9 +458,28 @@ Be the seller's coach and partner: when they ask about performance, details or a
         }
         contents.push({ role: 'user', parts });
       }
+      // The model only used tools and never wrote an answer: ask once more for the answer itself
+      if (!text.trim() && !actions.length && Date.now() - started < 60_000) {
+        try {
+          const last: any = await ai.models.generateContent({
+            model: FALLBACK_MODEL,
+            contents: [...contents, { role: 'user', parts: [{ text: 'Now answer my question in short, using the results above.' }] }],
+            config: { systemInstruction, temperature: 0.3 },
+          });
+          text = last.text || '';
+        } catch (err: any) {
+          console.warn('[seller ai] final answer failed:', err?.message);
+        }
+      }
       res.json({
         success: true,
-        text: text || (actions.length ? 'Here are the changes. Press Apply to confirm.' : 'Done.'),
+        text:
+          text.trim() ||
+          (actions.length
+            ? 'Here are the changes. Press Apply to confirm.'
+            : reports.length
+            ? 'Your shop report is below.'
+            : 'Sorry, I could not find an answer this time. Please ask again in other words.'),
         actions,
         reports: reports.slice(0, 1),
       });

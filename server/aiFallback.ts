@@ -21,8 +21,15 @@ const keyStats = new Map<string, { lastOkAt?: number; lastError?: string; lastEr
 const isBusy = (err: any) => {
   const status = Number(err?.status || err?.code);
   const msg = String(err?.message || '');
-  return [429, 500, 503].includes(status) || /\b(429|500|503)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|overloaded/i.test(msg);
+  return (
+    [429, 500, 503, 504].includes(status) ||
+    /\b(429|500|503|504)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|DEADLINE|high demand|overloaded|timed? ?out|abort/i.test(msg) ||
+    /AbortError|TimeoutError/.test(String(err?.name || ''))
+  );
 };
+// A model that hangs is given up after this, so the next one still answers in time (the page waits ~100 s).
+// A call can ask for longer with config.httpOptions.timeout.
+const CALL_TIMEOUT_MS = 40_000;
 /** This key's own limit is used up (or the key is wrong): the next key should be used */
 const isKeyProblem = (err: any) => {
   const status = Number(err?.status || err?.code);
@@ -72,11 +79,16 @@ export function withKeyPool(clients: Array<{ key: string; client: GoogleGenAI }>
       const ready = models.filter((m) => (busyUntil.get(m) || 0) <= Date.now());
       const resting = models.filter((m) => (busyUntil.get(m) || 0) > Date.now());
       let keyUsedUp = false;
-      // A few fresh models per key; when every model is busy, one try per key is enough
-      for (const model of ready.length ? ready.slice(0, 3) : resting.slice(0, 1)) {
+      // A few fresh models per key (with one key: all of them, so the lighter models that are often
+      // free still get their turn); when every model is busy, one try per key is enough
+      for (const model of ready.length ? ready.slice(0, calls.length > 1 ? 3 : CHAIN.length) : resting.slice(0, 1)) {
         if (attempts++ >= MAX_ATTEMPTS) break;
         try {
-          const result = await k.call({ ...params, model });
+          const result = await k.call({
+            ...params,
+            model,
+            config: { ...(params?.config || {}), httpOptions: { timeout: CALL_TIMEOUT_MS, ...(params?.config?.httpOptions || {}) } },
+          });
           busyUntil.delete(model);
           keyRestUntil.delete(id);
           keyStats.set(id, { ...keyStats.get(id), lastOkAt: Date.now() });
