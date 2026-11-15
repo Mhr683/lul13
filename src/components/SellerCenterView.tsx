@@ -3363,6 +3363,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   // Rows without their own source (Oshi, YourMart, ...) take the one chosen here; it must be chosen
   // when the file has such rows, so no product is listed as own stock by mistake
   const [defaultSource, setDefaultSource] = useState('');
+  const [otherSource, setOtherSource] = useState(false);
   const rowsWithoutSource = rows.filter((r) => !r.supplierName.trim()).length;
   // Rows without their own category take the one chosen here
   const prepared = useMemo(
@@ -3625,15 +3626,41 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
                     <button
                       key={s}
                       type="button"
-                      onClick={() => setDefaultSource(s)}
+                      onClick={() => {
+                        setOtherSource(false);
+                        setDefaultSource(s);
+                      }}
                       className={`px-3 py-1.5 rounded-lg border text-[12px] font-semibold cursor-pointer ${
-                        defaultSource === s ? 'border-violet-700 bg-violet-700 text-white' : 'border-[#DCD9D2] bg-white hover:border-violet-400'
+                        !otherSource && defaultSource === s ? 'border-violet-700 bg-violet-700 text-white' : 'border-[#DCD9D2] bg-white hover:border-violet-400'
                       }`}
                     >
                       {s === DIRECT_SOURCE ? 'Direct seller (own stock)' : s}
                     </button>
                   ))}
+                  {/* Any other supplier / app: the seller types its name */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOtherSource(true);
+                      setDefaultSource('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg border text-[12px] font-semibold cursor-pointer ${
+                      otherSource ? 'border-violet-700 bg-violet-700 text-white' : 'border-[#DCD9D2] bg-white hover:border-violet-400'
+                    }`}
+                  >
+                    Other…
+                  </button>
                 </div>
+                {otherSource && (
+                  <input
+                    autoFocus
+                    className={`${inputCls} mt-2`}
+                    value={defaultSource}
+                    maxLength={80}
+                    onChange={(e) => setDefaultSource(e.target.value.replace(/^\s+/, ''))}
+                    placeholder="Type the source name, e.g. BA Elegant"
+                  />
+                )}
                 <p className="mt-1.5 text-[11px] text-[#575653]">
                   Used for the new products listed from this file. Lines with their own source keep it, and products already in your shop keep
                   theirs. Only you and the store team see the source.

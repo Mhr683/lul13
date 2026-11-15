@@ -320,7 +320,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Excel ya Google Sheets mein har line mein ek product bharein (naam, qeemat, stock, category, tasveer ka link...).',
       'File ko CSV mein save karein (File → Save as / Download → CSV).',
       '"CSV / Bulk listing" mein file chunein.',
-      'Jin products ki category nahi, un ke liye "Category for products that have none" chunein. Source khali ho to source bhi chunein.',
+      'Jin products ki category nahi, un ke liye "Category for products that have none" chunein. Source khali ho to source bhi chunein (Direct seller, Oshi, YourMart, HHC, Markaz). Koi aur supplier ho to "Other…" dabayein aur us ka naam khud likhein.',
       'Tasveerein: "Choose photos" dabayein aur saari tasveerein ek saath chunein. Har tasveer ka naam product ke sku jaisa rakhein (BKH-01.jpg), ya file ki tarteeb se 1.jpg, 2.jpg. Ek product ki aur tasveerein: BKH-01-2.jpg, BKH-01-3.jpg.',
       'Check list mein har product ke saath us ki tasveer dikhegi. Galtiyan dekhein, phir upload karein; tasveerein products ke saath hi lag jaati hain.',
     ],
