@@ -116,8 +116,10 @@ export default defineConfig(() => {
           // Seller Center notifications: opening the app when one is tapped (public/sw-notifications.js)
           importScripts: ['sw-notifications.js'],
           cleanupOutdatedCaches: true,
-          // Never answer API calls from the offline cache
-          navigateFallbackDenylist: [/^\/api\//],
+          // Never answer API calls from the offline cache. Seller Center / admin pages always come
+          // from the server too: the cached page is the store's (store manifest, no move to the
+          // seller./admin. subdomain), and phones then would not install the Seller / Admin app.
+          navigateFallbackDenylist: [/^\/api\//, /^\/(seller|admin|vendor)(\/|$)/i],
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff,woff2}'],
           runtimeCaching: [

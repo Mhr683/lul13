@@ -6,6 +6,13 @@ import './index.css';
 import {applyPortalBranding} from './portalBranding';
 import {captureInstallPrompt} from './hooks/usePWAInstall';
 
+// seller.<domain>/ and admin.<domain>/ answered from the offline cache skip the server's move to
+// /seller or /admin, and a page outside the app's scope cannot be installed: go there now.
+const portalHome = /^(seller|admin)\./i.exec(location.hostname)?.[1]?.toLowerCase();
+if (portalHome && (location.pathname === '/' || location.pathname === '/index.html')) {
+  location.replace(`/${portalHome}${location.search}${location.hash}`);
+}
+
 // Point the page at the right app (store / Seller Center / admin) before the browser decides what
 // "Install" means, and keep the install prompt even if it fires before the page has rendered.
 applyPortalBranding();
