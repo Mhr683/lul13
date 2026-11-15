@@ -98,6 +98,31 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
     return list;
   };
 
+  // What one seller sees: notices to all sellers plus their own. Fetched apart (two equality queries,
+  // no index needed) so notices to many single sellers (welcome, alerts) never push others out.
+  let allSellersCache: { at: number; list: any[] } | null = null;
+  const ownNoticesCache = new Map<string, { at: number; list: any[] }>();
+  const noticesForSeller = async (uid: string) => {
+    if (!allSellersCache || Date.now() - allSellersCache.at > NOTICES_TTL) {
+      const snap = await notices().where('audience', '==', 'ALL').limit(100).get();
+      allSellersCache = { at: Date.now(), list: snap.docs.map((doc) => ({ ...(doc.data() as any), id: doc.id })) };
+    }
+    let own = ownNoticesCache.get(uid);
+    if (!own || Date.now() - own.at > NOTICES_TTL) {
+      const snap = await notices().where('audience', '==', uid).limit(100).get();
+      own = { at: Date.now(), list: snap.docs.map((doc) => ({ ...(doc.data() as any), id: doc.id })) };
+      ownNoticesCache.set(uid, own);
+      if (ownNoticesCache.size > 5000) ownNoticesCache.clear();
+    }
+    return [...allSellersCache.list, ...own.list].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 100);
+  };
+  const forgetNotices = (sellerId?: string) => {
+    noticesCache = null;
+    allSellersCache = null;
+    if (sellerId) ownNoticesCache.delete(sellerId);
+    else ownNoticesCache.clear();
+  };
+
   const forgetThreads = (sellerId?: string) => {
     if (sellerId) sellerThreadsCache.delete(sellerId);
     adminThreadsCache = null;
@@ -124,8 +149,8 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
     try {
       const uid = (req as any).user.uid as string;
       const seller = (req as any).seller;
-      const [list, all] = await Promise.all([threadsOfSeller(uid), allNotices()]);
-      const mine = all.filter((n) => n.audience === 'ALL' || n.audience === uid).map((n) => ({ ...n, source: sourceOf(n) }));
+      const [list, all] = await Promise.all([threadsOfSeller(uid), noticesForSeller(uid)]);
+      const mine = all.map((n) => ({ ...n, source: sourceOf(n) }));
       const readAt = String(seller.noticesReadAt || '');
       const unreadOf = (coach: boolean) => mine.filter((n) => (n.source === 'COACH') === coach && String(n.createdAt) > readAt).length;
       res.setHeader('Cache-Control', 'no-store');
@@ -439,7 +464,7 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
         createdBy: String((req as any).user?.email || 'admin'),
       };
       await notices().doc(id).set(notice);
-      noticesCache = null;
+      forgetNotices(audience === 'ALL' ? undefined : audience);
       res.json({ success: true, notice });
     } catch (err) {
       console.error('[admin/seller-notices create] failed:', err);
@@ -461,13 +486,13 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
       createdAt: new Date().toISOString(),
       createdBy: 'Store rules (automatic)',
     });
-    noticesCache = null;
+    forgetNotices(sellerId);
   };
 
   app.delete('/api/admin/seller-notices/:id', d.requireAdmin, async (req, res) => {
     try {
       await notices().doc(str(req.params.id, 128)).delete();
-      noticesCache = null;
+      forgetNotices();
       res.json({ success: true });
     } catch (err) {
       console.error('[admin/seller-notices delete] failed:', err);

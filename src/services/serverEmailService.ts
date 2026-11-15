@@ -16,7 +16,8 @@ export interface EmailLogEntry {
     | 'QUESTION_ANSWERED'
     | 'FOLLOWED_SHOP_NEW_PRODUCTS'
     | 'LOGIN_CHECK'
-    | 'SELLER_STATUS';
+    | 'SELLER_STATUS'
+    | 'SELLER_ENGAGEMENT';
   recipient: string;
   sender: string;
   subject: string;
@@ -446,6 +447,51 @@ export async function sendSellerStatusEmail(
     text,
     type: 'SELLER_STATUS',
     metadata: { shopName: params.shopName, status: params.status },
+  });
+}
+
+// ============================================================================
+// SELLER ENGAGEMENT (start listing reminders, account health alerts; server/sellerEngagement.ts)
+// ============================================================================
+export async function sendSellerEngagementEmail(
+  adminDb: FirebaseFirestore.Firestore | null | undefined,
+  params: {
+    to: string;
+    ownerName?: string;
+    shopName: string;
+    subject: string;
+    title: string;
+    color: 'emerald' | 'amber' | 'rose';
+    paragraphs: string[];
+    bullets?: string[];
+    button: string;
+    sellerCenterUrl: string;
+    storeName?: string;
+    supportEmail?: string;
+  }
+): Promise<SendEmailResult> {
+  const storeName = params.storeName || 'Store';
+  const bullets = params.bullets || [];
+  const html = wrapEmailHtml({
+    storeName,
+    bannerTitle: params.title,
+    bannerSubtitle: params.shopName,
+    bannerColor: params.color,
+    supportEmail: params.supportEmail,
+    contentHtml: `
+      <p style="margin: 0 0 16px 0; font-size: 14px;">Assalam o Alaikum ${escapeHtml(params.ownerName || '')},</p>
+      ${params.paragraphs.map((p) => `<p style="margin: 0 0 14px 0; font-size: 14px;">${escapeHtml(p)}</p>`).join('')}
+      ${bullets.length ? `<ul style="margin: 0 0 18px 0; padding-left: 20px; font-size: 14px;">${bullets.map((b) => `<li style="margin: 0 0 6px 0;">${escapeHtml(b)}</li>`).join('')}</ul>` : ''}
+      <p style="margin: 0 0 8px 0;"><a href="${escapeHtml(params.sellerCenterUrl)}" style="display: inline-block; padding: 12px 22px; background-color: #111827; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 14px;">${escapeHtml(params.button)}</a></p>`,
+  });
+  const text = `Assalam o Alaikum ${params.ownerName || ''},\n\n${params.paragraphs.join('\n\n')}${bullets.length ? `\n\n${bullets.map((b) => `- ${b}`).join('\n')}` : ''}\n\nSeller Center: ${params.sellerCenterUrl}\n\n${storeName}`;
+  return sendViaResend(adminDb, {
+    to: params.to,
+    subject: params.subject,
+    html,
+    text,
+    type: 'SELLER_ENGAGEMENT',
+    metadata: { shopName: params.shopName, title: params.title },
   });
 }
 

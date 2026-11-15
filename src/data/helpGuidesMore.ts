@@ -262,6 +262,10 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Title aur notice likhein (jaise "Eid ki chhuttiyon mein courier pickup band").',
       'Bhejein. Neeche "Sent notices" mein nazar aata hai.',
     ],
+    tips: [
+      'Kuch messages store khud bhejta hai, aap ko kuch nahi karna: approve hote hi khush aamdeed, pehla product lagne par mubarakbaad, aur account health 90 se neeche jaye to message + email (har 7 din, ya health 5 aur gire to dobara).',
+      'Jo seller approve ho kar bhi product na lagaye, us ko har 10 din baad khud email jati hai (zyada se zyada 12 dafa). Yeh "Sent notices" mein seller ke naam ke saath dikhte hain.',
+    ],
   },
   'admin.sellers.commission': {
     title: 'Commission (store ka hissa)',
@@ -277,7 +281,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     steps: [
       '"Pending" sellers kholein.',
       'Dukaan ka naam, malik, mobile, shehar, CNIC / documents aur payout ki maloomat check karein.',
-      'Sab sahi ho to "Approve": seller ko email jati hai aur Vendor ID milta hai.',
+      'Sab sahi ho to "Approve": seller ko email jati hai aur Vendor ID milta hai. Ek minute mein Seller Center mein khush aamdeed ka message bhi khud pohanch jata hai.',
       'Kuch ghalat ho to "Reject" aur wajah likhein (seller theek karke dobara bhej sakta hai).',
       'Baad mein qawaid todne par "Suspend".',
     ],

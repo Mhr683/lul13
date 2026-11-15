@@ -117,6 +117,8 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     ],
     tips: [
       'Upar ki ghanti (🔔) ka number sirf customers aur store ke messages ginta hai; AI coach ke mashware us mein nahi gine jate, taake zaroori message gum na hon.',
+      'Store khud bhi messages bhejta hai: dukaan approve hone par khush aamdeed ka message, pehla product lagne par mubarakbaad, aur account health 90 se neeche jaye to wajah aur hal ke saath message (saath email bhi).',
+      'Dukaan approve hone ke baad koi product na lagayein to har 10 din baad yaad dihani ki email aati hai. Pehla product lagate hi yeh band ho jati hai.',
     ],
   },
   'seller.tab.PROFILE': {

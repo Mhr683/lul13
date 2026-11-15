@@ -2483,6 +2483,11 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         forgetSeller(uid);
       },
       notify: (uid: string, shopName: string, title: string, body: string) => d.postNotice(uid, shopName, title, body, 'INFO', 'COACH'),
+      /** Account health (score 0-100 and its reasons), the same one the admin and the seller see */
+      healthOf: async (seller: any) => {
+        const [orders, products] = await Promise.all([sellerOrdersCached(seller.id), productsOf(seller.id)]);
+        return buildSellerReport(seller, orders, products).health;
+      },
       forgetCoach: (uid: string) => coachCache.delete(uid),
     },
     setCoachViewedHook: (fn: (uid: string, seller: any) => void) => {

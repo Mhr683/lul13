@@ -98,7 +98,9 @@ import {
   sendSupportReplyEmail,
   sendLoginCheckEmail,
   sendSellerStatusEmail,
+  sendSellerEngagementEmail,
 } from './src/services/serverEmailService';
+import { startSellerEngagement } from './server/sellerEngagement';
 
 dotenv.config();
 
@@ -4543,6 +4545,8 @@ const marketplace = registerMarketplaceRoutes(app, {
       supportEmail: s.supportEmail || s.contactEmail || undefined,
     });
     console.log(`[admin/sellers] ${seller.shopName} ${status}: email ${r.success ? 'sent' : `failed (${r.error})`}`);
+    // A newly approved shop gets its welcome message within a minute (not at the next 3-hourly run)
+    if (status === 'APPROVED') setTimeout(() => void sellerEngagement?.runOnce(), 30_000);
   },
 });
 
@@ -4552,6 +4556,33 @@ const sellerInbox = registerSellerInboxRoutes(app, {
   requireSeller: marketplace.requireSeller,
   requireAdmin,
   forgetSeller: marketplace.forgetSeller,
+});
+
+// Welcome / first listing messages, start-listing e-mails and health alerts, all automatic
+const SELLER_CENTER_URL = STORE_HOST ? `https://seller.${STORE_HOST}` : `${String(process.env.APP_URL || '').replace(/\/+$/, '')}/seller`;
+const sellerEngagement: { runOnce: () => Promise<void> } | null = startSellerEngagement({
+  adminDb,
+  postNotice: sellerInbox.postNotice,
+  productsOfSeller: (uid) => (catalogStore.ready ? catalogStore.productsOfSeller(uid) : null),
+  healthOf: (seller) => marketplace.sellerData.healthOf(seller),
+  setSellerFields: (uid, fields) => marketplace.sellerData.setSellerFields(uid, fields),
+  storeName: () => (catalogStore.settings() as any)?.storeName || DEFAULT_SETTINGS.storeName || 'Store',
+  sendEmail: async (seller, email) => {
+    const to = String(seller.ownerEmail || '').trim();
+    if (!to) return false;
+    const s: any = catalogStore.settings() || {};
+    const r = await sendSellerEngagementEmail(adminDb, {
+      ...email,
+      to,
+      ownerName: seller.ownerName,
+      shopName: String(seller.shopName || 'Your shop'),
+      sellerCenterUrl: SELLER_CENTER_URL,
+      storeName: s.storeName || DEFAULT_SETTINGS.storeName || 'Store',
+      supportEmail: s.supportEmail || s.contactEmail || undefined,
+    });
+    if (!r.success) console.warn(`[engagement] e-mail to ${seller.shopName} failed: ${r.error}`);
+    return r.success;
+  },
 });
 
 // uid of a signed-in caller (Authorization: Bearer <Firebase ID token>), or null
