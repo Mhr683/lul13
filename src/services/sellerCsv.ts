@@ -34,6 +34,36 @@ export const SELLER_CSV_TEMPLATE =
   'sku,name,price,old_price,stock,category,image_url,short_description,description,weight_kg,source,source_price,source_link,source_sku\n' +
   'TSHIRT-01,Cotton T-Shirt Black,1499,1999,25,Men\'s Clothing,https://example.com/tshirt.jpg,Soft cotton t-shirt,"100% cotton, sizes M L XL",0.3,Oshi,900,https://example.com/oshi/tshirt,OS-TS-01\n';
 
+// Ready-made instructions a seller pastes into ChatGPT / Gemini / Claude (with their product details or
+// WhatsApp catalogue) so the AI makes a file in exactly this store's format
+export function sellerCsvAiPrompt(categoryNames: string[]): string {
+  return [
+    'Make a CSV file of my products for my online shop on Anokha Shopping Hub (Pakistan). My product details, catalogue text and/or photos are below.',
+    '',
+    'Rules:',
+    '1. The first line must be exactly: sku,name,price,old_price,stock,category,image_url,short_description,description,weight_kg,brand',
+    '2. One product per line. Every colour / variety that is sold separately gets its own line.',
+    '3. sku: a short unique code for each product, e.g. SHOP-01, SHOP-02 (only letters, numbers and dashes).',
+    '4. name: clear product name with type, colour and material, e.g. "Digital Printed 2 Pc Suit - Royal Blue Floral (Cotton)". At most 150 characters.',
+    '5. price: my selling price in PKR, digits only (999, not "Rs 999/-").',
+    '6. old_price: the earlier price only if there is a real discount; otherwise leave it empty.',
+    '7. stock: how many pieces I have, digits only. If I did not say, write 10.',
+    `8. category: exactly one of these store categories: ${categoryNames.join(', ')}.`,
+    '9. image_url: leave empty (I upload the photos together with the file, each photo named like its sku, e.g. SHOP-01.jpg). Only if I gave a picture link starting with https:// put that link here.',
+    '10. short_description: one line, at most 200 characters.',
+    '11. description: full details (fabric/material, size, what is included, how to use or care), at most 1500 characters.',
+    '12. weight_kg: packed weight in kg, e.g. 0.5.',
+    '13. brand: the brand name, or my shop name if there is no brand.',
+    '14. Never write phone numbers, WhatsApp, e-mail, website links or other shops\' names anywhere. Do not invent features that are not in my details.',
+    '15. Put any text that contains a comma inside double quotes "like, this".',
+    '',
+    'Give the result as a downloadable .csv file (or as CSV text in one code block I can copy). After it, list which of my photos goes with which sku, so I can rename each photo to its sku.',
+    '',
+    'My products:',
+    '',
+  ].join('\n');
+}
+
 const norm = (h: string) => h.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 
 const cleanText = (s: string) =>

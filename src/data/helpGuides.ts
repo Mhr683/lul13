@@ -325,6 +325,10 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Check list mein har product ke saath us ki tasveer dikhegi. Galtiyan dekhein, phir upload karein; tasveerein products ke saath hi lag jaati hain.',
     ],
     tips: [
+      'AI se file banwani ho: "Copy AI prompt" dabayein. ChatGPT ya Gemini kholein, prompt paste karein, us ke neeche apne products ki tafseel (ya WhatsApp catalogue ka text) aur tasveerein daal kar bhejein. AI jo .csv file de, woh download kar ke yahan chunein.',
+      'AI wali file mein yeh khane hone chahiye: sku, name, price, old_price, stock, category, image_url, short_description, description, weight_kg, brand. Copy AI prompt mein yeh sab pehle se likha hai, khud kuch likhne ki zaroorat nahi.',
+      'AI ki file upload karne se pehle check list zaroor dekhein: qeemat, category aur naam sahi hon. AI kabhi ghalti kar deta hai.',
+      'AI aakhir mein batata hai kaunsi tasveer kis sku ki hai. Har tasveer ka naam usi sku par rakhein (SHOP-01.jpg), phir "Choose photos" se sab ek saath chunein.',
       'Jo products pehle se dukaan mein hain aur un ki tasveer nahi, wahi CSV tasveeron ke saath dobara daalein: tasveer lag jayegi, product dobara nahi banega.',
       'Jo tasveer kisi product se na mile, us ka naam laal khane mein dikhta hai; naam theek kar ke dobara chunein.',
       'Wahi file (bina nayi tasveeron ke) dobara daalenge to system rok dega ("already uploaded").',

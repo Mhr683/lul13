@@ -59,7 +59,8 @@ import { callingCodeOf } from '../services/intlAddress';
 import { ShopCoachReport, type Coach } from './ShopCoachReport';
 import { PolicyDocument } from './PolicyDocument';
 import { CONDUCT_VERSION, REINSTATEMENT_FEE, SUPPLIER_CODE } from '../data/policies';
-import { SELLER_CSV_TEMPLATE, matchPhotos, parseSellerCsv, type SellerCsvRow } from '../services/sellerCsv';
+import { SELLER_CSV_TEMPLATE, matchPhotos, parseSellerCsv, sellerCsvAiPrompt, type SellerCsvRow } from '../services/sellerCsv';
+import { ALL_PRODUCT_CATEGORIES } from '../data/productCategories';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { AuthPanel } from './AuthPanel';
@@ -3419,6 +3420,23 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
     setRows(parsed.rows);
   };
 
+  // Instructions the seller pastes into ChatGPT / Gemini / Claude with their product details
+  const copyAiPrompt = async () => {
+    const text = sellerCsvAiPrompt(Array.from(new Set(ALL_PRODUCT_CATEGORIES.map((c) => c.name))));
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('AI prompt copied. Paste it in ChatGPT or Gemini, add your product details and photos below it, and send.');
+    } catch {
+      // Clipboard blocked: give it as a text file instead
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ai-prompt-for-csv.txt';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  };
+
   const downloadTemplate = () => {
     const url = URL.createObjectURL(new Blob(['﻿' + SELLER_CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
@@ -3523,9 +3541,14 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
           <h2 className="text-lg font-bold tracking-tight">Bulk listing from CSV</h2>
           <HelpDot id="seller.bulk" />
         </div>
-        <button type="button" onClick={downloadTemplate} className={ui.secondary}>
-          <Download className="w-3.5 h-3.5" /> Sample file
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={copyAiPrompt} className={ui.secondary} title="Instructions for ChatGPT / Gemini to make this file for you">
+            <Bot className="w-3.5 h-3.5" /> Copy AI prompt
+          </button>
+          <button type="button" onClick={downloadTemplate} className={ui.secondary}>
+            <Download className="w-3.5 h-3.5" /> Sample file
+          </button>
+        </div>
       </div>
 
       <HowItWorks title="How to make the file">
@@ -3540,6 +3563,10 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
         <p>
           <strong>No double listings:</strong> the same file cannot be uploaded twice. A product already in your shop (same sku, name or source link) is
           not listed again: only its price is updated when it changed.
+        </p>
+        <p>
+          <strong>Make it with AI:</strong> tap <strong>Copy AI prompt</strong>, paste it in ChatGPT or Gemini, add your product details (or WhatsApp
+          catalogue text and photos) below it and send. Download the CSV it makes and choose it here.
         </p>
         <p>
           <strong>Photos:</strong> after choosing the file, tap <strong>Choose photos</strong> and pick all product photos at once. Name each photo like
