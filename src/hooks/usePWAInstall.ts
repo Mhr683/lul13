@@ -10,16 +10,39 @@ export type PlatformType = 'ios' | 'android' | 'desktop' | 'unknown';
 // The browser offers the install prompt once, often before the (lazy-loaded) Seller Center or
 // admin screen has mounted, so it is caught at startup and handed to whichever screen asks.
 let earlyPrompt: BeforeInstallPromptEvent | null = null;
+// Install taps that came before the browser was ready wait here for its prompt
+const waiters = new Set<(e: BeforeInstallPromptEvent) => void>();
 export function captureInstallPrompt() {
   if (typeof window === 'undefined') return;
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     earlyPrompt = e as BeforeInstallPromptEvent;
+    waiters.forEach((w) => w(earlyPrompt!));
+    waiters.clear();
   });
   window.addEventListener('appinstalled', () => {
     earlyPrompt = null;
   });
 }
+
+// The browser's own install box, if it offers one within `ms` (it can arrive a few seconds after load)
+function waitForPrompt(ms: number): Promise<BeforeInstallPromptEvent | null> {
+  if (earlyPrompt) return Promise.resolve(earlyPrompt);
+  return new Promise((resolve) => {
+    const w = (e: BeforeInstallPromptEvent) => {
+      clearTimeout(timer);
+      resolve(e);
+    };
+    const timer = setTimeout(() => {
+      waiters.delete(w);
+      resolve(null);
+    }, ms);
+    waiters.add(w);
+  });
+}
+
+// 'unavailable' = the browser gave no install box (already installed, other browser, or iPhone)
+export type InstallResult = 'accepted' | 'dismissed' | 'unavailable';
 
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(() => earlyPrompt);
@@ -76,24 +99,28 @@ export function usePWAInstall() {
     };
   }, []);
 
-  const install = async (): Promise<boolean> => {
-    if (!deferredPrompt) return false;
+  const install = async (): Promise<InstallResult> => {
+    // Chrome / Edge on iPhone never offer it, so only wait on other devices
+    const p = deferredPrompt || earlyPrompt || (isIOS ? null : await waitForPrompt(2500));
+    if (!p) return 'unavailable';
+    // A prompt can be shown only once; the browser sends a fresh one later if needed
+    earlyPrompt = null;
+    setDeferredPrompt(null);
     try {
-      await deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      earlyPrompt = null;
+      await p.prompt();
+      const { outcome } = await p.userChoice;
       if (outcome === 'accepted') {
         setIsInstalled(true);
-        setDeferredPrompt(null);
         try {
           localStorage.setItem('atelier_pwa_installed', 'true');
         } catch {}
-        return true;
+        return 'accepted';
       }
+      return 'dismissed';
     } catch (err) {
       console.warn('[PWA Install Error]:', err);
+      return 'unavailable';
     }
-    return false;
   };
 
   return {

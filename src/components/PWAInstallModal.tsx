@@ -55,9 +55,9 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
 
   const handleInstallClick = async () => {
     setIsInstalling(true);
-    const success = await install();
+    const result = await install();
     setIsInstalling(false);
-    if (success) {
+    if (result === 'accepted') {
       setInstallSuccess(true);
       setTimeout(() => {
         onClose();
@@ -128,8 +128,8 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
           )}
         </div>
 
-        {/* 3 Platform Tabs */}
-        <div className="bg-[#F0EFEA] border-b border-black/10 px-3 py-2 flex items-center gap-1.5 overflow-x-auto shrink-0 scrollbar-none">
+        {/* Platform tabs: only the guide for this device is shown (the device is detected) */}
+        <div className="hidden">
           <button
             type="button"
             onClick={() => setActiveTab('desktop')}
@@ -236,6 +236,10 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                               Click <strong>&quot;Install&quot;</strong> to place an icon on your Desktop &amp; Start menu.
                             </li>
                           </ol>
+                          <p className="text-[11px] text-black/60 pt-1 border-t border-black/10">
+                            No install option? The app may already be installed: look for <strong>{storeName}</strong> in
+                            your Start menu. Use Chrome or Edge.
+                          </p>
                         </div>
                       </div>
                     )}
@@ -305,6 +309,11 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                             Tap <strong>&quot;Install&quot;</strong>. The app is added to your app drawer!
                           </li>
                         </ol>
+                        <p className="text-[11px] leading-relaxed text-emerald-900/80 pt-1 border-t border-emerald-200">
+                          No &quot;Install app&quot; in the menu? The app is probably already installed: open{' '}
+                          <strong>{storeName}</strong> from your home screen. Using Samsung Internet or another
+                          browser? Open this page in <strong>Chrome</strong>.
+                        </p>
                       </div>
                     )}
                   </div>

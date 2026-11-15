@@ -34,15 +34,14 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
     } catch {}
   };
 
+  // Opens the browser's own install box straight away; the how-to guide only when the browser has none
+  const [busy, setBusy] = useState(false);
   const handleClick = async () => {
-    if (isInstallable) {
-      const installed = await install();
-      if (!installed) {
-        setModalOpen(true);
-      }
-    } else {
-      setModalOpen(true);
-    }
+    if (busy) return;
+    setBusy(true);
+    const result = await install();
+    setBusy(false);
+    if (result === 'unavailable') setModalOpen(true);
   };
 
   // Get device icon
