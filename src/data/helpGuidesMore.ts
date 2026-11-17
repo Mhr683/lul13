@@ -129,6 +129,9 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
   'admin.helpline': {
     title: '05. Helpline aur WhatsApp',
     steps: [
+      'Website ki AI chat (helpline): customer kisi bhi product ka poochhe (English, اردو ya Roman Urdu, galat spelling bhi) to AI store mein dhoond kar 2–3 behtareen products tasveer, qeemat aur link ke saath dikhati hai (pehle har seller ka ek, mumkin ho to 2–3 alag sellers). Qeemat hamesha store ki asli qeemat hoti hai. Aakhir mein website ka link aur "mazeed products dikhane ki ijazat nahi, maazrat" khud lag jata hai.',
+      'AI ek larki ki tarah baat karti hai ("madad kar sakti hoon"). Har jawab ke neeche "🔊 Listen" se customer jawab female awaaz mein sun sakta hai (roz 400 tak nayi awaazein; ek jawab dobara sunna muft).',
+      'AI kabhi doosri website, seller ka number ya store se bahar khareedne ka tareeqa nahi batati.',
       '"WhatsApp Display Number": jaise dikhana ho, jaise +92 300 1234567.',
       '"WhatsApp Raw Number": sirf hindsay, 92 se shuru, + ke baghair (jaise 923001234567). WhatsApp ke button isi se chalte hain.',
       '"Helpline Email": customers ke sawal kahan aayen.',

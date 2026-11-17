@@ -40,6 +40,7 @@ import { offlineSupportReply, offlineProductContent } from './server/offlineAnsw
 import { createOrderQueue } from './server/orderQueue';
 import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/stepUp';
 import { createCatalogStore } from './server/catalogStore';
+import { searchProducts, productFacts, readIntent, plainIntent, speakFemale, detectLanguage, closingLines, languageName, type HelplineProduct, type ReplyLanguage } from './server/helplineProducts';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
 import { registerOrderChatRoutes } from './server/orderChat';
@@ -5809,6 +5810,8 @@ interface ThreadMessage {
   text: string;
   at: string;
   delivery?: string;
+  // Store products the helpline assistant showed with this answer (picture, price, link)
+  products?: HelplineProduct[];
 }
 
 interface CustomerTicket {
@@ -5891,9 +5894,33 @@ async function generateSupportReply(params: {
   message: string;
   channel: 'WEBSITE' | 'FORM';
   orderNumber?: string;
-}): Promise<string> {
+}): Promise<{ text: string; products: HelplineProduct[] }> {
   const { store, history, message, channel, orderNumber } = params;
   const storeName = store.storeName || 'Store';
+  const storeUrl = STORE_HOST ? `https://${STORE_HOST}` : String(process.env.APP_URL || '').replace(/\/+$/, '') || 'https://anokhashopinghub.shop';
+
+  let ai: ReturnType<typeof getGenAIClient> | null = null;
+  try {
+    ai = getGenAIClient();
+  } catch (err: any) {
+    console.warn('[Helpline AI] not available:', err?.message || err);
+  }
+
+  // Products the customer asks about: best matches from 2-3 different sellers (catalog copy, no reads)
+  let products: HelplineProduct[] = [];
+  let all: any[] = [];
+  let lang: ReplyLanguage = detectLanguage(message);
+  try {
+    if (catalogStore.ready) {
+      all = catalogStore.publicProducts();
+      const recent = history.filter((m) => m.role === 'customer').map((m) => m.text);
+      const intent = (ai ? await readIntent(ai, message, recent) : null) || plainIntent(message);
+      lang = intent.language;
+      if (intent.wantsProducts) products = searchProducts(all, intent, storeUrl, 3);
+    }
+  } catch (err: any) {
+    console.warn('[Helpline AI] product search failed:', err?.message || err);
+  }
   const whatsapp = store.helplineWhatsAppFormatted || store.helplineWhatsApp || '';
   const email = store.supportEmail || store.helplineEmail || store.contactEmail || '';
   const bankDetails = store.bankName
@@ -5904,10 +5931,28 @@ async function generateSupportReply(params: {
     ? `NayaPay: ${store.nayapayNumber} (Title: ${store.nayapayAccountTitle || storeName})`
     : '';
 
-  const systemPrompt = `You are the customer support assistant for "${storeName}", an online store in Pakistan (prices in PKR).
+  const productBlock = products.length
+    ? `
+Products from this store that match the customer's question (the ONLY products you may talk about; use exactly these names, prices and details, never invent others):
+${productFacts(products, all)}
+${
+  channel === 'FORM'
+    ? `Links to write after each product: ${products.map((p, i) => `${i + 1}. ${p.url}`).join(' ')}`
+    : 'The chat shows each of these products as a card with its picture, price and a link, right under your answer, so do not write the product links yourself.'
+}
+Do not write any closing line about visiting the website or showing more products: the store adds it after your answer.`
+    : `
+No matching product was found in the store for this message. If the customer asked about a product, say politely that you could not find it right now and invite them to search on the store: ${storeUrl}. Never invent a product, price or detail.`;
+
+  const systemPrompt = `You are the customer support assistant of "${storeName}", an online store in Pakistan (prices in PKR). You are a young woman: when you speak about yourself ("main" / "I") in Urdu or Roman Urdu use feminine forms ("main madad kar sakti hoon", "main dekhti hoon", "maazrat chahti hoon"). When you speak for the store ("hum" / "we") use the normal plural ("hum dete hain", "hum qabool karte hain"). Speak to the customer as "aap" with neutral forms (e.g. "aap dekh sakte hain").
 You are replying on ${channel === 'FORM' ? 'an email ticket' : 'the website helpline chat'}.
 
-Language: always reply in English, even when the customer writes in Urdu or Roman Urdu. Be polite, short and clear.
+Language: the customer wrote in ${languageName(lang)}. Write your WHOLE answer only in ${languageName(lang)}, including words like price and details (product names may stay as they are). Customers often make spelling mistakes or mix languages: understand what they mean and answer that. Be warm, polite, short and clear.
+
+Product questions: answer only from the product list below. Give each product's name, price (and the old price if there is one) and the details the customer asked about (fabric, size, colour, what is included, ...), in a few short lines.
+${productBlock}
+
+Stay inside the store: never mention other websites, shops, sellers' phone numbers or any way to buy outside ${storeName}.
 
 Store facts (only use these, never invent others):
 - Payment: Cash on Delivery, bank transfer${raastDetails ? ', Raast' : ''}${nayapayDetails ? ', NayaPay' : ''}. For transfers the customer enters the Transaction ID (TID) at checkout and the store verifies it.
@@ -5920,7 +5965,7 @@ ${whatsapp ? `- WhatsApp: ${whatsapp}` : ''}
 ${email ? `- Email: ${email}` : ''}
 
 Rules:
-- You cannot see order details or payment status. Never guess an order's status, delivery date, refund or price. For a specific order${
+- You cannot see order details or payment status. Never guess an order's status, delivery date or refund, or a price that is not in the product list. For a specific order${
     orderNumber ? ` (${orderNumber})` : ''
   }, explain how to track it and say the team will check and reply here.
 - Never promise refunds, discounts, warranties or delivery dates. Never ask for card numbers, PINs, OTPs or passwords.
@@ -5933,25 +5978,29 @@ Rules:
   contents.push({ role: 'user', parts: [{ text: message }] });
 
   // Without the AI (no key, quota used up, service down) the store's own answers are used
-  let ai: ReturnType<typeof getGenAIClient> | null = null;
-  try {
-    ai = getGenAIClient();
-  } catch (err: any) {
-    console.warn('[Helpline AI] not available:', err?.message || err);
-  }
-  for (const modelName of ai ? ['gemini-3.8-flash', 'gemini-3.1-flash-lite'] : []) {
+  // The light model answers in a few seconds (the bigger one sometimes took a minute); if it is busy the
+  // pool moves on to the other models by itself
+  for (const modelName of ai ? ['gemini-3.1-flash-lite'] : []) {
     try {
       const response = await ai!.models.generateContent({
         model: modelName,
         contents,
-        config: { systemInstruction: systemPrompt, temperature: 0.5 },
+        config: { systemInstruction: systemPrompt, temperature: 0.5, httpOptions: { timeout: 20_000 } } as any,
       });
-      if (response.text) return response.text.trim();
+      // The chat shows plain text: no **bold** marks
+      const said = response.text?.replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '').trim();
+      if (said) return { text: products.length ? `${said}\n\n${closingLines(lang, storeUrl)}` : said, products };
     } catch (err: any) {
       console.warn(`[Helpline AI] ${modelName} failed:`, err?.message || err);
     }
   }
-  return offlineSupportReply(message, store, orderNumber);
+  const offline = offlineSupportReply(message, store, orderNumber);
+  return {
+    text: products.length
+      ? `${offline}\n\nProducts from our store that may match:\n${products.map((p) => `• ${p.name}: Rs ${p.price.toLocaleString('en-PK')}${channel === 'FORM' ? ` ${p.url}` : ''}`).join('\n')}\n\n${closingLines(lang, storeUrl)}`
+      : offline,
+    products,
+  };
 }
 
 function trimThread(messages: ThreadMessage[]): ThreadMessage[] {
@@ -6017,16 +6066,19 @@ app.post('/api/ai/customer-support', async (req, res) => {
     const humanActive = Boolean(ticket.humanActiveUntil && new Date(ticket.humanActiveUntil).getTime() > Date.now());
 
     let reply: string | null = null;
+    let products: HelplineProduct[] = [];
     if (!humanActive) {
       const store = await loadStoreSettingsForSupport();
-      reply = await generateSupportReply({
+      const answer = await generateSupportReply({
         store,
         history: ticket.messages || [],
         message: text,
         channel: 'WEBSITE',
         orderNumber: orderNumber || ticket.orderNumber,
       });
-      thread.push({ role: 'ai', text: reply, at: new Date().toISOString() });
+      reply = answer.text;
+      products = answer.products;
+      thread.push({ role: 'ai', text: reply, at: new Date().toISOString(), ...(products.length ? { products } : {}) });
     }
 
     const updates: Partial<CustomerTicket> = {
@@ -6044,6 +6096,8 @@ app.post('/api/ai/customer-support', async (req, res) => {
     res.json({
       success: true,
       reply,
+      products,
+      replyIndex: humanActive ? -1 : trimThread(thread).length - 1,
       humanActive,
       chatId: ticket.id,
       ...(issuedKey ? { chatKey: issuedKey } : {}),
@@ -6079,11 +6133,52 @@ app.get('/api/helpline/chat/:chatId', async (req, res) => {
       success: true,
       ticketNumber: ticket.ticketNumber,
       status: ticket.status,
-      messages: (ticket.messages || []).map(({ role, text, at }) => ({ role, text, at })),
+      messages: (ticket.messages || []).map(({ role, text, at, products }) => ({ role, text, at, ...(products?.length ? { products } : {}) })),
     });
   } catch (err) {
     console.error('[Helpline chat poll error]:', err);
     res.status(503).json({ error: 'Chat temporarily unavailable.' });
+  }
+});
+
+// The helpline assistant's answer read aloud in a woman's voice (WAV). Only for the owner of the chat,
+// only the assistant's own answers; kept in memory so playing it again costs nothing.
+const helplineVoiceCache = new Map<string, Buffer>();
+const helplineVoiceDay = { day: '', count: 0 };
+const HELPLINE_VOICE_PER_DAY = 400;
+app.post('/api/helpline/voice', async (req, res) => {
+  const clientIp = (req.ip || req.socket.remoteAddress || 'local').toString();
+  if (!checkRateLimit(`helpvoice:${clientIp}`, 6, 60_000)) {
+    return res.status(429).json({ error: 'Please wait a minute before playing more answers.' });
+  }
+  const { chatId, chatKey } = req.body || {};
+  const index = Number(req.body?.index);
+  if (typeof chatId !== 'string' || typeof chatKey !== 'string' || !/^chat-[a-f0-9]{24}$/.test(chatId) || !Number.isInteger(index) || index < 0) {
+    return res.status(400).json({ error: 'This answer cannot be played.' });
+  }
+  try {
+    const ticket = await getTicketCached(chatId);
+    if (!ticket || ticket.chatKeyHash !== hashChatKey(chatKey)) return res.status(404).json({ error: 'Chat not found.' });
+    const msg = (ticket.messages || [])[index];
+    if (!msg || msg.role !== 'ai' || !msg.text) return res.status(400).json({ error: 'This answer cannot be played.' });
+    const key = crypto.createHash('sha256').update(msg.text).digest('hex');
+    let wav = helplineVoiceCache.get(key);
+    if (!wav) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (helplineVoiceDay.day !== today) Object.assign(helplineVoiceDay, { day: today, count: 0 });
+      if (helplineVoiceDay.count >= HELPLINE_VOICE_PER_DAY) return res.status(429).json({ error: 'Voice replies are not available right now. Please read the answer.' });
+      helplineVoiceDay.count++;
+      wav = (await speakFemale(getGenAIClient(), msg.text)) || undefined;
+      if (!wav) return res.status(503).json({ error: 'The voice is not available right now. Please read the answer.' });
+      helplineVoiceCache.set(key, wav);
+      if (helplineVoiceCache.size > 60) helplineVoiceCache.delete(helplineVoiceCache.keys().next().value as string);
+    }
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(wav);
+  } catch (err: any) {
+    console.error('[Helpline voice] failed:', err?.message || err);
+    res.status(503).json({ error: 'The voice is not available right now. Please read the answer.' });
   }
 });
 
@@ -6106,13 +6201,15 @@ app.post('/api/helpline/contact-ticket', async (req, res) => {
   const ticketNumber = newTicketNumber();
   const store = await loadStoreSettingsForSupport();
   const customerText = `${subject ? `${String(subject).trim()}\n` : ''}${String(message).trim()}`;
-  const aiAutoReply = await generateSupportReply({
-    store,
-    history: [],
-    message: customerText,
-    channel: 'FORM',
-    orderNumber,
-  });
+  const aiAutoReply = (
+    await generateSupportReply({
+      store,
+      history: [],
+      message: customerText,
+      channel: 'FORM',
+      orderNumber,
+    })
+  ).text;
 
   const ticket: CustomerTicket = {
     id,

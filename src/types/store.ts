@@ -617,6 +617,10 @@ export interface CustomerHelplineMessage {
   suggestedActions?: string[];
   // true when a person from the store wrote this (not the AI)
   fromTeam?: boolean;
+  // Store products shown with the assistant's answer
+  products?: { id: string; name: string; price: number; compareAtPrice: number; image: string; url: string; rating: number; reviewCount: number }[];
+  // Position of this answer in the saved conversation (to play it as voice)
+  serverIndex?: number;
 }
 
 export interface CustomerInquiryTicket {

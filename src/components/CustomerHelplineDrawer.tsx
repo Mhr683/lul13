@@ -63,7 +63,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     {
       id: 'msg-welcome',
       role: 'assistant',
-      content: `Hello! Welcome to ${storeName} support.\n\nI am the store's AI assistant. Ask me about products, payment, delivery or tracking. If you need a person, just say so and our team will reply in this chat.`,
+      content: `Assalam o Alaikum! Welcome to ${storeName}.\n\nI am the store's AI assistant. Ask me about any product (price, pictures, details), payment, delivery or tracking, in English, اردو or Roman Urdu. If you need a person, just say so and our team will reply in this chat.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       suggestedActions: [
         'Payment methods (COD & Bank Transfer)',
@@ -125,6 +125,8 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
             content: m.text,
             timestamp: formatTime(m.at),
             fromTeam: m.role === 'admin',
+            products: Array.isArray(m.products) ? m.products : undefined,
+            serverIndex: m.role === 'ai' ? i : undefined,
           }));
           return [...welcome, ...thread];
         });
@@ -199,6 +201,8 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
           content: data.reply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           suggestedActions: data.suggestedActions || [],
+          products: Array.isArray(data.products) && data.products.length ? data.products : undefined,
+          serverIndex: typeof data.replyIndex === 'number' && data.replyIndex >= 0 ? data.replyIndex : undefined,
         };
         setMessages((prev) => [...prev, assistantMsg]);
       } else {
@@ -224,6 +228,43 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
       setIsAiLoading(false);
     }
   };
+
+  // The assistant's answer read aloud (a woman's voice, made on the server)
+  const [voiceState, setVoiceState] = useState<{ id: string; state: 'loading' | 'playing' | 'error'; note?: string } | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playVoice = async (m: CustomerHelplineMessage) => {
+    if (!chatSession || m.serverIndex === undefined) return;
+    if (voiceState?.id === m.id && voiceState.state === 'playing') {
+      audioRef.current?.pause();
+      setVoiceState(null);
+      return;
+    }
+    audioRef.current?.pause();
+    setVoiceState({ id: m.id, state: 'loading' });
+    try {
+      const res = await fetch('/api/helpline/voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: chatSession.chatId, chatKey: chatSession.chatKey, index: m.serverIndex }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'The voice is not available right now.');
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        setVoiceState((v) => (v?.id === m.id ? null : v));
+      };
+      await audio.play();
+      setVoiceState({ id: m.id, state: 'playing' });
+    } catch (err: any) {
+      setVoiceState({ id: m.id, state: 'error', note: err?.message });
+    }
+  };
+  useEffect(() => () => audioRef.current?.pause(), []);
 
   const handleClearChat = () => {
     // Start a fresh conversation (the old one stays in the store's inbox)
@@ -455,7 +496,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
             <div className="px-4 py-2 bg-amber-50 border-b border-amber-200/60 flex items-center justify-between text-[11px] text-amber-900 shrink-0">
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
-                <strong>AI Support:</strong> Order tracking &amp; store answers.
+                <strong>AI Support:</strong> Products, prices, delivery &amp; tracking · English / اردو / Roman Urdu
               </span>
               <button
                 type="button"
@@ -487,6 +528,46 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                       {m.content}
                     </div>
 
+                    {/* Store products with this answer: picture, price, link */}
+                    {isAssistant && m.products && m.products.length > 0 && (
+                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 w-full max-w-[95%]">
+                        {m.products.map((p) => (
+                          <a
+                            key={p.id}
+                            href={p.url}
+                            className="flex sm:flex-col gap-2.5 sm:gap-1.5 p-2 bg-white border border-black/10 rounded-lg hover:border-emerald-600 hover:shadow-sm transition-all text-[11px]"
+                          >
+                            {p.image ? (
+                              <img
+                                src={p.image}
+                                alt={p.name}
+                                className="w-20 h-20 sm:w-full sm:h-28 rounded-md object-cover bg-[#F4F3EF] shrink-0"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : (
+                              <span className="w-20 h-20 sm:w-full sm:h-28 rounded-md bg-[#F4F3EF] shrink-0" />
+                            )}
+                            <span className="flex flex-col gap-0.5 min-w-0">
+                              <span className="font-medium text-[#141413] line-clamp-2">{p.name}</span>
+                              <span>
+                                <strong className="text-emerald-800">Rs {p.price.toLocaleString('en-PK')}</strong>
+                                {p.compareAtPrice > p.price && (
+                                  <span className="ml-1.5 text-black/45 line-through">Rs {p.compareAtPrice.toLocaleString('en-PK')}</span>
+                                )}
+                              </span>
+                              {p.reviewCount > 0 && (
+                                <span className="text-amber-700">
+                                  ★ {p.rating.toFixed(1)} ({p.reviewCount})
+                                </span>
+                              )}
+                              <span className="text-emerald-700 font-semibold">View product →</span>
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-2 mt-1 px-1 text-[10px] text-black/60">
                       <span>{m.fromTeam ? `${storeName} team` : isAssistant ? `${storeName} assistant (AI)` : 'You'}</span>
                       <span>·</span>
@@ -501,6 +582,21 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                           <Copy className="w-2.5 h-2.5 inline" />
                         </button>
                       )}
+                      {isAssistant && !m.fromTeam && m.serverIndex !== undefined && chatSession && (
+                        <button
+                          type="button"
+                          onClick={() => playVoice(m)}
+                          className="ml-1 px-1.5 py-0.5 rounded-full border border-black/15 hover:border-black hover:text-black cursor-pointer"
+                          title="Listen to this answer"
+                        >
+                          {voiceState?.id === m.id && voiceState.state === 'loading'
+                            ? '⏳ ...'
+                            : voiceState?.id === m.id && voiceState.state === 'playing'
+                            ? '⏸ Stop'
+                            : '🔊 Listen'}
+                        </button>
+                      )}
+                      {voiceState?.id === m.id && voiceState.state === 'error' && <span className="text-rose-700">{voiceState.note}</span>}
                     </div>
 
                     {/* Suggested follow-up prompt chips */}
@@ -536,6 +632,13 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
             {/* Quick Prompt Bar */}
             <div className="px-4 py-2 border-t border-black/5 bg-[#F6F5F0] flex items-center gap-2 overflow-x-auto scrollbar-none shrink-0 text-[11px]">
               <span className="text-black/60 text-[10px] font-mono shrink-0">Suggestions:</span>
+              <button
+                type="button"
+                onClick={() => handleSendAiMessage('Gents winter suit dikhao, qeemat bhi batao')}
+                className="px-2 py-0.5 rounded bg-white border border-black/10 hover:border-black/30 whitespace-nowrap cursor-pointer"
+              >
+                🛍️ Products & prices
+              </button>
               <button
                 type="button"
                 onClick={() => handleSendAiMessage('Is Cash on Delivery available in Lahore or Karachi?')}
