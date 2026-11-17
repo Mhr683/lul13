@@ -206,6 +206,44 @@ export function plainIntent(message: string): ProductIntent {
   return { wantsProducts: true, keywords: tokens(message).slice(0, 8), minPrice: 0, maxPrice: m ? Number(m[1]) : 0, language: detectLanguage(message) };
 }
 
+// ------------------------------------------------------------------ customer's voice message
+// The browser sends a short WAV (16 kHz mono, made from the microphone recording). The AI writes down
+// what was said; the recording itself is not kept anywhere.
+export async function transcribeVoice(ai: any, wav: Buffer): Promise<string> {
+  if (!(wav.length > 44 && wav.toString('ascii', 0, 4) === 'RIFF' && wav.toString('ascii', 8, 12) === 'WAVE')) return '';
+  // A (nearly) silent recording: the AI would make up words, so nothing is sent to it
+  let sum = 0;
+  let n = 0;
+  for (let i = 44; i + 1 < wav.length; i += 2 * 4) {
+    const s = wav.readInt16LE(i);
+    sum += s * s;
+    n++;
+  }
+  if (!n || Math.sqrt(sum / n) < 120) return '';
+  const r: any = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-lite',
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: 'audio/wav', data: wav.toString('base64') } },
+          {
+            text: `A customer of an online store in Pakistan recorded this voice message. Write down exactly what they said, nothing else.
+- Urdu, Punjabi or Hindi speech: write it in Roman Urdu (Urdu in English letters).
+- English speech: write it in English.
+- Only the words actually spoken in this recording. Fix nothing, add nothing, guess nothing, no notes. If there is no clear speech, return exactly: [no speech]`,
+          },
+        ],
+      },
+    ],
+    config: { temperature: 0, httpOptions: { timeout: 30_000 } },
+  });
+  const text = String(r.text || '')
+    .replace(/^["'\s]+|["'\s]+$/g, '')
+    .slice(0, 1000);
+  return /^\[?no speech\]?$/i.test(text) ? '' : text;
+}
+
 // ------------------------------------------------------------------ voice (woman's voice)
 const TTS_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
 const FEMALE_VOICE = 'Kore';
@@ -241,7 +279,8 @@ export async function speakFemale(ai: any, text: string): Promise<Buffer | null>
     try {
       const r: any = await ai.models.generateContent({
         model,
-        contents: [{ role: 'user', parts: [{ text: `Read this aloud in a friendly, polite young woman's voice, clearly and not too fast, in the language it is written in:\n${say}` }] }],
+        // Only the answer itself: an instruction in front of it was sometimes read out loud as well
+        contents: [{ role: 'user', parts: [{ text: say }] }],
         config: {
           responseModalities: ['AUDIO'] as any,
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: FEMALE_VOICE } } },

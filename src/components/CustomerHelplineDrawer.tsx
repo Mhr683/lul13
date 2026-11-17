@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { CustomerHelplineMessage, CustomerInquiryTicket } from '../types/store';
+import { canRecord, startRecording, toWavBase64, type Recording } from '../services/voiceRecorder';
 
 interface CustomerHelplineDrawerProps {
   isOpen: boolean;
@@ -98,6 +99,9 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     }
   });
 
+  const chatSessionRef = useRef(chatSession);
+  chatSessionRef.current = chatSession;
+
   const formatTime = (iso: string) =>
     new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -145,19 +149,19 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
     };
   }, [isOpen, activeTab, chatSession]);
 
-  const handleSendAiMessage = async (textToSend?: string) => {
-    const text = (textToSend || chatInput).trim();
-    if (!text || isAiLoading) return;
+  const handleSendAiMessage = async (textToSend?: string, audio?: string) => {
+    const text = audio ? '' : (textToSend || chatInput).trim();
+    if ((!text && !audio) || isAiLoading) return;
 
     const userMsg: CustomerHelplineMessage = {
       id: 'usr-' + Date.now(),
       role: 'user',
-      content: text,
+      content: audio ? '🎤 Voice message…' : text,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
     setMessages((prev) => [...prev, userMsg]);
-    setChatInput('');
+    if (!audio) setChatInput('');
     setIsAiLoading(true);
 
     try {
@@ -165,7 +169,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          ...(audio ? { audio } : { message: text }),
           orderNumber: orderQueryNumber || undefined,
           ...(chatSession ? { chatId: chatSession.chatId, chatKey: chatSession.chatKey } : {}),
           ...(userProfile
@@ -176,8 +180,21 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
 
       const data = await res.json();
 
+      // A voice message: show what the AI heard in the customer's bubble
+      if (audio) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === userMsg.id
+              ? { ...m, content: data.heard ? `🎤 ${data.heard}` : `🎤 ${data.error || 'Voice message could not be sent.'}` }
+              : m
+          )
+        );
+        if (!res.ok && data.error) return;
+      }
+
+      let session = chatSession;
       if (data.success && data.chatId && data.chatKey) {
-        const session = { chatId: data.chatId, chatKey: data.chatKey };
+        session = { chatId: data.chatId, chatKey: data.chatKey };
         setChatSession(session);
         try {
           localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(session));
@@ -205,6 +222,8 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
           serverIndex: typeof data.replyIndex === 'number' && data.replyIndex >= 0 ? data.replyIndex : undefined,
         };
         setMessages((prev) => [...prev, assistantMsg]);
+        // Asked by voice: the answer is spoken back too
+        if (audio && session && assistantMsg.serverIndex !== undefined) playVoice(assistantMsg, session);
       } else {
         const fallbackMsg: CustomerHelplineMessage = {
           id: 'ast-fallback-' + Date.now(),
@@ -232,7 +251,8 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
   // The assistant's answer read aloud (a woman's voice, made on the server)
   const [voiceState, setVoiceState] = useState<{ id: string; state: 'loading' | 'playing' | 'error'; note?: string } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const playVoice = async (m: CustomerHelplineMessage) => {
+  const playVoice = async (m: CustomerHelplineMessage, sessionOverride?: { chatId: string; chatKey: string }) => {
+    const chatSession = sessionOverride || chatSessionRef.current;
     if (!chatSession || m.serverIndex === undefined) return;
     if (voiceState?.id === m.id && voiceState.state === 'playing') {
       audioRef.current?.pause();
@@ -261,9 +281,57 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
       await audio.play();
       setVoiceState({ id: m.id, state: 'playing' });
     } catch (err: any) {
+      // The phone did not allow playing by itself: the customer taps "Listen"
+      if (err?.name === 'NotAllowedError') return setVoiceState(null);
       setVoiceState({ id: m.id, state: 'error', note: err?.message });
     }
   };
+
+  // ---- the customer's own voice message (tap 🎤, speak, tap ■ to send; at most one minute)
+  const [recording, setRecording] = useState<{ rec: Recording; startedAt: number } | null>(null);
+  const [recSeconds, setRecSeconds] = useState(0);
+  const [micNote, setMicNote] = useState('');
+  const recordingRef = useRef(recording);
+  recordingRef.current = recording;
+  const startMic = async () => {
+    setMicNote('');
+    if (!canRecord()) return setMicNote('Voice messages do not work in this browser. Please type your question.');
+    try {
+      const rec = await startRecording();
+      setRecSeconds(0);
+      setRecording({ rec, startedAt: Date.now() });
+    } catch (err: any) {
+      setMicNote(
+        err?.name === 'NotAllowedError'
+          ? 'Microphone permission is off. Allow the microphone for this website (tap the 🔒 next to the address) and try again.'
+          : 'The microphone could not be started. Please type your question.'
+      );
+    }
+  };
+  const stopMic = async (send: boolean) => {
+    const r = recordingRef.current;
+    if (!r) return;
+    setRecording(null);
+    if (!send) return r.rec.cancel();
+    try {
+      const blob = await r.rec.stop();
+      const { base64, seconds } = await toWavBase64(blob);
+      if (seconds < 0.5) return setMicNote('The voice message was too short. Tap 🎤, speak, then tap ■.');
+      handleSendAiMessage(undefined, base64);
+    } catch {
+      setMicNote('The voice message could not be read. Please try again or type your question.');
+    }
+  };
+  useEffect(() => {
+    if (!recording) return;
+    const t = setInterval(() => {
+      const s = Math.floor((Date.now() - recording.startedAt) / 1000);
+      setRecSeconds(s);
+      if (s >= 60) stopMic(true);
+    }, 250);
+    return () => clearInterval(t);
+  }, [recording]);
+  useEffect(() => () => recordingRef.current?.rec.cancel(), []);
   useEffect(() => () => audioRef.current?.pause(), []);
 
   const handleClearChat = () => {
@@ -671,23 +739,50 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                 }}
                 className="flex items-center gap-2"
               >
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask a question (e.g. 'When will my order arrive?', 'Watch warranty?')..."
-                  className="flex-1 bg-[#FBFBF9] border border-black/15 focus:border-[#141413] rounded-md px-3.5 py-2.5 text-xs text-[#141413] placeholder:text-black/40 focus:outline-none"
+                {recording ? (
+                  <div className="flex-1 flex items-center gap-2 bg-rose-50 border border-rose-300 rounded-md px-3 py-2 text-xs text-rose-900">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse shrink-0" />
+                    <span className="font-semibold">
+                      Recording… 0:{String(recSeconds).padStart(2, '0')} / 1:00
+                    </span>
+                    <span className="hidden sm:inline text-rose-800/80">Speak now, then tap ■ to send</span>
+                    <button type="button" onClick={() => stopMic(false)} className="ml-auto underline cursor-pointer">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Type or tap 🎤 to speak (English / اردو / Roman Urdu)..."
+                    className="flex-1 min-w-0 bg-[#FBFBF9] border border-black/15 focus:border-[#141413] rounded-md px-3.5 py-2.5 text-xs text-[#141413] placeholder:text-black/40 focus:outline-none"
+                    disabled={isAiLoading}
+                  />
+                )}
+                {/* Voice message: tap to start, tap ■ to send */}
+                <button
+                  type="button"
+                  onClick={() => (recording ? stopMic(true) : startMic())}
                   disabled={isAiLoading}
-                />
+                  className={`px-3 py-2.5 rounded-md text-xs font-semibold shrink-0 cursor-pointer disabled:opacity-50 ${
+                    recording ? 'bg-rose-600 text-white hover:bg-rose-700' : 'bg-white border border-black/15 hover:border-black'
+                  }`}
+                  aria-label={recording ? 'Send voice message' : 'Record a voice message'}
+                  title={recording ? 'Send voice message' : 'Record a voice message'}
+                >
+                  {recording ? '■ Send' : '🎤'}
+                </button>
                 <button
                   type="submit"
-                  disabled={isAiLoading || !chatInput.trim()}
-                  className="px-4 py-2.5 bg-[#141413] text-[#FBFBF9] rounded-md text-xs font-medium hover:bg-[#2A2A28] disabled:opacity-50 transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
+                  disabled={isAiLoading || !chatInput.trim() || !!recording}
+                  className={`px-4 py-2.5 bg-[#141413] text-[#FBFBF9] rounded-md text-xs font-medium hover:bg-[#2A2A28] disabled:opacity-50 transition-colors items-center gap-1.5 cursor-pointer shrink-0 ${recording ? 'hidden' : 'flex'}`}
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Send</span>
                 </button>
               </form>
+              {micNote && <p className="mt-1.5 text-[11px] text-rose-700">{micNote}</p>}
             </div>
           </div>
         )}

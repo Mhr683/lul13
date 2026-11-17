@@ -40,7 +40,7 @@ import { offlineSupportReply, offlineProductContent } from './server/offlineAnsw
 import { createOrderQueue } from './server/orderQueue';
 import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/stepUp';
 import { createCatalogStore } from './server/catalogStore';
-import { searchProducts, productFacts, readIntent, plainIntent, speakFemale, detectLanguage, closingLines, languageName, type HelplineProduct, type ReplyLanguage } from './server/helplineProducts';
+import { searchProducts, productFacts, readIntent, plainIntent, speakFemale, transcribeVoice, detectLanguage, closingLines, languageName, type HelplineProduct, type ReplyLanguage } from './server/helplineProducts';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
 import { registerOrderChatRoutes } from './server/orderChat';
@@ -6015,7 +6015,27 @@ app.post('/api/ai/customer-support', async (req, res) => {
       return res.status(429).json({ error: 'Too many messages. Please try again in a minute.' });
     }
 
-    const { message, chatId, chatKey, orderNumber, customerName, customerEmail, customerPhone } = req.body || {};
+    const { chatId, chatKey, orderNumber, customerName, customerEmail, customerPhone } = req.body || {};
+    let message = req.body?.message;
+    // A voice message (WAV, at most about a minute): the AI writes down what was said and answers that
+    let fromVoice = false;
+    if (typeof req.body?.audio === 'string' && req.body.audio) {
+      if (!checkRateLimit(`supportvoice:${clientIp}`, 5, 60_000)) {
+        return res.status(429).json({ error: 'Too many voice messages. Please wait a minute or type your question.' });
+      }
+      const wav = Buffer.from(req.body.audio, 'base64');
+      if (wav.length > 2.5 * 1024 * 1024) return res.status(413).json({ error: 'The voice message is too long. Please keep it under one minute.' });
+      let heard = '';
+      try {
+        heard = await transcribeVoice(getGenAIClient(), wav);
+      } catch (err: any) {
+        console.warn('[Helpline voice in] failed:', err?.message || err);
+        return res.status(503).json({ error: 'Your voice message could not be heard right now. Please try again or type your question.' });
+      }
+      if (!heard) return res.status(422).json({ error: 'Sorry, I could not hear any words. Please speak a little closer to the phone, or type your question.' });
+      message = heard;
+      fromVoice = true;
+    }
     if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'Message cannot be empty.' });
     }
@@ -6061,7 +6081,7 @@ app.post('/api/ai/customer-support', async (req, res) => {
       };
     }
 
-    const thread: ThreadMessage[] = [...(ticket.messages || []), { role: 'customer', text, at: now }];
+    const thread: ThreadMessage[] = [...(ticket.messages || []), { role: 'customer', text: fromVoice ? `🎤 ${text}` : text, at: now }];
     const wantsHuman = HUMAN_REQUEST_PATTERN.test(text);
     const humanActive = Boolean(ticket.humanActiveUntil && new Date(ticket.humanActiveUntil).getTime() > Date.now());
 
@@ -6097,6 +6117,7 @@ app.post('/api/ai/customer-support', async (req, res) => {
       success: true,
       reply,
       products,
+      ...(fromVoice ? { heard: text } : {}),
       replyIndex: humanActive ? -1 : trimThread(thread).length - 1,
       humanActive,
       chatId: ticket.id,

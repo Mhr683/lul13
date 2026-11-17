@@ -989,7 +989,8 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
       try {
         const r: any = await d.getAI(uid).models.generateContent({
           model,
-          contents: [{ role: 'user', parts: [{ text: `Say this as a warm, lively TV advert, clearly and not too fast:\n${script}` }] }],
+          // Only the script: an instruction in front of it was sometimes read out loud as well
+          contents: [{ role: 'user', parts: [{ text: script }] }],
           config: { responseModalities: ['AUDIO'] as any, speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICES[voice] } } } },
         });
         const part = (r.candidates?.[0]?.content?.parts || []).find((x: any) => x.inlineData?.data);
