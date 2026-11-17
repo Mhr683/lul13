@@ -15,6 +15,15 @@ const MAX_ATTEMPTS = 12;
 
 const busyUntil = new Map<string, number>();
 const keyRestUntil = new Map<string, number>();
+// One model's limit on one key used up (e.g. the voice model): only that model rests on that key,
+// the key's other models keep working
+const modelRestUntil = new Map<string, number>();
+const restId = (keyId: string, model: string) => `${keyId}|${model}`;
+/** That model's own limit on this key (429 / quota), not a wrong or blocked key */
+const isLimitHit = (err: any) => {
+  const status = Number(err?.status || err?.code);
+  return status === 429 || /RESOURCE_EXHAUSTED|exceeded your current quota|rate limit/i.test(String(err?.message || ''));
+};
 const keyStats = new Map<string, { lastOkAt?: number; lastError?: string; lastErrorAt?: number }>();
 
 /** Overloaded, rate-limited or a temporary server error: worth trying another model */
@@ -66,8 +75,10 @@ export function withKeyPool(clients: Array<{ key: string; client: GoogleGenAI }>
     const asked = String(params?.model || CHAIN[0]);
     const models = [asked, ...CHAIN.filter((m) => m !== asked)];
     const now = Date.now();
-    const keysReady = calls.filter((c) => (keyRestUntil.get(tail(c.key)) || 0) <= now);
-    const keysResting = calls.filter((c) => (keyRestUntil.get(tail(c.key)) || 0) > now);
+    const resting = (c: { key: string }) =>
+      (keyRestUntil.get(tail(c.key)) || 0) > now || (modelRestUntil.get(restId(tail(c.key), asked)) || 0) > now;
+    const keysReady = calls.filter((c) => !resting(c));
+    const keysResting = calls.filter((c) => resting(c));
     let lastErr: any;
     // At most this many tries per question, so a busy Google answers quickly instead of trying every
     // model on every key (the store's own answers are used then)
@@ -76,8 +87,10 @@ export function withKeyPool(clients: Array<{ key: string; client: GoogleGenAI }>
       if (attempts >= MAX_ATTEMPTS) break;
       const id = tail(k.key);
       // Models that were busy a moment ago go last (a busy model is busy for every key)
-      const ready = models.filter((m) => (busyUntil.get(m) || 0) <= Date.now());
-      const resting = models.filter((m) => (busyUntil.get(m) || 0) > Date.now());
+      // Models whose own limit on this key is used up go last too
+      const free = (m: string) => (busyUntil.get(m) || 0) <= Date.now() && (modelRestUntil.get(restId(id, m)) || 0) <= Date.now();
+      const ready = models.filter(free);
+      const resting = models.filter((m) => !free(m));
       let keyUsedUp = false;
       // A few fresh models per key (with one key: all of them, so the lighter models that are often
       // free still get their turn); when every model is busy, one try per key is enough
@@ -91,13 +104,17 @@ export function withKeyPool(clients: Array<{ key: string; client: GoogleGenAI }>
           });
           busyUntil.delete(model);
           keyRestUntil.delete(id);
+          modelRestUntil.delete(restId(id, model));
           keyStats.set(id, { ...keyStats.get(id), lastOkAt: Date.now() });
           return result;
         } catch (err: any) {
           lastErr = err;
           if (isKeyProblem(err)) {
             keyUsedUp = true;
-            keyRestUntil.set(id, Date.now() + KEY_REST_MS);
+            // A used-up limit rests only this model on this key; a wrong / blocked key rests entirely
+            if (isLimitHit(err)) modelRestUntil.set(restId(id, model), Date.now() + KEY_REST_MS);
+            else keyRestUntil.set(id, Date.now() + KEY_REST_MS);
+            if (modelRestUntil.size > 2000) modelRestUntil.clear();
             keyStats.set(id, { ...keyStats.get(id), lastError: String(err?.message || err).slice(0, 160), lastErrorAt: Date.now() });
             console.warn(`[ai] key ••••${k.key.slice(-4)} used up or refused, trying the next key`);
             break;
