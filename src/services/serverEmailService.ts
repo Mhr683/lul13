@@ -17,7 +17,8 @@ export interface EmailLogEntry {
     | 'FOLLOWED_SHOP_NEW_PRODUCTS'
     | 'LOGIN_CHECK'
     | 'SELLER_STATUS'
-    | 'SELLER_ENGAGEMENT';
+    | 'SELLER_ENGAGEMENT'
+    | 'HELPLINE_ALERT';
   recipient: string;
   sender: string;
   subject: string;
@@ -493,6 +494,50 @@ export async function sendSellerEngagementEmail(
     type: 'SELLER_ENGAGEMENT',
     metadata: { shopName: params.shopName, title: params.title },
   });
+}
+
+// ============================================================================
+// HELPLINE ALERT (to the store owner: a customer chat needs a person)
+// ============================================================================
+export async function sendHelplineAlertEmail(
+  adminDb: FirebaseFirestore.Firestore | null | undefined,
+  params: {
+    ticketNumber: string;
+    customerName: string;
+    reason: string;
+    lastMessages: { who: string; text: string }[];
+    adminUrl: string;
+    storeName?: string;
+    supportEmail?: string;
+    contactEmail?: string;
+  }
+): Promise<SendEmailResult> {
+  const storeName = params.storeName || 'Store';
+  const to =
+    process.env.STORE_OWNER_EMAIL?.trim() ||
+    process.env.ADMIN_EMAIL?.trim() ||
+    params.supportEmail?.trim() ||
+    params.contactEmail?.trim() ||
+    '';
+  if (!to) return { success: false, error: 'No store owner e-mail set.' } as SendEmailResult;
+  const subject = `🙋 Customer needs a person: ${params.reason} (${params.ticketNumber})`;
+  const lines = params.lastMessages.slice(-6);
+  const html = wrapEmailHtml({
+    storeName,
+    bannerTitle: 'A customer needs a person',
+    bannerSubtitle: `${params.customerName} · ${params.ticketNumber}`,
+    bannerColor: 'amber',
+    supportEmail: params.supportEmail,
+    contentHtml: `
+      <p style="margin: 0 0 12px 0; font-size: 14px;"><strong>Why:</strong> ${escapeHtml(params.reason)}</p>
+      <div style="margin: 0 0 16px 0; padding: 12px 14px; background-color: #F9FAFB; border-left: 3px solid #F59E0B; font-size: 13px; color: #111827;">
+        ${lines.map((m) => `<p style="margin: 0 0 8px 0;"><strong>${escapeHtml(m.who)}:</strong> ${escapeHtml(m.text).replace(/\n/g, '<br>')}</p>`).join('')}
+      </div>
+      <p style="margin: 0 0 8px 0;"><a href="${escapeHtml(params.adminUrl)}" style="display: inline-block; padding: 12px 22px; background-color: #111827; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 14px;">Open Admin → Support</a></p>
+      <p style="margin: 0; font-size: 12px; color: #6B7280;">When you reply in the chat, the AI stays quiet in it for 30 minutes.</p>`,
+  });
+  const text = `A customer needs a person (${params.ticketNumber}, ${params.customerName}).\nWhy: ${params.reason}\n\n${lines.map((m) => `${m.who}: ${m.text}`).join('\n')}\n\nOpen: ${params.adminUrl}`;
+  return sendViaResend(adminDb, { to, subject, html, text, type: 'HELPLINE_ALERT', metadata: { ticketNumber: params.ticketNumber } });
 }
 
 // ============================================================================

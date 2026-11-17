@@ -3617,7 +3617,7 @@ export const AdminDashboardView: React.FC<{
                                   <div className="flex flex-wrap gap-2 text-[11px] font-bold">
                                     {ticket.needsHuman && (
                                       <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300">
-                                        Customer wants a person — please reply
+                                        Needs a person{(ticket as any).humanReason ? `: ${(ticket as any).humanReason}` : ''} — please reply
                                       </span>
                                     )}
                                   </div>

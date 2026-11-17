@@ -20,6 +20,9 @@ export type ProductIntent = {
   minPrice: number;
   maxPrice: number;
   language: ReplyLanguage;
+  // A person from the store should look at this (complaint, refund, damaged / wrong item, angry, asks for a person)
+  needsPerson: boolean;
+  personReason: string;
 };
 
 // Urdu script is certain from the letters; English vs Roman Urdu from common Roman Urdu words
@@ -179,7 +182,9 @@ Return JSON only:
 {"wantsProducts": true if they ask about a product / item / price / availability / details or want to buy or see something, else false,
  "keywords": product words for a store search, corrected spelling, in BOTH English and the Roman Urdu / common Pakistani name (e.g. "khaddar","suit","men"; "joote" -> "shoes","joota"), at most 8, no colours unless asked, empty if none,
  "minPrice": number or 0, "maxPrice": number or 0 (e.g. "2000 tak" -> 2000),
- "language": "ur" if written in Urdu script, "roman" if Urdu/Hindi written in English letters (Roman Urdu), "en" if English}`;
+ "language": "ur" if written in Urdu script, "roman" if Urdu/Hindi written in English letters (Roman Urdu), "en" if English,
+ "needsPerson": true only if a person from the store must handle it: a complaint, damaged / wrong / missing item, refund or money back, return or exchange request for their order, payment problem, very late order, angry or upset customer, or they ask for a person / call; false for normal questions (products, prices, COD, delivery time, how to track),
+ "personReason": if needsPerson, a 3-6 word English reason (e.g. "damaged item complaint", "refund request"), else ""}`;
   try {
     const r: any = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite',
@@ -194,6 +199,8 @@ Return JSON only:
       maxPrice: Math.max(0, Number(j.maxPrice) || 0),
       // Urdu letters are certain; otherwise the AI's reading of English vs Roman Urdu
       language: /[؀-ۿ]/.test(message) ? 'ur' : j.language === 'roman' || j.language === 'en' ? j.language : detectLanguage(message),
+      needsPerson: Boolean(j.needsPerson),
+      personReason: j.needsPerson ? String(j.personReason || 'customer needs help').slice(0, 60) : '',
     };
   } catch {
     return null;
@@ -203,7 +210,7 @@ Return JSON only:
 // Without the AI: the message's own words are used for the search
 export function plainIntent(message: string): ProductIntent {
   const m = /(\d{3,6})\s*(tak|tk|under|se kam|below|max)/i.exec(message);
-  return { wantsProducts: true, keywords: tokens(message).slice(0, 8), minPrice: 0, maxPrice: m ? Number(m[1]) : 0, language: detectLanguage(message) };
+  return { wantsProducts: true, keywords: tokens(message).slice(0, 8), minPrice: 0, maxPrice: m ? Number(m[1]) : 0, language: detectLanguage(message), needsPerson: false, personReason: '' };
 }
 
 // ------------------------------------------------------------------ customer's voice message

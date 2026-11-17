@@ -100,6 +100,7 @@ import {
   sendLoginCheckEmail,
   sendSellerStatusEmail,
   sendSellerEngagementEmail,
+  sendHelplineAlertEmail,
 } from './src/services/serverEmailService';
 import { startSellerEngagement } from './server/sellerEngagement';
 
@@ -5835,6 +5836,9 @@ interface CustomerTicket {
   messages?: ThreadMessage[];
   chatKeyHash?: string;
   needsHuman?: boolean;
+  // Why a person is needed (from the AI) and when the owner was last e-mailed about it
+  humanReason?: string;
+  humanAlertAt?: string;
   humanActiveUntil?: string;
   lastMessageAt?: string;
 }
@@ -5887,6 +5891,82 @@ async function loadStoreSettingsForSupport(): Promise<any> {
   return DEFAULT_SETTINGS;
 }
 
+// ---------------------------------------------------------------- order status in the helpline chat
+// The customer gives the order number and the phone number used for the order (in one message or a few);
+// only when both match are the order's facts given to the AI (same check as the "Track order" page).
+const ORDER_STATUS_MEANING: Record<string, string> = {
+  PENDING_CONFIRMATION: 'received, waiting to be confirmed (usually within a day)',
+  PENDING: 'received, waiting to be confirmed',
+  CONFIRMED: 'confirmed, being prepared',
+  PROCESSING: 'being prepared',
+  PACKED: 'packed, will be handed to the courier soon',
+  SHIPPED: 'handed to the courier, on the way',
+  OUT_FOR_DELIVERY: 'out for delivery today',
+  DELIVERED: 'delivered',
+  CANCELLED: 'cancelled',
+  REFUNDED: 'refunded',
+  RETURNED: 'returned',
+};
+const helplineOrderCache = new Map<string, { at: number; facts: string }>();
+async function helplineOrderFacts(texts: string[], clientIp: string): Promise<string> {
+  const all = texts.join(' \n ');
+  const orderMatches = Array.from(all.matchAll(/\bORD[\s#:-]*(\d{5,8})\b/gi)).map((m) => `ORD-${m[1]}`);
+  const phoneMatches = Array.from(all.replace(/[\s-]/g, '').matchAll(/(?:\+?92|0)?(3\d{9})(?!\d)/g)).map((m) => m[1]);
+  const orderNumber = orderMatches[orderMatches.length - 1];
+  const phone = phoneMatches[phoneMatches.length - 1];
+  if (!orderNumber && !phone) return '';
+  if (orderNumber && !phone)
+    return `The customer gave order number ${orderNumber} but not the phone number used for that order. Ask for that phone number (for safety you can only check the order with both).`;
+  if (!orderNumber)
+    return 'The customer gave a phone number but no order number. If they ask about an order, ask for the order number (it looks like ORD-123456 and is in the order confirmation message / e-mail).';
+  const key = `${orderNumber}|${phone}`;
+  const hit = helplineOrderCache.get(key);
+  if (hit && Date.now() - hit.at < 3 * 60_000) return hit.facts;
+  // Wrong guesses are limited, so nobody can try many order numbers
+  if (!checkRateLimit(`helporder:${clientIp}`, 6, 10 * 60_000))
+    return 'Too many order checks from this customer right now. Ask them to try again in 10 minutes or use "Track order" on the website.';
+  let o: any = null;
+  const waiting = orderQueue.find(orderNumber);
+  if (waiting) {
+    o = { orderNumber, status: 'PENDING_CONFIRMATION', customerPhone: waiting.body?.customerPhone, paymentMethod: waiting.body?.paymentMethod, createdAt: waiting.at, items: [] };
+  } else {
+    const q = await adminDb.collection('orders').where('orderNumber', '==', orderNumber).limit(1).get();
+    o = q.empty ? null : q.docs[0].data();
+  }
+  const tail = (v: unknown) => String(v || '').replace(/\D/g, '').slice(-10);
+  let facts: string;
+  if (!o) facts = `No order ${orderNumber} was found. Ask the customer to check the number (it looks like ORD-123456).`;
+  else if (tail(o.customerPhone) !== tail(phone))
+    facts = `The phone number does not match order ${orderNumber}. Do not share anything about this order; ask for the phone number that was used when ordering.`;
+  else {
+    const events = Array.isArray(o.trackingEvents) ? o.trackingEvents : [];
+    const last = events[events.length - 1];
+    const items = (o.items || []).slice(0, 5).map((i: any) => `${i.name || i.productName || 'item'} x${i.quantity || 1}`).join(', ');
+    const shipments = Array.isArray(o.shipments) ? o.shipments : [];
+    const tracking = [o.courierName && `courier ${o.courierName}`, o.trackingNumber && `tracking number ${o.trackingNumber}`]
+      .concat(shipments.map((s: any) => [s.courierName, s.trackingNumber].filter(Boolean).join(' ')))
+      .filter(Boolean)
+      .join('; ');
+    facts = [
+      `Verified order (number and phone match). You may tell the customer:`,
+      `- Order ${o.orderNumber}, placed ${String(o.createdAt || '').slice(0, 10)}`,
+      `- Status: ${o.status} = ${ORDER_STATUS_MEANING[o.status] || String(o.status).toLowerCase().replace(/_/g, ' ')}`,
+      o.paymentMethod ? `- Payment: ${o.paymentMethod}${o.paymentStatus ? ` (${o.paymentStatus})` : ''}` : '',
+      o.total ? `- Total: Rs ${Number(o.total).toLocaleString('en-PK')}` : '',
+      items ? `- Items: ${items}` : '',
+      tracking ? `- Shipping: ${tracking}` : '',
+      last ? `- Latest update (${String(last.at || '').slice(0, 10)}): ${last.note || last.status || ''}` : '',
+      o.cancelRequest?.status ? `- Cancel request: ${o.cancelRequest.status}` : '',
+      `Never promise a delivery date. For a problem with this order say a team member will check and reply in this chat.`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+  helplineOrderCache.set(key, { at: Date.now(), facts });
+  if (helplineOrderCache.size > 2000) helplineOrderCache.clear();
+  return facts;
+}
+
 // Generates the AI helpline answer from the server-side store settings (never from client input)
 async function generateSupportReply(params: {
   store: any;
@@ -5894,7 +5974,8 @@ async function generateSupportReply(params: {
   message: string;
   channel: 'WEBSITE' | 'FORM';
   orderNumber?: string;
-}): Promise<{ text: string; products: HelplineProduct[] }> {
+  clientIp?: string;
+}): Promise<{ text: string; products: HelplineProduct[]; needsPerson: boolean; personReason: string }> {
   const { store, history, message, channel, orderNumber } = params;
   const storeName = store.storeName || 'Store';
   const storeUrl = STORE_HOST ? `https://${STORE_HOST}` : String(process.env.APP_URL || '').replace(/\/+$/, '') || 'https://anokhashopinghub.shop';
@@ -5910,17 +5991,30 @@ async function generateSupportReply(params: {
   let products: HelplineProduct[] = [];
   let all: any[] = [];
   let lang: ReplyLanguage = detectLanguage(message);
+  let needsPerson = false;
+  let personReason = '';
+  const recent = history.filter((m) => m.role === 'customer').map((m) => m.text);
+  // The customer's own order (order number + phone given in this chat), checked while the question is read
+  const orderFactsP =
+    channel === 'WEBSITE'
+      ? helplineOrderFacts([...recent.slice(-5), orderNumber || '', message], params.clientIp || 'local').catch((err) => {
+          console.warn('[Helpline AI] order lookup failed:', err?.message || err);
+          return 'The order could not be checked right now. Ask the customer to use "Track order" on the website or try again in a few minutes.';
+        })
+      : Promise.resolve('');
   try {
     if (catalogStore.ready) {
       all = catalogStore.publicProducts();
-      const recent = history.filter((m) => m.role === 'customer').map((m) => m.text);
       const intent = (ai ? await readIntent(ai, message, recent) : null) || plainIntent(message);
       lang = intent.language;
+      needsPerson = intent.needsPerson;
+      personReason = intent.personReason;
       if (intent.wantsProducts) products = searchProducts(all, intent, storeUrl, 3);
     }
   } catch (err: any) {
     console.warn('[Helpline AI] product search failed:', err?.message || err);
   }
+  const orderFacts = await orderFactsP;
   const whatsapp = store.helplineWhatsAppFormatted || store.helplineWhatsApp || '';
   const email = store.supportEmail || store.helplineEmail || store.contactEmail || '';
   const bankDetails = store.bankName
@@ -5944,7 +6038,7 @@ Do not write any closing line about visiting the website or showing more product
     : `
 No matching product was found in the store for this message. If the customer asked about a product, say politely that you could not find it right now and invite them to search on the store: ${storeUrl}. Never invent a product, price or detail.`;
 
-  const systemPrompt = `You are the customer support assistant of "${storeName}", an online store in Pakistan (prices in PKR). You are a young woman: when you speak about yourself ("main" / "I") in Urdu or Roman Urdu use feminine forms ("main madad kar sakti hoon", "main dekhti hoon", "maazrat chahti hoon"). When you speak for the store ("hum" / "we") use the normal plural ("hum dete hain", "hum qabool karte hain"). Speak to the customer as "aap" with neutral forms (e.g. "aap dekh sakte hain").
+  const systemPrompt = `You are the customer support assistant of "${storeName}", an online store in Pakistan (prices in PKR). You are a young woman: when you speak about yourself ("main" / "I") in Urdu or Roman Urdu use feminine forms ("main madad kar sakti hoon", "main dekhti hoon", "maazrat chahti hoon"). When you speak for the store ("hum" / "we") use the normal plural ("hum dete hain", "hum qabool karte hain"). You do not know if the customer is a man or a woman: always address them as "aap" with the plural forms ("aap bata sakte hain", "aap dekh sakte hain", "aap check kar lein"), never "sakti hain" / "karti hain" for the customer.
 You are replying on ${channel === 'FORM' ? 'an email ticket' : 'the website helpline chat'}.
 
 Language: the customer wrote in ${languageName(lang)}. Write your WHOLE answer only in ${languageName(lang)}, including words like price and details (product names may stay as they are). Customers often make spelling mistakes or mix languages: understand what they mean and answer that. Be warm, polite, short and clear.
@@ -5965,9 +6059,12 @@ ${whatsapp ? `- WhatsApp: ${whatsapp}` : ''}
 ${email ? `- Email: ${email}` : ''}
 
 Rules:
-- You cannot see order details or payment status. Never guess an order's status, delivery date or refund, or a price that is not in the product list. For a specific order${
-    orderNumber ? ` (${orderNumber})` : ''
-  }, explain how to track it and say the team will check and reply here.
+${
+    orderFacts
+      ? `- The customer's order (from the store's records):\n${orderFacts}`
+      : `- You can check a customer's order only when they give the order number (like ORD-123456) AND the phone number used for that order. If they ask about their order, ask for both. Never guess an order's status, delivery date or refund.`
+  }
+- Never guess a price that is not in the product list.
 - Never promise refunds, discounts, warranties or delivery dates. Never ask for card numbers, PINs, OTPs or passwords.
 - If the customer is angry, has a complaint, a damaged/wrong item, or asks for a person, apologise briefly and say a team member will reply in this chat soon.`;
 
@@ -5989,7 +6086,7 @@ Rules:
       });
       // The chat shows plain text: no **bold** marks
       const said = response.text?.replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '').trim();
-      if (said) return { text: products.length ? `${said}\n\n${closingLines(lang, storeUrl)}` : said, products };
+      if (said) return { text: products.length ? `${said}\n\n${closingLines(lang, storeUrl)}` : said, products, needsPerson, personReason };
     } catch (err: any) {
       console.warn(`[Helpline AI] ${modelName} failed:`, err?.message || err);
     }
@@ -6000,6 +6097,8 @@ Rules:
       ? `${offline}\n\nProducts from our store that may match:\n${products.map((p) => `• ${p.name}: Rs ${p.price.toLocaleString('en-PK')}${channel === 'FORM' ? ` ${p.url}` : ''}`).join('\n')}\n\n${closingLines(lang, storeUrl)}`
       : offline,
     products,
+    needsPerson,
+    personReason,
   };
 }
 
@@ -6087,6 +6186,7 @@ app.post('/api/ai/customer-support', async (req, res) => {
 
     let reply: string | null = null;
     let products: HelplineProduct[] = [];
+    let personReason = wantsHuman ? 'asked for a person' : '';
     if (!humanActive) {
       const store = await loadStoreSettingsForSupport();
       const answer = await generateSupportReply({
@@ -6095,9 +6195,11 @@ app.post('/api/ai/customer-support', async (req, res) => {
         message: text,
         channel: 'WEBSITE',
         orderNumber: orderNumber || ticket.orderNumber,
+        clientIp,
       });
       reply = answer.text;
       products = answer.products;
+      if (answer.needsPerson && !personReason) personReason = answer.personReason || 'customer needs help';
       thread.push({ role: 'ai', text: reply, at: new Date().toISOString(), ...(products.length ? { products } : {}) });
     }
 
@@ -6106,12 +6208,34 @@ app.post('/api/ai/customer-support', async (req, res) => {
       messages: trimThread(thread),
       lastMessageAt: now,
       status: ticket.status === 'RESOLVED' ? 'OPEN' : ticket.status,
-      needsHuman: Boolean(ticket.needsHuman || wantsHuman),
+      needsHuman: Boolean(ticket.needsHuman || personReason),
+      ...(personReason ? { humanReason: personReason } : {}),
       ...(reply ? { aiAutoReply: reply, aiAutoRepliedAt: new Date().toISOString(), aiAutoReplyStatus: 'SENT' as const } : {}),
       ...(isRealEmail(customerEmail) && !ticket.email ? { email: String(customerEmail).trim().toLowerCase() } : {}),
     };
+    // The owner gets an e-mail when a chat newly needs a person, and again if the customer keeps writing
+    // in it and nobody has answered for 3 hours
+    const lastAlert = ticket.humanAlertAt ? Date.parse(ticket.humanAlertAt) : 0;
+    const alertNow =
+      !humanActive &&
+      updates.needsHuman &&
+      ((personReason && !ticket.needsHuman) || (ticket.needsHuman && Date.now() - lastAlert > 3 * 3600_000));
+    if (alertNow) updates.humanAlertAt = new Date().toISOString();
     await ticketRef.set(updates);
     ticketChanged(ticket.id, updates as CustomerTicket);
+    if (alertNow) {
+      const s = catalogStore.settings() || {};
+      sendHelplineAlertEmail(adminDb, {
+        ticketNumber: ticket.ticketNumber,
+        customerName: ticket.name || 'Website visitor',
+        reason: personReason || ticket.humanReason || 'customer is waiting for a reply',
+        lastMessages: (updates.messages || []).slice(-6).map((m) => ({ who: m.role === 'customer' ? 'Customer' : m.role === 'ai' ? 'AI' : 'Team', text: m.text.slice(0, 400) })),
+        adminUrl: STORE_HOST ? `https://admin.${STORE_HOST}/admin` : `${String(process.env.APP_URL || '').replace(/\/+$/, '')}/admin`,
+        storeName: s.storeName,
+        supportEmail: s.supportEmail,
+        contactEmail: s.contactEmail,
+      }).catch((err) => console.warn('[Helpline alert] e-mail failed:', err?.message || err));
+    }
 
     res.json({
       success: true,
