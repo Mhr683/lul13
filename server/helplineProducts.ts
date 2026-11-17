@@ -17,6 +17,8 @@ export type ReplyLanguage = 'en' | 'ur' | 'roman';
 export type ProductIntent = {
   wantsProducts: boolean;
   keywords: string[];
+  // The kind of thing asked for, in English ("suit", "bag", "shoes"): products must be that thing
+  item?: string;
   minPrice: number;
   maxPrice: number;
   language: ReplyLanguage;
@@ -60,12 +62,16 @@ export const tokens = (s: string) =>
 // Small spelling mistakes still match ("khadar" / "khaddar", "shoos" / "shoes")
 function near(a: string, b: string): boolean {
   if (a === b) return true;
-  // plural / short ending only ("shoe" / "shoes", "bag" / "bags"), not "head" / "headset"
-  if (Math.min(a.length, b.length) >= 3 && Math.abs(a.length - b.length) <= 2 && (a.startsWith(b) || b.startsWith(a))) return true;
-  if (Math.abs(a.length - b.length) > 1 || a.length < 4) return false;
+  // plural only ("shoe" / "shoes", "bag" / "bags"), not "head" / "headset" or "dry" / "dryer"
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (short.length >= 3 && long.startsWith(short) && ['s', 'es'].includes(long.slice(short.length))) return true;
   const squash = (s: string) => s.replace(/(.)\1+/g, '$1');
-  if (squash(a) === squash(b)) return true;
-  // one letter different / missing
+  // doubled letters ("khadar" / "khaddar")
+  if (short.length >= 4 && squash(a) === squash(b)) return true;
+  if (Math.abs(a.length - b.length) > 1 || short.length < 4) return false;
+  // a different letter only in long words ("suit" / "spit", "dress" / "press" are different words)
+  if (a.length === b.length && a.length < 7) return false;
+  // one letter missing / extra ("dryr" / "dryer", "headfones" / "headphones" is caught by the AI's spelling fix)
   let i = 0;
   let j = 0;
   let edits = 0;
@@ -91,32 +97,67 @@ export function searchProducts(all: any[], intent: ProductIntent, baseUrl: strin
   const want = Array.from(new Set(intent.keywords.flatMap(tokens))).slice(0, 12);
   if (!want.length) return [];
   const scored: { p: any; score: number }[] = [];
-  for (const p of all) {
-    if (p.status !== 'ACTIVE' || !(Number(p.stock) > 0) || !(Number(p.price) > 0)) continue;
-    if (intent.maxPrice > 0 && Number(p.price) > intent.maxPrice) continue;
-    if (intent.minPrice > 0 && Number(p.price) < intent.minPrice) continue;
-    const fields: [string[], number][] = [
-      [tokens(p.name), 3],
-      [tokens(`${p.category} ${p.subcategory || ''}`), 2],
-      [tokens(`${p.brand || ''} ${p.seoKeywords || ''}`), 1],
-      [tokens(p.shortDescription), 1],
-    ];
+  const live = all.filter(
+    (p) =>
+      p.status === 'ACTIVE' &&
+      Number(p.stock) > 0 &&
+      Number(p.price) > 0 &&
+      !(intent.maxPrice > 0 && Number(p.price) > intent.maxPrice) &&
+      !(intent.minPrice > 0 && Number(p.price) < intent.minPrice)
+  );
+  const fieldsOf = (p: any): [string[], number][] => [
+    [tokens(p.name), 3],
+    [tokens(`${p.category} ${p.subcategory || ''}`), 2],
+    [tokens(`${p.brand || ''} ${p.seoKeywords || ''}`), 1],
+    [tokens(p.shortDescription), 1],
+  ];
+  const fieldsById = new Map<string, [string[], number][]>(live.map((p) => [p.id, fieldsOf(p)]));
+  // A rare word ("khaddar") counts more than a common one ("suit"), so the product really asked for wins
+  const rarity = new Map<string, number>();
+  for (const w of want) {
+    let df = 0;
+    for (const f of fieldsById.values()) if (f.some(([list]) => list.some((t) => near(w, t)))) df++;
+    rarity.set(w, Math.log((live.length + 1) / (df + 1)) + 0.5);
+  }
+  for (const p of live) {
+    const fields = fieldsById.get(p.id)!;
     let score = 0;
     let hits = 0;
     for (const w of want) {
       let best = 0;
       for (const [list, weight] of fields) if (weight > best && list.some((t) => near(w, t))) best = weight;
       if (best) hits++;
-      score += best;
+      score += best * (rarity.get(w) || 1);
+    }
+    // The whole phrase in the name ("hair dryer", "wireless headphones") is the strongest sign
+    const nameText = ` ${fields[0][0].join(' ')} `;
+    for (const k of intent.keywords) {
+      const phrase = tokens(k);
+      if (phrase.length >= 2 && nameText.includes(` ${phrase.join(' ')} `)) score += 4 * Math.max(...phrase.map((t) => rarity.get(t) || 1));
     }
     if (!hits) continue;
-    // Most of the words must match when several were asked ("black leather bag")
-    if (want.length >= 3 && hits < Math.ceil(want.length / 2)) continue;
+    // (the keywords include other names for the same thing, so not all of them need to match; loose
+    // matches are dropped below by comparing with the best match)
     // Good rank: matches first, then rating, reviews, best seller / featured, a picture
     const rating = Number(p.rating) || 0;
     const reviews = Number(p.reviewCount) || 0;
     const quality = rating * Math.min(1, reviews / 5) + Math.log10(1 + reviews) + (p.bestSeller ? 1 : 0) + (p.featured ? 0.5 : 0) + (p.primaryImage ? 1 : -3);
     scored.push({ p, score: score * 10 + hits * 5 + quality });
+  }
+  // Only products that are the thing asked for ("suit", not a handbag "for women"), when any are
+  // (who it is for is not the thing itself: "ladies suit" -> "suit")
+  const FOR_WHOM = /^(ladies|lady|women|womens|woman|girls?|female|gents|men|mens|man|boys?|male|kids?|children|baby|aurat|aurton|mard|mardana|zanana|bachon|bachay)$/;
+  const itemWords = tokens(intent.item || '').filter((w) => !FOR_WHOM.test(w));
+  if (itemWords.length) {
+    const isItem = (p: any) => {
+      const [name, cat] = fieldsById.get(p.id)!;
+      return itemWords.every((w) => name[0].some((t) => near(w, t)) || cat[0].some((t) => near(w, t)));
+    };
+    const ofItem = scored.filter((s) => isItem(s.p));
+    if (ofItem.length) {
+      scored.length = 0;
+      scored.push(...ofItem);
+    }
   }
   scored.sort((a, b) => b.score - a.score);
   // Only close matches: a product that matched just one side word ("wireless") is left out
@@ -127,14 +168,15 @@ export function searchProducts(all: any[], intent: ProductIntent, baseUrl: strin
   const seen = new Set<string>();
   const out: HelplineProduct[] = [];
   const abs = (u: string) => (!u ? '' : /^https?:\/\//i.test(u) ? u : `${baseUrl}${u.startsWith('/') ? '' : '/'}${u}`);
-  // First the best product of each seller; when fewer sellers have it, the next best fill the rest
-  const firstPass = scored.filter(({ p }) => {
+  // First the best product of each seller (only sellers whose product is nearly as good a match), then
+  // the next best fill the rest; shown best match first
+  const firstPass = scored.filter(({ p, score }) => {
     const seller = String(p.sellerId || p.sellerName || 'store');
-    if (seen.has(seller)) return false;
+    if (seen.has(seller) || score < top * 0.85) return false;
     seen.add(seller);
     return true;
   });
-  const picked = [...firstPass, ...scored.filter((s) => !firstPass.includes(s))];
+  const picked = [...firstPass, ...scored.filter((s) => !firstPass.includes(s))].slice(0, max).sort((a, b) => b.score - a.score);
   for (const { p } of picked) {
     out.push({
       id: p.id,
@@ -181,6 +223,7 @@ Message: "${message.slice(0, 600)}"
 Return JSON only:
 {"wantsProducts": true if they ask about a product / item / price / availability / details or want to buy or see something, else false,
  "keywords": product words for a store search, corrected spelling, in BOTH English and the Roman Urdu / common Pakistani name (e.g. "khaddar","suit","men"; "joote" -> "shoes","joota"), at most 8, no colours unless asked, empty if none,
+ "item": the one kind of product asked for, as a shop would name it in English, with the material / type the customer named but without colour, gender, size or price (e.g. "suit", "khaddar suit", "leather handbag", "shoes", "shawl", "hair dryer", "headphones"), or "" if none / general,
  "minPrice": number or 0, "maxPrice": number or 0 (e.g. "2000 tak" -> 2000),
  "language": "ur" if written in Urdu script, "roman" if Urdu/Hindi written in English letters (Roman Urdu), "en" if English,
  "needsPerson": true only if a person from the store must handle it: a complaint, damaged / wrong / missing item, refund or money back, return or exchange request for their order, payment problem, very late order, angry or upset customer, or they ask for a person / call; false for normal questions (products, prices, COD, delivery time, how to track),
@@ -195,6 +238,7 @@ Return JSON only:
     return {
       wantsProducts: Boolean(j.wantsProducts),
       keywords: (Array.isArray(j.keywords) ? j.keywords : []).map((k: any) => String(k).slice(0, 40)).slice(0, 8),
+      item: String(j.item || '').slice(0, 40),
       minPrice: Math.max(0, Number(j.minPrice) || 0),
       maxPrice: Math.max(0, Number(j.maxPrice) || 0),
       // Urdu letters are certain; otherwise the AI's reading of English vs Roman Urdu
@@ -212,6 +256,21 @@ export function plainIntent(message: string): ProductIntent {
   const m = /(\d{3,6})\s*(tak|tk|under|se kam|below|max)/i.exec(message);
   return { wantsProducts: true, keywords: tokens(message).slice(0, 8), minPrice: 0, maxPrice: m ? Number(m[1]) : 0, language: detectLanguage(message), needsPerson: false, personReason: '' };
 }
+
+// ------------------------------------------------------------------ customer's WhatsApp number
+// A Pakistani mobile (0300 1234567, 3001234567, +92 300 1234567) or another country's number written
+// with + (e.g. +971 50 123 4567). Returns the number to show and the digits for a wa.me link.
+export function findWhatsAppNumber(text: string): { display: string; waDigits: string } | null {
+  const flat = String(text || '').replace(/[\s().-]/g, '');
+  const pk = /(?:\+?92|0092|0)?(3\d{9})(?!\d)/.exec(flat);
+  if (pk) return { display: `0${pk[1].slice(0, 3)} ${pk[1].slice(3)}`, waDigits: `92${pk[1]}` };
+  const intl = /\+(\d{10,14})(?!\d)/.exec(flat);
+  if (intl) return { display: `+${intl[1]}`, waDigits: intl[1] };
+  return null;
+}
+
+export const waLink = (digits: string, text?: string) =>
+  `https://wa.me/${digits.replace(/\D/g, '')}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
 
 // ------------------------------------------------------------------ customer's voice message
 // The browser sends a short WAV (16 kHz mono, made from the microphone recording). The AI writes down

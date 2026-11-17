@@ -131,6 +131,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
             fromTeam: m.role === 'admin',
             products: Array.isArray(m.products) ? m.products : undefined,
             serverIndex: m.role === 'ai' ? i : undefined,
+            whatsappUrl: typeof m.whatsappUrl === 'string' ? m.whatsappUrl : undefined,
           }));
           return [...welcome, ...thread];
         });
@@ -220,6 +221,7 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
           suggestedActions: data.suggestedActions || [],
           products: Array.isArray(data.products) && data.products.length ? data.products : undefined,
           serverIndex: typeof data.replyIndex === 'number' && data.replyIndex >= 0 ? data.replyIndex : undefined,
+          whatsappUrl: typeof data.whatsappUrl === 'string' ? data.whatsappUrl : undefined,
         };
         setMessages((prev) => [...prev, assistantMsg]);
         // Asked by voice: the answer is spoken back too
@@ -593,8 +595,32 @@ export const CustomerHelplineDrawer: React.FC<CustomerHelplineDrawerProps> = ({
                           : 'bg-[#141413] text-[#FBFBF9] shadow-xs'
                       }`}
                     >
-                      {m.content}
+                      {isAssistant
+                        ? // Links in the answer (e.g. the store's website) can be tapped
+                          m.content.split(/(https?:\/\/[^\s)]+)/g).map((part, k) =>
+                            /^https?:\/\//.test(part) ? (
+                              <a key={k} href={part} target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline break-all">
+                                {part}
+                              </a>
+                            ) : (
+                              <React.Fragment key={k}>{part}</React.Fragment>
+                            )
+                          )
+                        : m.content}
                     </div>
+
+                    {/* A person is needed: the store's WhatsApp helpline */}
+                    {isAssistant && m.whatsappUrl && (
+                      <a
+                        href={m.whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        Message us on WhatsApp{whatsappNumberFormatted ? ` (${whatsappNumberFormatted})` : ''}
+                      </a>
+                    )}
 
                     {/* Store products with this answer: picture, price, link */}
                     {isAssistant && m.products && m.products.length > 0 && (

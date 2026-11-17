@@ -3613,12 +3613,24 @@ export const AdminDashboardView: React.FC<{
 
                               {/* Message Content & AI Auto-Reply */}
                               <div className="p-4 space-y-4">
-                                {ticket.needsHuman && (
+                                {(ticket.needsHuman || (ticket as any).customerWhatsApp) && (
                                   <div className="flex flex-wrap gap-2 text-[11px] font-bold">
                                     {ticket.needsHuman && (
                                       <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300">
                                         Needs a person{(ticket as any).humanReason ? `: ${(ticket as any).humanReason}` : ''} — please reply
                                       </span>
+                                    )}
+                                    {(ticket as any).customerWhatsApp && (ticket as any).customerWhatsAppDigits && (
+                                      <a
+                                        href={`https://wa.me/${(ticket as any).customerWhatsAppDigits}?text=${encodeURIComponent(
+                                          `Assalam o Alaikum, ${settings.storeName || 'Anokha Shopping Hub'} se baat kar rahe hain, aap ke paigham (${ticket.ticketNumber}) ke baare mein.`
+                                        )}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-2 py-0.5 rounded bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700"
+                                      >
+                                        💬 WhatsApp {(ticket as any).customerWhatsApp}
+                                      </a>
                                     )}
                                   </div>
                                 )}

@@ -40,7 +40,7 @@ import { offlineSupportReply, offlineProductContent } from './server/offlineAnsw
 import { createOrderQueue } from './server/orderQueue';
 import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/stepUp';
 import { createCatalogStore } from './server/catalogStore';
-import { searchProducts, productFacts, readIntent, plainIntent, speakFemale, transcribeVoice, detectLanguage, closingLines, languageName, type HelplineProduct, type ReplyLanguage } from './server/helplineProducts';
+import { searchProducts, productFacts, readIntent, plainIntent, speakFemale, transcribeVoice, findWhatsAppNumber, waLink, detectLanguage, closingLines, languageName, type HelplineProduct, type ReplyLanguage } from './server/helplineProducts';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
 import { registerOrderChatRoutes } from './server/orderChat';
@@ -5813,6 +5813,8 @@ interface ThreadMessage {
   delivery?: string;
   // Store products the helpline assistant showed with this answer (picture, price, link)
   products?: HelplineProduct[];
+  // A person is needed: link that opens the store's WhatsApp helpline (shown as a button)
+  whatsappUrl?: string;
 }
 
 interface CustomerTicket {
@@ -5839,6 +5841,9 @@ interface CustomerTicket {
   // Why a person is needed (from the AI) and when the owner was last e-mailed about it
   humanReason?: string;
   humanAlertAt?: string;
+  // WhatsApp number the customer left in the chat for the team (shown, and digits for a wa.me link)
+  customerWhatsApp?: string;
+  customerWhatsAppDigits?: string;
   humanActiveUntil?: string;
   lastMessageAt?: string;
 }
@@ -5975,7 +5980,16 @@ async function generateSupportReply(params: {
   channel: 'WEBSITE' | 'FORM';
   orderNumber?: string;
   clientIp?: string;
-}): Promise<{ text: string; products: HelplineProduct[]; needsPerson: boolean; personReason: string }> {
+  // Human help goes through WhatsApp: whether this chat already needs a person and the customer's number
+  escalation?: { already: boolean; wantsHuman: boolean; savedNumber?: string; ticketNumber?: string };
+}): Promise<{
+  text: string;
+  products: HelplineProduct[];
+  needsPerson: boolean;
+  personReason: string;
+  contactNumber?: { display: string; waDigits: string };
+  whatsappUrl?: string;
+}> {
   const { store, history, message, channel, orderNumber } = params;
   const storeName = store.storeName || 'Store';
   const storeUrl = STORE_HOST ? `https://${STORE_HOST}` : String(process.env.APP_URL || '').replace(/\/+$/, '') || 'https://anokhashopinghub.shop';
@@ -6015,7 +6029,40 @@ async function generateSupportReply(params: {
     console.warn('[Helpline AI] product search failed:', err?.message || err);
   }
   const orderFacts = await orderFactsP;
-  const whatsapp = store.helplineWhatsAppFormatted || store.helplineWhatsApp || '';
+  // Shown the way people read it: +92 315 5690358 (not 923155690358)
+  const whatsapp = (() => {
+    const shown = String(store.helplineWhatsAppFormatted || store.helplineWhatsApp || '').trim();
+    const d = shown.replace(/\D/g, '');
+    if (/[\s+-]/.test(shown) || !d) return shown;
+    if (/^923\d{9}$/.test(d)) return `+92 ${d.slice(2, 5)} ${d.slice(5)}`;
+    if (/^03\d{9}$/.test(d)) return `${d.slice(0, 4)} ${d.slice(4)}`;
+    return `+${d}`;
+  })();
+
+  // A person is needed: the customer is sent to the store's WhatsApp, or leaves their own number
+  const esc = params.escalation || { already: false, wantsHuman: false };
+  // (a chat that already needs a person only takes the customer's number; a later product question is
+  // answered normally)
+  const givenNumber = needsPerson || esc.wantsHuman || esc.already ? findWhatsAppNumber(message) : null;
+  const personNeeded = needsPerson || esc.wantsHuman || Boolean(givenNumber);
+  if (personNeeded && !personReason) personReason = esc.wantsHuman ? 'asked for a person' : givenNumber ? 'left WhatsApp number' : '';
+  const knownNumber = givenNumber?.display || esc.savedNumber || '';
+  const helplineDigits = String(store.helplineWhatsApp || '').replace(/\D/g, '');
+  const whatsappUrl =
+    personNeeded && helplineDigits
+      ? waLink(helplineDigits, `Assalam o Alaikum, ${esc.ticketNumber ? `ticket ${esc.ticketNumber}: ` : ''}`)
+      : undefined;
+  const escalationBlock = !personNeeded
+    ? ''
+    : knownNumber
+    ? `
+A person from our team will help this customer on WhatsApp. ${givenNumber ? `The customer just gave their WhatsApp number ${knownNumber}; it has been sent to our team.` : `Their WhatsApp number ${knownNumber} is already with our team.`} In the customer's language: thank them and say our team will message them on WhatsApp within 24 hours${whatsapp ? `; they can also send more details, photos or a voice message on our WhatsApp helpline ${whatsapp}` : ''}. Do not promise refunds or anything else.`
+    : `
+A person from our team must handle this (${personReason || 'customer needs help'}). Our team helps on WhatsApp and replies within 24 hours. In the customer's language, briefly and kindly:
+1) acknowledge the problem (say sorry if something went wrong),
+2) ${whatsapp ? `they can send their problem with full details, photos or a voice message on our WhatsApp helpline ${whatsapp} (a button to open it is shown under your answer); our team will reply within 24 hours,` : 'our team will reply within 24 hours,'}
+3) or they can write their WhatsApp number here and our team will contact them as soon as possible.
+Do not promise refunds, replacements or dates.`;
   const email = store.supportEmail || store.helplineEmail || store.contactEmail || '';
   const bankDetails = store.bankName
     ? `${store.bankName} (Title: ${store.bankAccountTitle || storeName}, A/C: ${store.bankAccountNumber || store.bankIban || ''})`
@@ -6066,7 +6113,8 @@ ${
   }
 - Never guess a price that is not in the product list.
 - Never promise refunds, discounts, warranties or delivery dates. Never ask for card numbers, PINs, OTPs or passwords.
-- If the customer is angry, has a complaint, a damaged/wrong item, or asks for a person, apologise briefly and say a team member will reply in this chat soon.`;
+- If the customer is angry, has a complaint, a damaged/wrong item, or asks for a person: our team helps on WhatsApp within 24 hours (see below).
+${escalationBlock}`;
 
   const contents: any[] = history.slice(-10).map((m) => ({
     role: m.role === 'customer' ? 'user' : 'model',
@@ -6086,7 +6134,15 @@ ${
       });
       // The chat shows plain text: no **bold** marks
       const said = response.text?.replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '').trim();
-      if (said) return { text: products.length ? `${said}\n\n${closingLines(lang, storeUrl)}` : said, products, needsPerson, personReason };
+      if (said)
+        return {
+          text: products.length ? `${said}\n\n${closingLines(lang, storeUrl)}` : said,
+          products,
+          needsPerson: personNeeded,
+          personReason,
+          ...(givenNumber ? { contactNumber: givenNumber } : {}),
+          ...(whatsappUrl ? { whatsappUrl } : {}),
+        };
     } catch (err: any) {
       console.warn(`[Helpline AI] ${modelName} failed:`, err?.message || err);
     }
@@ -6097,8 +6153,10 @@ ${
       ? `${offline}\n\nProducts from our store that may match:\n${products.map((p) => `• ${p.name}: Rs ${p.price.toLocaleString('en-PK')}${channel === 'FORM' ? ` ${p.url}` : ''}`).join('\n')}\n\n${closingLines(lang, storeUrl)}`
       : offline,
     products,
-    needsPerson,
+    needsPerson: personNeeded,
     personReason,
+    ...(givenNumber ? { contactNumber: givenNumber } : {}),
+    ...(whatsappUrl ? { whatsappUrl } : {}),
   };
 }
 
@@ -6187,6 +6245,8 @@ app.post('/api/ai/customer-support', async (req, res) => {
     let reply: string | null = null;
     let products: HelplineProduct[] = [];
     let personReason = wantsHuman ? 'asked for a person' : '';
+    let contactNumber: { display: string; waDigits: string } | undefined;
+    let whatsappUrl: string | undefined;
     if (!humanActive) {
       const store = await loadStoreSettingsForSupport();
       const answer = await generateSupportReply({
@@ -6196,11 +6256,21 @@ app.post('/api/ai/customer-support', async (req, res) => {
         channel: 'WEBSITE',
         orderNumber: orderNumber || ticket.orderNumber,
         clientIp,
+        escalation: { already: Boolean(ticket.needsHuman), wantsHuman, savedNumber: ticket.customerWhatsApp, ticketNumber: ticket.ticketNumber },
       });
       reply = answer.text;
       products = answer.products;
       if (answer.needsPerson && !personReason) personReason = answer.personReason || 'customer needs help';
-      thread.push({ role: 'ai', text: reply, at: new Date().toISOString(), ...(products.length ? { products } : {}) });
+      // A new number the customer left for WhatsApp (not the same one again)
+      if (answer.contactNumber && answer.contactNumber.waDigits !== ticket.customerWhatsAppDigits) contactNumber = answer.contactNumber;
+      whatsappUrl = answer.whatsappUrl;
+      thread.push({
+        role: 'ai',
+        text: reply,
+        at: new Date().toISOString(),
+        ...(products.length ? { products } : {}),
+        ...(whatsappUrl ? { whatsappUrl } : {}),
+      });
     }
 
     const updates: Partial<CustomerTicket> = {
@@ -6209,17 +6279,19 @@ app.post('/api/ai/customer-support', async (req, res) => {
       lastMessageAt: now,
       status: ticket.status === 'RESOLVED' ? 'OPEN' : ticket.status,
       needsHuman: Boolean(ticket.needsHuman || personReason),
-      ...(personReason ? { humanReason: personReason } : {}),
+      // (a message that only leaves the number keeps the reason of the problem itself)
+      ...(personReason && personReason !== 'left WhatsApp number' && !(contactNumber && ticket.humanReason) ? { humanReason: personReason } : {}),
+      ...(contactNumber ? { customerWhatsApp: contactNumber.display, customerWhatsAppDigits: contactNumber.waDigits } : {}),
       ...(reply ? { aiAutoReply: reply, aiAutoRepliedAt: new Date().toISOString(), aiAutoReplyStatus: 'SENT' as const } : {}),
       ...(isRealEmail(customerEmail) && !ticket.email ? { email: String(customerEmail).trim().toLowerCase() } : {}),
     };
-    // The owner gets an e-mail when a chat newly needs a person, and again if the customer keeps writing
-    // in it and nobody has answered for 3 hours
+    // The owner gets an e-mail when a chat newly needs a person, when the customer leaves their WhatsApp
+    // number, and again if the customer keeps writing and nobody has answered for 3 hours
     const lastAlert = ticket.humanAlertAt ? Date.parse(ticket.humanAlertAt) : 0;
     const alertNow =
       !humanActive &&
       updates.needsHuman &&
-      ((personReason && !ticket.needsHuman) || (ticket.needsHuman && Date.now() - lastAlert > 3 * 3600_000));
+      (Boolean(contactNumber) || (personReason && !ticket.needsHuman) || (ticket.needsHuman && Date.now() - lastAlert > 3 * 3600_000));
     if (alertNow) updates.humanAlertAt = new Date().toISOString();
     await ticketRef.set(updates);
     ticketChanged(ticket.id, updates as CustomerTicket);
@@ -6228,8 +6300,17 @@ app.post('/api/ai/customer-support', async (req, res) => {
       sendHelplineAlertEmail(adminDb, {
         ticketNumber: ticket.ticketNumber,
         customerName: ticket.name || 'Website visitor',
-        reason: personReason || ticket.humanReason || 'customer is waiting for a reply',
+        reason: (contactNumber && ticket.humanReason) || (personReason !== 'left WhatsApp number' && personReason) || ticket.humanReason || 'customer is waiting for a reply',
         lastMessages: (updates.messages || []).slice(-6).map((m) => ({ who: m.role === 'customer' ? 'Customer' : m.role === 'ai' ? 'AI' : 'Team', text: m.text.slice(0, 400) })),
+        ...(updates.customerWhatsApp && updates.customerWhatsAppDigits
+          ? {
+              customerWhatsApp: updates.customerWhatsApp,
+              customerWhatsAppUrl: waLink(
+                updates.customerWhatsAppDigits,
+                `Assalam o Alaikum ${ticket.name && ticket.name !== 'Website visitor' ? ticket.name : ''}, ${(catalogStore.settings() || {}).storeName || 'Anokha Shopping Hub'} se baat kar rahe hain, aap ke paigham (${ticket.ticketNumber}) ke baare mein.`
+              ),
+            }
+          : {}),
         adminUrl: STORE_HOST ? `https://admin.${STORE_HOST}/admin` : `${String(process.env.APP_URL || '').replace(/\/+$/, '')}/admin`,
         storeName: s.storeName,
         supportEmail: s.supportEmail,
@@ -6241,6 +6322,7 @@ app.post('/api/ai/customer-support', async (req, res) => {
       success: true,
       reply,
       products,
+      ...(whatsappUrl ? { whatsappUrl } : {}),
       ...(fromVoice ? { heard: text } : {}),
       replyIndex: humanActive ? -1 : trimThread(thread).length - 1,
       humanActive,
@@ -6278,7 +6360,13 @@ app.get('/api/helpline/chat/:chatId', async (req, res) => {
       success: true,
       ticketNumber: ticket.ticketNumber,
       status: ticket.status,
-      messages: (ticket.messages || []).map(({ role, text, at, products }) => ({ role, text, at, ...(products?.length ? { products } : {}) })),
+      messages: (ticket.messages || []).map(({ role, text, at, products, whatsappUrl }) => ({
+        role,
+        text,
+        at,
+        ...(products?.length ? { products } : {}),
+        ...(whatsappUrl ? { whatsappUrl } : {}),
+      })),
     });
   } catch (err) {
     console.error('[Helpline chat poll error]:', err);

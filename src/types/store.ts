@@ -621,6 +621,8 @@ export interface CustomerHelplineMessage {
   products?: { id: string; name: string; price: number; compareAtPrice: number; image: string; url: string; rating: number; reviewCount: number }[];
   // Position of this answer in the saved conversation (to play it as voice)
   serverIndex?: number;
+  // A person is needed: opens the store's WhatsApp helpline
+  whatsappUrl?: string;
 }
 
 export interface CustomerInquiryTicket {
