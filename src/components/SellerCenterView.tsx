@@ -3381,7 +3381,35 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   // Product photos chosen together with the file, matched to its lines by file name (see matchPhotos)
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoProgress, setPhotoProgress] = useState<{ done: number; total: number } | null>(null);
-  const photoMatch = useMemo(() => matchPhotos(rows, photos), [rows, photos]);
+  // Photos the seller put on a line by hand (tap the picture box of that line), or that were placed
+  // in order with "Put in order"; these come before the ones matched by file name
+  const [manual, setManual] = useState<Map<number, File[]>>(new Map());
+  const photoMatch = useMemo(() => {
+    const m = matchPhotos(rows, photos);
+    const handPicked = new Set<File>();
+    manual.forEach((list) => list.forEach((f) => handPicked.add(f)));
+    const byRow = new Map<number, File[]>();
+    m.byRow.forEach((list, row) => byRow.set(row, list.filter((f) => !handPicked.has(f))));
+    manual.forEach((list, row) => byRow.set(row, [...list, ...(byRow.get(row) || [])]));
+    byRow.forEach((list, row) => !list.length && byRow.delete(row));
+    return { byRow, unmatched: m.unmatched.filter((f) => !handPicked.has(f)) };
+  }, [rows, photos, manual]);
+  const pickForRow = (row: number, list: FileList | null) => {
+    const picked = Array.from(list || []).filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name));
+    if (!picked.length) return;
+    setResult(null);
+    setManual((prev) => new Map(prev).set(row, picked));
+  };
+  // Photos whose names match nothing go, in name order, to the products without a photo, in the file's order
+  const placeInOrder = () => {
+    const free = [...photoMatch.unmatched].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const next = new Map(manual);
+    for (const r of ready) {
+      if (!free.length) break;
+      if (!photoMatch.byRow.has(r.row)) next.set(r.row, [free.shift()!]);
+    }
+    setManual(next);
+  };
   const thumbs = useMemo(() => {
     const m = new Map<number, string>();
     photoMatch.byRow.forEach((list, row) => m.set(row, URL.createObjectURL(list[0])));
@@ -3389,8 +3417,12 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   }, [photoMatch]);
   useEffect(() => () => thumbs.forEach((u) => URL.revokeObjectURL(u)), [thumbs]);
   const rowsWithPhotos = ready.filter((r) => photoMatch.byRow.has(r.row)).length;
+  const noPhotoCount = ready.filter((r) => !photoMatch.byRow.has(r.row) && !r.primaryImage).length;
   const addPhotos = (list: FileList | null) => {
-    const picked = Array.from(list || []).filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name));
+    const all = Array.from(list || []);
+    const picked = all.filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name));
+    // iPhone HEIC and other kinds do not show in browsers
+    if (picked.length < all.length) showToast(`${all.length - picked.length} files were skipped: use JPG, PNG or WEBP photos (iPhone: Settings → Camera → Formats → Most Compatible).`);
     if (!picked.length) return;
     setResult(null);
     setPhotos((prev) => [...prev.filter((p) => !picked.some((n) => n.name === p.name)), ...picked]);
@@ -3418,6 +3450,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
     }
     setFileName(file.name);
     setPhotos([]);
+    setManual(new Map());
     setRows(parsed.rows);
   };
 
@@ -3480,7 +3513,8 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
     let hashToSend = fileHash;
     if (photoTotal && fileHash) {
       try {
-        const sig = fileHash + '|' + photos.map((p) => `${p.name}:${p.size}`).sort().join('|');
+        const used = toSend.flatMap((r) => photoMatch.byRow.get(r.row)!.slice(0, MAX_IMAGES).map((p) => `${r.row}=${p.name}:${p.size}`));
+        const sig = fileHash + '|' + used.sort().join('|');
         const dg = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sig));
         hashToSend = Array.from(new Uint8Array(dg), (b) => b.toString(16).padStart(2, '0')).join('');
       } catch {}
@@ -3692,22 +3726,39 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
                 />
               </label>
             </div>
-            {photos.length > 0 && (
+            {(photos.length > 0 || manual.size > 0) && (
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
                 <span className={`${ui.chip} ${chipTone.green}`}>
-                  📷 {photos.length - photoMatch.unmatched.length} photos → {rowsWithPhotos} of {ready.length} products
+                  📷 {rowsWithPhotos} of {ready.length} products have a photo
                 </span>
                 {photoMatch.unmatched.length > 0 && (
-                  <span className={`${ui.chip} ${chipTone.red}`} title={photoMatch.unmatched.map((p) => p.name).join(', ')}>
-                    {photoMatch.unmatched.length} not matched: {photoMatch.unmatched.slice(0, 3).map((p) => p.name).join(', ')}
-                    {photoMatch.unmatched.length > 3 ? '…' : ''}
-                  </span>
+                  <>
+                    <span className={`${ui.chip} ${chipTone.red}`} title={photoMatch.unmatched.map((p) => p.name).join(', ')}>
+                      {photoMatch.unmatched.length} photos not matched: {photoMatch.unmatched.slice(0, 3).map((p) => p.name).join(', ')}
+                      {photoMatch.unmatched.length > 3 ? '…' : ''}
+                    </span>
+                    {rowsWithPhotos < ready.length && (
+                      <button type="button" onClick={placeInOrder} className={`${ui.primary} !py-1 !px-2.5 !text-[11.5px]`}>
+                        Put them in order (1st photo → 1st product)
+                      </button>
+                    )}
+                  </>
                 )}
-                <button type="button" onClick={() => setPhotos([])} className="text-[11.5px] font-semibold text-[#575653] underline cursor-pointer">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhotos([]);
+                    setManual(new Map());
+                  }}
+                  className="text-[11.5px] font-semibold text-[#575653] underline cursor-pointer"
+                >
                   Remove photos
                 </button>
               </div>
             )}
+            <p className="mt-2 text-[11.5px] text-[#575653]">
+              Names don't match? Tap the <strong>📷</strong> box of a product in the table below and choose its photos there.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -3733,18 +3784,29 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
                   <tr key={r.row} className={`border-t border-[#EFEDE8] ${r.problem ? 'bg-rose-50' : ''}`}>
                     <td className="p-2 font-mono">{r.row}</td>
                     <td className="p-2">
-                      {thumbs.get(r.row) || r.primaryImage ? (
-                        <span className="relative inline-block">
+                      {/* Tap to choose this product's photos (replaces the ones matched by name) */}
+                      <label className="relative inline-block cursor-pointer" title="Choose this product's photos">
+                        {thumbs.get(r.row) || r.primaryImage ? (
                           <img src={thumbs.get(r.row) || r.primaryImage} alt="" className="w-9 h-9 rounded-md object-cover" loading="lazy" decoding="async" />
-                          {(photoMatch.byRow.get(r.row)?.length || 0) > 1 && (
-                            <span className="absolute -top-1 -right-1 px-1 rounded bg-[#141413] text-white text-[9px] font-bold">
-                              {photoMatch.byRow.get(r.row)!.length}
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
+                        ) : (
+                          <span className="w-9 h-9 rounded-md border-2 border-dashed border-amber-400 bg-amber-50 flex items-center justify-center text-[14px]">📷</span>
+                        )}
+                        {(photoMatch.byRow.get(r.row)?.length || 0) > 1 && (
+                          <span className="absolute -top-1 -right-1 px-1 rounded bg-[#141413] text-white text-[9px] font-bold">
+                            {photoMatch.byRow.get(r.row)!.length}
+                          </span>
+                        )}
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            pickForRow(r.row, e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
                     </td>
                     <td className="p-2 max-w-[220px] truncate">{r.name || '—'}</td>
                     <td className="p-2 font-mono">{r.price ? formatPKR(r.price) : '—'}</td>
@@ -3768,7 +3830,9 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
               ? `Uploading photos... ${photoProgress.done} / ${photoProgress.total}`
               : progress
               ? `Uploading... ${progress.done} / ${progress.total}`
-              : `Upload ${ready.length} products${rowsWithPhotos ? ` with photos` : ''}`}
+              : `Upload ${ready.length} products${
+                  noPhotoCount ? ` (${noPhotoCount} without a photo)` : rowsWithPhotos ? ' with photos' : ''
+                }`}
           </button>
         </>
       )}

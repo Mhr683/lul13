@@ -64,6 +64,20 @@ export function sellerCsvAiPrompt(categoryNames: string[]): string {
   ].join('\n');
 }
 
+// Share links that open a page instead of the picture become direct picture links:
+// Google Drive (anyone with the link), Dropbox; http:// becomes https://
+export function directImageLink(u: string): string {
+  let url = u.trim().replace(/^http:\/\//i, 'https://');
+  if (!/^https:\/\//i.test(url)) return '';
+  const drive = /drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]{20,})/i.exec(url);
+  if (drive) return `https://lh3.googleusercontent.com/d/${drive[1]}`;
+  if (/^https:\/\/(www\.)?dropbox\.com\//i.test(url)) {
+    url = url.replace(/([?&])dl=0/, '$1raw=1');
+    if (!/[?&](raw|dl)=1/.test(url)) url += (url.includes('?') ? '&' : '?') + 'raw=1';
+  }
+  return url;
+}
+
 const norm = (h: string) => h.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 
 const cleanText = (s: string) =>
@@ -141,7 +155,7 @@ export function parseSellerCsv(raw: string, usdToPkrRate: number): { rows: Selle
     const parts = category.split(/[,>/]/).map((s) => s.trim()).filter(Boolean);
     category = (parts[parts.length - 1] || '').slice(0, 75);
 
-    const image = cell(cells, c.image).split(/[\s,|;]+/).find((u) => /^https:\/\//i.test(u)) || '';
+    const image = directImageLink(cell(cells, c.image).split(/[\s,|;]+/).find((u) => /^https?:\/\//i.test(u)) || '');
     const description = cleanText(cell(cells, c.desc)).slice(0, 4800);
     const shortDescription = (cleanText(cell(cells, c.short)) || description).slice(0, 480);
     const weight = parseFloat(cell(cells, c.weight).replace(/[^\d.]/g, ''));
