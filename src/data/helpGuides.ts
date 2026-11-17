@@ -34,7 +34,14 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Agar AI koi tabdeeli (jaise description) tajweez kare to woh tab tak lagu nahi hoti jab tak aap "Apply" na dabayein.',
       'Nayi baat shuru karni ho to "New chat" dabayein.',
     ],
-    tips: ['AI sirf aap ki apni dukaan par kaam karta hai.', 'Qeemat aur account settings AI kabhi khud nahi badalta.'],
+    tips: [
+      'AI sirf aap ki apni dukaan par kaam karta hai.',
+      'Qeemat aur account settings AI kabhi khud nahi badalta.',
+      'Tasveer ya file ke saath poochhein: box ke saath 📎 dabayein aur mobile / computer se tasveer, screenshot, PDF (jaise supplier ki invoice) ya CSV / text file chunein (ek sawal mein 3 tak, kul 7 MB). Phir sawal likh kar bhejein, jaise "is screenshot mein kya error hai?" ya "is tasveer se product ki description likh do".',
+      'Computer par screenshot le kar seedha box mein Ctrl + V se bhi daal sakte hain.',
+      'File sirf AI is ek jawab ke liye parhta hai; woh kahin save nahi hoti aur kisi aur ko nahi dikhti.',
+      'AI hamesha store ke andar ka tareeqa batata hai. WhatsApp / phone par order lena, store se bahar bechna, ya doosri websites ke links: yeh AI nahi batata, kyunke store ke rules mein mana hai.',
+    ],
   },
   'seller.tab.ORDERS': {
     title: 'Orders (order se delivery tak)',

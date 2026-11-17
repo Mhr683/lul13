@@ -1,13 +1,35 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, Send, Check, X, Sparkles } from 'lucide-react';
+import { Bot, Send, Check, X, Sparkles, Paperclip, FileText } from 'lucide-react';
 import { ShopCoachReport, type Coach } from './ShopCoachReport';
+import { shrinkImage } from './ProductMediaEditor';
+
+// Files attached to a question: pictures / screenshots, PDF, text or CSV (read by the assistant only,
+// for that one answer; nothing is saved or shared)
+type Attachment = { id: string; name: string; kind: 'image' | 'pdf' | 'text'; blob: Blob; preview?: string };
+const MAX_FILES = 3;
+const MAX_TOTAL = 7 * 1024 * 1024;
+const kindOf = (f: File): Attachment['kind'] | null =>
+  /^image\/(jpeg|png|webp)$/.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name)
+    ? 'image'
+    : f.type === 'application/pdf' || /\.pdf$/i.test(f.name)
+    ? 'pdf'
+    : /^text\//.test(f.type) || /\.(txt|csv|tsv)$/i.test(f.name)
+    ? 'text'
+    : null;
+const toBase64 = (b: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = reject;
+    r.readAsDataURL(b);
+  });
 
 // Seller Center → AI Assistant: the seller's own AI command center. It only works on this
 // seller's shop (the server enforces it; see server/sellerAi.ts). Changes appear as cards with an
 // "Apply" button and are made only after the seller confirms.
 
 type Action = { actionId: string; title: string; total: number; changes: Record<string, any>[]; state?: 'applied' | 'cancelled' | 'busy'; result?: string };
-type Message = { role: 'user' | 'model'; text: string; actions?: Action[]; reports?: Coach[] };
+type Message = { role: 'user' | 'model'; text: string; actions?: Action[]; reports?: Coach[]; files?: string[]; thumbs?: string[] };
 
 const SUGGESTIONS = [
   'How is my shop doing? Give me the full report',
@@ -36,26 +58,73 @@ export const SellerAiAssistant: React.FC<{
   });
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [fileNote, setFileNote] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-30).map(({ reports, ...m }) => m)));
+      // Pictures are not kept after a reload; only the file names
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-30).map(({ reports, thumbs, ...m }) => m)));
     } catch {}
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages]);
 
+  const addFiles = async (list: File[]) => {
+    setFileNote('');
+    const next = [...files];
+    for (const f of list) {
+      if (next.length >= MAX_FILES) {
+        setFileNote(`At most ${MAX_FILES} files in one question.`);
+        break;
+      }
+      const kind = kindOf(f);
+      if (!kind) {
+        setFileNote(`"${f.name}" cannot be read. Send a picture (JPG, PNG, WEBP), a PDF, or a text / CSV file.`);
+        continue;
+      }
+      const blob = kind === 'image' ? await shrinkImage(f) : f;
+      if (next.reduce((s, a) => s + a.blob.size, 0) + blob.size > MAX_TOTAL) {
+        setFileNote('The files are too big. Send at most 7 MB in one question.');
+        continue;
+      }
+      next.push({ id: `${Date.now()}-${Math.random()}`, name: f.name || 'screenshot.png', kind, blob, preview: kind === 'image' ? URL.createObjectURL(blob) : undefined });
+    }
+    setFiles(next);
+  };
+  const removeFile = (id: string) => setFiles((fs) => fs.filter((f) => f.id !== id));
+
+  // A screenshot copied to the clipboard can be pasted straight into the box (Ctrl+V)
+  const onPaste = (e: React.ClipboardEvent) => {
+    const pasted = Array.from(e.clipboardData?.files || []);
+    if (!pasted.length) return;
+    e.preventDefault();
+    addFiles(pasted);
+  };
+
   const send = async (text: string) => {
+    const attached = files;
     const prompt = text.trim();
-    if (!prompt || busy) return;
+    if ((!prompt && !attached.length) || busy) return;
     const history = messages.slice(-6).map((m) => ({ role: m.role, text: m.text }));
-    setMessages((m) => [...m, { role: 'user', text: prompt }]);
+    setMessages((m) => [
+      ...m,
+      {
+        role: 'user',
+        text: prompt || '(file)',
+        files: attached.map((f) => f.name),
+        thumbs: attached.filter((f) => f.preview).map((f) => f.preview!),
+      },
+    ]);
     setInput('');
+    setFiles([]);
+    setFileNote('');
     setBusy(true);
     try {
+      const payload = await Promise.all(attached.map(async (f) => ({ name: f.name, data: await toBase64(f.blob) })));
       const d = await call<{ text: string; actions: Action[]; reports?: Coach[] }>('/api/seller/ai/command', {
         method: 'POST',
-        body: JSON.stringify({ prompt, history }),
+        body: JSON.stringify({ prompt, history, files: payload }),
       });
       setMessages((m) => [...m, { role: 'model', text: d.text, actions: d.actions || [], reports: d.reports || [] }]);
     } catch (err: any) {
@@ -123,6 +192,14 @@ export const SellerAiAssistant: React.FC<{
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[88%] space-y-2 ${m.role === 'user' ? 'bg-[#141413] text-white' : 'bg-[#F4F3EF] text-[#141413]'} px-3 py-2 rounded-lg`}>
+              {!!m.thumbs?.length && (
+                <div className="flex flex-wrap gap-1.5">
+                  {m.thumbs.map((t, k) => (
+                    <img key={k} src={t} alt="" className="w-20 h-20 rounded object-cover bg-white" />
+                  ))}
+                </div>
+              )}
+              {!!m.files?.length && <p className="text-[11px] opacity-75">📎 {m.files.join(', ')}</p>}
               <p className="whitespace-pre-line">{m.text}</p>
               {m.reports?.map((r, k) => (
                 <div key={k} className="bg-white rounded p-2 -mx-1">
@@ -178,18 +255,68 @@ export const SellerAiAssistant: React.FC<{
           e.preventDefault();
           send(input);
         }}
-        className="p-3 border-t border-black/10 flex gap-2"
+        className="p-3 border-t border-black/10 space-y-2"
       >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          maxLength={2000}
-          placeholder="Ask your assistant..."
-          className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-[#DCD9D2] text-sm focus:border-black focus:outline-none"
-        />
-        <button type="submit" disabled={busy || !input.trim()} className="px-4 py-2 bg-[#141413] text-white rounded-lg disabled:opacity-40 cursor-pointer" aria-label="Send">
-          <Send className="w-4 h-4" />
-        </button>
+        {(files.length > 0 || fileNote) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {files.map((f) => (
+              <span key={f.id} className="relative inline-flex items-center gap-1.5 pl-1 pr-6 py-1 rounded-lg border border-[#DCD9D2] bg-[#FBFBF9] text-[11px] max-w-[180px]">
+                {f.preview ? (
+                  <img src={f.preview} alt="" className="w-8 h-8 rounded object-cover" />
+                ) : (
+                  <FileText className="w-4 h-4 text-[#575653] shrink-0" />
+                )}
+                <span className="truncate">{f.name}</span>
+                <button
+                  type="button"
+                  onClick={() => removeFile(f.id)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-[#575653] hover:text-black cursor-pointer"
+                  aria-label={`Remove ${f.name}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            ))}
+            {fileNote && <span className="text-[11px] text-rose-700">{fileNote}</span>}
+          </div>
+        )}
+        <div className="flex gap-2">
+          {/* Picture, screenshot, PDF or text file from the phone / computer */}
+          <label
+            className={`px-3 py-2 rounded-lg border border-[#DCD9D2] flex items-center cursor-pointer hover:border-black ${files.length >= MAX_FILES ? 'opacity-40 pointer-events-none' : ''}`}
+            title="Attach a picture, screenshot, PDF or text file"
+            aria-label="Attach a file"
+          >
+            <Paperclip className="w-4 h-4" />
+            <input
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp,application/pdf,.pdf,.txt,.csv,.tsv,text/plain,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                addFiles(Array.from(e.target.files || []));
+                e.target.value = '';
+              }}
+            />
+          </label>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onPaste={onPaste}
+            maxLength={2000}
+            placeholder={files.length ? 'What do you want to know about it?' : 'Ask your assistant...'}
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-[#DCD9D2] text-sm focus:border-black focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={busy || (!input.trim() && !files.length)}
+            className="px-4 py-2 bg-[#141413] text-white rounded-lg disabled:opacity-40 cursor-pointer"
+            aria-label="Send"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+        <p className="text-[10px] text-[#8A8780]">📎 Picture, screenshot, PDF or text file (up to 3). Only the assistant reads them for this answer; they are not saved or shared.</p>
       </form>
     </div>
   );
