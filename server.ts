@@ -6079,6 +6079,21 @@ async function generateSupportReply(params: {
     console.warn('[Helpline AI] product search failed:', err?.message || err);
   }
   const orderFacts = await orderFactsP;
+  // What the store sells right now (live, in-stock products by category) and how many shops sell here,
+  // so "what do you sell?" gets a true answer (from the catalog copy, no reads)
+  const storeOverview = (() => {
+    const list = (all.length ? all : catalogStore.ready ? catalogStore.publicProducts() : []).filter(
+      (p: any) => p.status === 'ACTIVE' && Number(p.stock) > 0
+    );
+    if (!list.length) return '';
+    const byCat = new Map<string, number>();
+    for (const p of list) byCat.set(String(p.category || 'Other'), (byCat.get(String(p.category || 'Other')) || 0) + 1);
+    const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
+    return `- What the store sells now (do not tell the customer how many shops sell here): ${list.length} products, in these categories (number of products): ${cats
+      .slice(0, 25)
+      .map(([c, n]) => `${c} (${n})`)
+      .join(', ')}${cats.length > 25 ? ', and more' : ''}.`;
+  })();
   // Shown the way people read it: +92 315 5690358 (not 923155690358)
   const whatsapp = (() => {
     const shown = String(store.helplineWhatsAppFormatted || store.helplineWhatsApp || '').trim();
@@ -6143,7 +6158,11 @@ Language: the customer wrote in ${languageName(lang)}. Write your WHOLE answer o
 Product questions: answer only from the product list below. Give each product's name, price (and the old price if there is one) and the details the customer asked about (fabric, size, colour, what is included, ...), in a few short lines.
 ${productBlock}
 
-Stay inside the store: never mention other websites, shops, sellers' phone numbers or any way to buy outside ${storeName}.
+About the store: ${storeName} is an online marketplace in Pakistan. Many sellers (shops) sell their products on it, and customers buy them through ${storeName} with its delivery, payment (Cash on Delivery) and return policies. Anyone with products can open a free shop and sell on ${storeName} through Seller Center (${SELLER_CENTER_URL}). Never say that only ${storeName} sells or that others are not allowed to sell.
+When asked what kinds of products the store sells, name the main categories below (with a few examples) and invite them to ask for any item.
+${storeOverview}
+
+Stay inside the store: never mention other websites or shops outside ${storeName}, sellers' phone numbers, or any way to buy outside ${storeName}. (The shops selling on ${storeName} are part of the store.)
 
 Store facts (only use these, never invent others):
 - Payment: Cash on Delivery, bank transfer${raastDetails ? ', Raast' : ''}${nayapayDetails ? ', NayaPay' : ''}. For transfers the customer enters the Transaction ID (TID) at checkout and the store verifies it.

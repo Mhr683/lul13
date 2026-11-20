@@ -221,12 +221,12 @@ Earlier messages (for context): ${history.slice(-4).join(' | ').slice(0, 800) ||
 Message: "${message.slice(0, 600)}"
 
 Return JSON only:
-{"wantsProducts": true if they ask about a product / item / price / availability / details or want to buy or see something, else false,
+{"wantsProducts": true if they ask about a specific kind of product / item / price / availability / details or want to buy or see something specific; false for general questions about the store (what kinds of products do you sell, how many products, can I sell here) and for questions about payment, delivery or orders,
  "keywords": product words for a store search, corrected spelling, in BOTH English and the Roman Urdu / common Pakistani name (e.g. "khaddar","suit","men"; "joote" -> "shoes","joota"), at most 8, no colours unless asked, empty if none,
  "item": the one kind of product asked for, as a shop would name it in English, with the material / type the customer named but without colour, gender, size or price (e.g. "suit", "khaddar suit", "leather handbag", "shoes", "shawl", "hair dryer", "headphones"), or "" if none / general,
  "minPrice": number or 0, "maxPrice": number or 0 (e.g. "2000 tak" -> 2000),
  "language": "ur" if written in Urdu script, "roman" if Urdu/Hindi written in English letters (Roman Urdu), "en" if English,
- "needsPerson": true only if a person from the store must handle it: a complaint, damaged / wrong / missing item, refund or money back, return or exchange request for their order, payment problem, very late order, angry or upset customer, or they ask for a person / call; false for normal questions (products, prices, COD, delivery time, how to track),
+ "needsPerson": true only if a person from the store must handle it: a complaint, damaged / wrong / missing item, refund or money back, return or exchange request for their order, payment problem, very late order, angry or upset customer, or they ask for a person / call; false for normal questions (products, prices, COD, delivery time, how to track, what the store sells, how to become a seller / sell on the store),
  "personReason": if needsPerson, a 3-6 word English reason (e.g. "damaged item complaint", "refund request"), else ""}`;
   try {
     const r: any = await ai.models.generateContent({
