@@ -734,10 +734,6 @@ export const SellerCenterView: React.FC = () => {
         email={settings.helplineEmail || settings.supportEmail || settings.contactEmail || ''}
         waitingReplies={inbox?.unread.threads || 0}
         onAi={() => setTab('AI')}
-        onMessageStore={() => {
-          setOpenStore({ key: Date.now(), compose: true });
-          setTab('MESSAGES');
-        }}
         onConversations={() => {
           setOpenStore({ key: Date.now(), compose: false });
           setTab('MESSAGES');
@@ -4093,23 +4089,19 @@ const MessagesTab: React.FC<{
       {shown === 'STORE' && (
         <>
           <Panel
-            title="Conversations with the store"
-            subtitle="Complaints and questions you sent to the store team"
+            title="Messages from the store team"
+            subtitle="The store team writes to you here; you can answer in the same conversation"
             flush
             actions={
               <>
                 <button type="button" onClick={reload} className={ui.secondary} aria-label="Refresh">
                   <RefreshCw className="w-3.5 h-3.5" />
                 </button>
-                <button type="button" onClick={() => setComposing(true)} className={ui.primary}>
-                  <Plus className="w-4 h-4" /> New message
-                </button>
-                <HelpDot id="seller.messages.new" />
               </>
             }
           >
             {inbox.threads.length === 0 ? (
-              <Empty icon="💬" title="No conversations yet" text="Have a problem with an order, a payout or your listings? Send the store a message." />
+              <Empty icon="💬" title="No messages from the store team yet" text="Need help? Tap the green Help button at the top: AI Assistant or WhatsApp seller support." />
             ) : (
               <ul className="divide-y divide-[#EFEDE8]">
                 {inbox.threads.map((t) => (

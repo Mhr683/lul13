@@ -4598,7 +4598,7 @@ const sellerInbox = registerSellerInboxRoutes(app, {
         subject: `The store team replied: ${String(t.subject).slice(0, 80)}`,
         title: 'Reply from the store team',
         color: 'emerald',
-        paragraphs: [`About: ${t.subject}`, text.slice(0, 1500), 'You can answer in Seller Center → Help → Message the store team (or Messages → Store / Admin).'],
+        paragraphs: [`About: ${t.subject}`, text.slice(0, 1500), 'You can answer in Seller Center → Messages → Store / Admin, in the same conversation.'],
         button: 'Open Seller Center',
         sellerCenterUrl: SELLER_CENTER_URL,
         storeName: s.storeName,

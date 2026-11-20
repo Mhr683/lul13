@@ -49,6 +49,8 @@ const sourceOf = (n: any): NoticeSource => {
   return 'STORE';
 };
 const NOTICE_LEVELS = ['INFO', 'WARNING', 'URGENT'];
+/** Sellers may start new conversations with the store team (off: they use Help → AI / WhatsApp) */
+const SELLERS_START_THREADS = false;
 const MAX_MESSAGES = 200;
 
 const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
@@ -206,8 +208,10 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
     }
   });
 
-  // A new complaint / question from the seller
+  // A new complaint / question from the seller. Turned off: sellers get help from Seller Center's Help
+  // button (AI Assistant, WhatsApp); they still answer in conversations the store team starts.
   app.post('/api/seller/threads', d.requireSeller, async (req, res) => {
+    if (!SELLERS_START_THREADS) return res.status(403).json({ error: 'Please use the green Help button: the AI Assistant or WhatsApp seller support.' });
     const uid = (req as any).user.uid as string;
     const seller = (req as any).seller;
     const b = req.body || {};

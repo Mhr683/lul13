@@ -534,15 +534,12 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     tips: ['Shukriya aur hal ki baat karein; behas na karein.'],
   },
   'seller.messages.new': {
-    title: 'Store ko shikayat / paigham',
+    title: 'Store team se baat chit',
     steps: [
-      '"New complaint / message" dabayein.',
-      '"What is it about?" chunein (order, payout, product...).',
-      'Order ka masla ho to order number likhein (jaise ORD-123456).',
-      'Subject aur poori baat likh kar bhejein.',
-      'Jawab isi baat chit mein aata hai, aur aap ki email par bhi.',
+      'Store team aap ko message kare to woh Messages → Store / Admin mein aata hai (aur email par bhi).',
+      'Us baat chit ko khol kar neeche jawab likh kar bhejein.',
+      'Khud madad chahiye? Upar hara 🎧 "Help" dabayein: AI Assistant (foran jawab) ya WhatsApp seller support (24 ghante mein jawab).',
     ],
-    tips: ['Upar hare 🎧 "Help" button se bhi seedha yahi form khulta hai, saath WhatsApp aur AI Assistant ke raaste bhi.'],
   },
   'seller.earnings.payouts': {
     title: 'Payouts (aap ko kab aur kitna mila)',

@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Headphones, X, Bot, MessageSquare, Mail, BookOpen, ShieldCheck } from 'lucide-react';
 
 // Seller Center → Help: every way a seller gets help, in one place (top bar). The AI Assistant answers at
-// once; the store team answers messages within a day; WhatsApp takes details, screenshots and voice notes.
+// once; WhatsApp takes details, screenshots and voice notes (the team replies within 24 hours).
 
 type Props = {
   open: boolean;
@@ -13,7 +13,6 @@ type Props = {
   email: string;
   waitingReplies: number;
   onAi: () => void;
-  onMessageStore: () => void;
   onConversations: () => void;
   onRules: () => void;
 };
@@ -23,7 +22,7 @@ export const SellerHelpButton: React.FC<{ onClick: () => void; unread?: number }
     type="button"
     onClick={onClick}
     className="relative h-9 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-    title="Help: AI Assistant, store team, WhatsApp, e-mail"
+    title="Help: AI Assistant, WhatsApp, e-mail"
     aria-label="Seller help"
   >
     <Headphones className="w-4 h-4" />
@@ -45,7 +44,6 @@ export const SellerHelpPanel: React.FC<Props> = ({
   email,
   waitingReplies,
   onAi,
-  onMessageStore,
   onConversations,
   onRules,
 }) => {
@@ -91,16 +89,16 @@ export const SellerHelpPanel: React.FC<Props> = ({
             </span>
           </button>
 
-          <button type="button" onClick={go(onMessageStore)} className={`${row} border-[#E7E5DF] hover:border-black`}>
-            <MessageSquare className="w-5 h-5 text-[#141413] shrink-0 mt-0.5" />
-            <span>
-              <strong className="block text-[13px]">Message the store team</strong>
-              <span className="text-[11.5px] text-[#575653]">For orders, payouts, listings or your account. The team replies within a day; you also get the reply by e-mail.</span>
-            </span>
-          </button>
-          <button type="button" onClick={go(onConversations)} className="w-full text-left px-3 text-[11.5px] font-semibold text-[#0E7A43] underline cursor-pointer">
-            My conversations with the store{waitingReplies > 0 ? ` (${waitingReplies} new reply${waitingReplies > 1 ? 'ies' : ''})` : ''} →
-          </button>
+          {/* Messages the store team started (sellers no longer start conversations themselves) */}
+          {waitingReplies > 0 && (
+            <button type="button" onClick={go(onConversations)} className={`${row} border-[#E7E5DF] hover:border-black`}>
+              <MessageSquare className="w-5 h-5 text-[#141413] shrink-0 mt-0.5" />
+              <span>
+                <strong className="block text-[13px]">Messages from the store team ({waitingReplies} new)</strong>
+                <span className="text-[11.5px] text-[#575653]">Read what the store team wrote to you.</span>
+              </span>
+            </button>
+          )}
 
           {wa && (
             <a href={wa} target="_blank" rel="noopener noreferrer" onClick={onClose} className={`${row} border-emerald-300 hover:border-emerald-600`}>
