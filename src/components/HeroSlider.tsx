@@ -21,12 +21,17 @@ type Slide = {
   price?: number;
   oldPrice?: number;
   endsAt?: string;
+  // Offers shown as chips on a product ad (free delivery, Cash on Delivery, best seller)
+  promos?: string[];
   cta: string;
   accent: string;
   open: () => void;
 };
 
 type P = Product & { flashActive?: boolean };
+
+// Product ads show the whole picture big with only the price and offers (no description)
+const isProductSlide = (s: Slide) => s.kind === 'FLASH' || s.kind === 'VIDEO' || s.kind === 'SALE' || s.kind === 'NEW';
 
 const isDirectVideo = (u?: string) => !!u && (/\.(mp4|webm|mov)(\?|#|$)/i.test(u) || /^\/media\/[\w.-]+\.(mp4|webm|mov)$/i.test(u));
 const pctOff = (price: number, old?: number) => (old && old > price ? Math.round(((old - price) / old) * 100) : 0);
@@ -125,6 +130,9 @@ export const HeroSlider: React.FC<{
     const onOpenCampaign = (c: Campaign) => handlers.current.onOpenCampaign(c);
     const onShopAll = () => handlers.current.onShopAll();
     const live = products.filter((p) => p.status === 'ACTIVE' && p.stock > 0 && p.primaryImage);
+    const freeFrom = Number(settings.domesticFreeShippingThreshold) || 0;
+    const promosOf = (p: P) =>
+      [p.bestSeller ? 'Best seller' : '', freeFrom > 0 && p.price >= freeFrom ? 'Free delivery' : '', 'Cash on Delivery'].filter(Boolean).slice(0, 2);
     const used = new Set<string>();
     const take = (list: P[], n: number) => {
       const out: P[] = [];
@@ -165,6 +173,7 @@ export const HeroSlider: React.FC<{
         price: p.price,
         oldPrice: p.compareAtPrice,
         endsAt: p.flashEndsAt,
+        promos: promosOf(p),
         cta: 'Grab the deal',
         accent: 'from-[#7F1D1D] to-[#DC2626]',
         open: () => onOpenProduct(p),
@@ -176,7 +185,7 @@ export const HeroSlider: React.FC<{
         kind: 'VIDEO',
         badge: 'Watch it in action',
         title: p.name,
-        subtitle: p.shortDescription,
+        promos: promosOf(p),
         image: p.primaryImage,
         video: p.videoUrl,
         price: p.price,
@@ -196,7 +205,7 @@ export const HeroSlider: React.FC<{
         kind: 'SALE',
         badge: `Save ${pctOff(p.price, p.compareAtPrice)}%`,
         title: p.name,
-        subtitle: p.shortDescription,
+        promos: promosOf(p),
         image: p.primaryImage,
         price: p.price,
         oldPrice: p.compareAtPrice,
@@ -215,7 +224,7 @@ export const HeroSlider: React.FC<{
         kind: 'NEW',
         badge: p.featured ? 'Top pick' : 'Just in',
         title: p.name,
-        subtitle: p.shortDescription,
+        promos: promosOf(p),
         image: p.primaryImage,
         price: p.price,
         oldPrice: p.compareAtPrice,
@@ -321,7 +330,7 @@ export const HeroSlider: React.FC<{
           return (
             <div
               key={s.key}
-              className={`relative w-full shrink-0 h-[360px] max-[380px]:h-[310px] sm:h-[380px] lg:h-[460px] cursor-pointer bg-gradient-to-br ${s.accent}`}
+              className={`relative w-full shrink-0 h-[420px] max-[380px]:h-[370px] sm:h-[400px] lg:h-[480px] cursor-pointer bg-gradient-to-br ${s.accent}`}
               onClick={() => clickSlide(s)}
               aria-hidden={!isActive}
               role="group"
@@ -333,6 +342,65 @@ export const HeroSlider: React.FC<{
                   {renderImage(s.image, '', 'w-full h-full object-cover', i === 0)}
                 </div>
               )}
+              {isProductSlide(s) ? (
+                <>
+                  {/* Product ad: the whole picture, big; below / beside it only the price and the offers */}
+                  <div className="absolute inset-x-0 top-0 bottom-[118px] sm:bottom-0 sm:left-[36%] flex items-center justify-center overflow-hidden">
+                    {s.video && isActive ? (
+                      <HeroVideo src={s.video} poster={s.image} />
+                    ) : s.image ? (
+                      <div className={`h-full w-full flex items-center justify-center p-2 sm:p-5 ${isActive ? 'hs-zoom' : ''}`}>
+                        {renderImage(s.image, s.title, 'h-full w-full object-contain drop-shadow-2xl', i === 0)}
+                      </div>
+                    ) : null}
+                    {s.video && !isActive && <PlayCircle className="absolute w-14 h-14 text-white/80" />}
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 h-[150px] sm:h-full sm:inset-y-0 sm:right-auto sm:w-[46%] bg-gradient-to-t sm:bg-gradient-to-r from-black/85 via-black/60 to-transparent pointer-events-none" />
+                  <div
+                    key={isActive ? `on-${s.key}` : s.key}
+                    className="absolute inset-x-0 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:left-0 sm:right-auto sm:w-[38%] px-4 sm:pl-14 pb-8 sm:pb-0 text-white space-y-1.5 sm:space-y-3"
+                  >
+                    <div className={`${isActive ? 'hs-up' : ''} flex flex-wrap items-center gap-1.5`}>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/15 backdrop-blur border border-white/25 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider rounded-full">
+                        {s.kind === 'FLASH' ? <Zap className="w-3 h-3 text-yellow-300" /> : s.kind === 'SALE' ? <Tag className="w-3 h-3" /> : s.kind === 'VIDEO' ? <PlayCircle className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+                        {s.badge}
+                      </span>
+                      {(s.promos || []).map((p) => (
+                        <span key={p} className="px-2 py-0.5 bg-emerald-500/90 text-white text-[10px] sm:text-[11px] font-bold rounded-full">
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                    <h2
+                      className={`${isActive ? 'hs-up' : ''} text-[15px] sm:text-2xl lg:text-3xl font-display font-medium leading-snug line-clamp-1 sm:line-clamp-2 [text-shadow:0_2px_8px_rgba(0,0,0,0.5)]`}
+                      style={{ animationDelay: '80ms' }}
+                    >
+                      {s.title}
+                    </h2>
+                    <div className={`${isActive ? 'hs-up' : ''} flex flex-wrap items-center gap-x-2.5 gap-y-1`} style={{ animationDelay: '140ms' }}>
+                      {s.price ? <span className="text-xl sm:text-3xl font-extrabold font-mono text-[#FDE68A]">{formatMoney(s.price)}</span> : null}
+                      {off > 0 && (
+                        <>
+                          <span className="text-xs sm:text-base line-through text-white/65 font-mono">{formatMoney(Number(s.oldPrice))}</span>
+                          <span className="px-1.5 py-0.5 bg-[#DC2626] text-white text-[11px] sm:text-xs font-bold rounded">-{off}%</span>
+                          <span className="text-[11px] sm:text-xs font-semibold text-emerald-300">Save {formatMoney(Number(s.oldPrice) - Number(s.price))}</span>
+                        </>
+                      )}
+                      {s.endsAt && (
+                        <span className="flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold">
+                          Ends in <Countdown endsAt={s.endsAt} />
+                        </span>
+                      )}
+                    </div>
+                    <div className={isActive ? 'hs-up' : ''} style={{ animationDelay: '200ms' }}>
+                      <span className="inline-flex items-center gap-1.5 px-4 sm:px-6 py-1.5 sm:py-3 bg-white text-[#141413] text-xs sm:text-sm font-bold rounded-full shadow-lg">
+                        {s.cta} <ArrowRight className="w-4 h-4" />
+                      </span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+              <>
               <div className="absolute inset-0 bg-gradient-to-t sm:bg-gradient-to-r from-black/75 via-black/35 to-black/5 pointer-events-none" />
 
               <div className="relative h-full max-w-[1360px] mx-auto px-4 sm:px-10 grid grid-cols-1 sm:grid-cols-2 items-center gap-4">
@@ -390,6 +458,8 @@ export const HeroSlider: React.FC<{
                   </div>
                 </div>
               </div>
+              </>
+              )}
             </div>
           );
         })}
