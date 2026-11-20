@@ -553,6 +553,30 @@ export function createAnalytics(d: AnalyticsDeps) {
     };
   };
 
+  /** Every seller's visitors, orders and sales between two days (inclusive), for the Top Sellers race */
+  const sellerTotals = async (from: string, to: string) => {
+    const keys: string[] = [];
+    for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`) && keys.length < 62; t += 86400_000) {
+      keys.push(new Date(t).toISOString().slice(0, 10));
+    }
+    const docs = await readDays(keys);
+    const out = new Map<string, { visitors: number; orders: number; revenue: number }>();
+    const row = (sid: string) => {
+      let r = out.get(sid);
+      if (!r) out.set(sid, (r = { visitors: 0, orders: 0, revenue: 0 }));
+      return r;
+    };
+    for (const k of keys) {
+      for (const src of [docs.get(k) || {}, pending.get(k) || {}] as any[]) {
+        for (const [sid, n] of Object.entries(src.sx || {})) row(sid).visitors += Number(n) || 0;
+        for (const [sid, n] of Object.entries(src.s || {})) row(sid).orders += Number(n) || 0;
+        for (const [sid, n] of Object.entries(src.sr || {})) row(sid).revenue += Number(n) || 0;
+      }
+    }
+    out.delete('house');
+    return out;
+  };
+
   // ---------------------------------------------------------------- routes
   const register = (app: express.Express) => {
     // Small batches from the store (sendBeacon). No personal data: a random device id, hashed.
@@ -598,5 +622,5 @@ export function createAnalytics(d: AnalyticsDeps) {
     });
   };
 
-  return { register, recordOrder, recordCancel, recordReturn, flush, report, sellerReport };
+  return { register, recordOrder, recordCancel, recordReturn, flush, report, sellerReport, sellerTotals };
 }

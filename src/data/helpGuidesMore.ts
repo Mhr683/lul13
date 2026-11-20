@@ -282,7 +282,10 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Save dabayein; naye orders par lagta hai.',
       'Kisi ek seller ka alag commission: us ke card mein "Commission %" badal kar save.',
     ],
-    tips: ['Naye sellers ke liye 0% wala offer Marketing & Growth mein hai.'],
+    tips: [
+      'Naye sellers ke liye 0% wala offer Marketing & Growth mein hai.',
+      'Top Sellers inaam: har mahine ke top 3 sellers (orders × 10 + visitors) agle mahine store ke homepage par "Top Sellers" mein dikhte hain aur un ka commission khud kam hota hai: #1 par 2%, #2 aur #3 par 1% kam (0% se neeche nahi). Yeh har order par khud lagta hai; kuch set nahi karna.',
+    ],
   },
   'admin.sellers.approve': {
     title: 'Naya seller approve karna',
@@ -373,6 +376,21 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Visitor = jis ne aap ki dukaan ya aap ka koi product khola (ek shakhs din mein ek dafa gina jata hai).',
       'Visitors barhane ke liye apni dukaan ka link (/s/...) aur product links WhatsApp status, Facebook aur TikTok par share karein.',
       'Naye numbers kuch minute mein graph par aa jate hain.',
+    ],
+  },
+  'seller.topSellers': {
+    title: 'Top Sellers race (mahine ka muqabla)',
+    what: 'Har mahine sab se zyada orders aur visitors lane wale 3 sellers ko inaam milta hai.',
+    steps: [
+      'Traffic tab ke upar "Top Sellers race" card mein aap ka is mahine ka number (#) aur points hain.',
+      'Points: har order = 10 points, har visitor = 1 point (visitor = jis ne aap ki dukaan ya product khola; ek shakhs din mein ek dafa).',
+      '"more points to reach the top 3" batata hai top 3 tak pohnchne ke liye kitne points (taqreeban kitne orders) chahiye.',
+      'Mahina khatam hone par top 3 ka faisla hota hai (kam az kam 1 order zaroori).',
+      'Inaam agle poore mahine: aap ki dukaan store ke homepage par "Top Sellers" mein, aur commission kam: #1 ko 2%, #2 aur #3 ko 1% kam.',
+    ],
+    tips: [
+      'Sab se asaan tareeqa: apni dukaan ka link (/s/...) WhatsApp status, Facebook groups aur TikTok bio mein lagayein.',
+      'Har product ka link bhi share karein; us se aane wala har shakhs aap ka visitor gina jata hai.',
     ],
   },
   'seller.traffic': {

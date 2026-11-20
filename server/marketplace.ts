@@ -59,6 +59,8 @@ export interface MarketplaceDeps {
   /** Whether a seller added their own AI key, and how many free AI uses on the store's keys are left today */
   aiKeyState?: (uid: string) => { hasKey: boolean; freeLeft: number; freePerDay: number };
   DEFAULT_COMMISSION_PERCENT: number;
+  /** Commission points taken off for last month's Top Sellers (server/topSellers.ts) */
+  commissionDiscount?: (sellerId: string) => number;
   /** Tells the seller by email that their shop was approved / rejected / suspended */
   emailSellerStatus: (seller: any, status: 'APPROVED' | 'REJECTED' | 'SUSPENDED', reason: string, vendorId?: string) => Promise<void>;
 }
@@ -138,7 +140,9 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
 
   // The store's default commission, re-read at most once a minute
   let defaultCommissionCache: { at: number; pct: number } | null = null;
-  const commissionFor = async (seller: any) => {
+  const commissionFor = async (seller: any, uid = '') =>
+    Math.max(0, (await baseCommissionFor(seller)) - (d.commissionDiscount?.(String(uid || seller?.id || seller?.uid || '')) || 0));
+  const baseCommissionFor = async (seller: any) => {
     if (typeof seller?.commissionPercent === 'number') return seller.commissionPercent;
     if (defaultCommissionCache && Date.now() - defaultCommissionCache.at < 60_000) return defaultCommissionCache.pct;
     let pct = d.DEFAULT_COMMISSION_PERCENT;
@@ -301,7 +305,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
       const uid = (req as any).user.uid as string;
       const { seller, privateData } = await loadSeller(uid);
       let commissionPercent: number | null = null;
-      if (seller) commissionPercent = await commissionFor(seller);
+      if (seller) commissionPercent = await commissionFor(seller, uid);
       res.json({ success: true, seller, privateData, commissionPercent, conductVersion: POLICY.CONDUCT_VERSION });
     } catch (err) {
       console.error('[seller/me] failed:', err);
@@ -1507,7 +1511,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
         charges,
         escrowDays: POLICY.ESCROW_DAYS,
         summary: summarizeEarnings(orders, charges.reduce((s, c) => s + Number(c.amount || 0), 0)),
-        commissionPercent: await commissionFor((req as any).seller),
+        commissionPercent: await commissionFor((req as any).seller, String((req as any).user?.uid || '')),
         payouts,
       });
     } catch (err) {

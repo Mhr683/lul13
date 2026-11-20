@@ -78,6 +78,7 @@ import { ShipsBadge } from './ShipsBadge';
 import { CardPaymentStatus } from './CardPaymentStatus';
 import { OrderCancelBox } from './OrderCancelBox';
 import { HeroSlider, TrendingTicker } from './HeroSlider';
+import { TopSellersStrip } from './TopSellersStrip';
 import { BecomeSellerBanner, sellerCenterUrl } from './BecomeSellerBanner';
 import { QuestionAnswerNotifier } from './QuestionAnswerNotifier';
 import { PolicyDocument } from './PolicyDocument';
@@ -2102,6 +2103,8 @@ export const StorefrontView: React.FC = () => {
             </section>
             {/* Every customer is invited to open their own shop */}
             <BecomeSellerBanner settings={settings} />
+            {/* Last month's Top Sellers (server/topSellers.ts) */}
+            <TopSellersStrip onOpenShop={openShop} />
             <TrendingTicker products={products} onOpen={handleSelectProduct} renderImage={(src, alt, className) => <ProductImage src={src} alt={alt} className={className} />} />
             <DailyDeals
               products={products}

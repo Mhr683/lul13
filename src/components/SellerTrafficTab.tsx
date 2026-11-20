@@ -127,6 +127,76 @@ const DotChart: React.FC<{ series: Report['series']; metric: (typeof METRICS)[nu
   );
 };
 
+type Race = {
+  monthName: string;
+  points: { order: number; visitor: number };
+  discounts: number[];
+  me: { rank: number | null; score: number; orders: number; visitors: number };
+  sellersInRace: number;
+  toTop3: number;
+  top: { rank: number; name: string; score: number; isMe: boolean }[];
+  reward: { monthName: string; rank: number; discount: number } | null;
+};
+
+/** This month's Top Sellers race: my place, points and the reward for the top 3 */
+const TopSellerRace: React.FC<{ api: (url: string) => Promise<any> }> = ({ api }) => {
+  const [r, setR] = useState<Race | null>(null);
+  useEffect(() => {
+    api('/api/seller/top-sellers').then(setR).catch(() => {});
+  }, [api]);
+  if (!r) return null;
+  const medal = ['🥇', '🥈', '🥉'];
+  return (
+    <Panel
+      title={<span>🏆 Top Sellers race · {r.monthName}</span>}
+      help={<HelpDot id="seller.topSellers" />}
+      subtitle={`${r.points.order} points for every order, ${r.points.visitor} for every visitor you bring. The top 3 at the end of the month are shown on the store's home page and pay less commission next month.`}
+    >
+      {r.reward && (
+        <Callout tone="success" icon="🎉" className="mb-3">
+          You were <strong>#{r.reward.rank} Top Seller of {r.reward.monthName}</strong>. This month your shop is on the home page and you
+          pay <strong>{r.reward.discount}% less commission</strong>.
+        </Callout>
+      )}
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div>
+          <div className="text-[12px] text-[#6B6963]">Your place this month</div>
+          <div className="text-[28px] font-bold text-[#141413] leading-tight">
+            {r.me.rank ? `#${r.me.rank}` : '—'}
+            <span className="text-[13px] font-medium text-[#6B6963]"> of {r.sellersInRace || 0} shops</span>
+          </div>
+          <div className="text-[12.5px] text-[#2A2A28] mt-1">
+            <strong>{r.me.score.toLocaleString('en-PK')}</strong> points · {r.me.orders} orders · {r.me.visitors} visitors
+          </div>
+          <div className="text-[12.5px] mt-1.5">
+            {r.toTop3 === 0 ? (
+              <span className="text-emerald-700 font-semibold">You are in the top 3. Keep sharing your shop link!</span>
+            ) : (
+              <span className="text-[#55534E]">
+                <strong>{r.toTop3.toLocaleString('en-PK')}</strong> more points to reach the top 3 (about {Math.ceil(r.toTop3 / r.points.order)} orders).
+              </span>
+            )}
+          </div>
+          <p className="text-[11.5px] text-[#8A8780] mt-2">
+            Reward next month: #1 pays {r.discounts[0]}% less commission, #2 and #3 pay {r.discounts[1]}% less.
+          </p>
+        </div>
+        <ul className="space-y-1.5">
+          {r.top.map((x) => (
+            <li key={x.rank} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[12.5px] ${x.isMe ? 'bg-emerald-50 border-emerald-200' : 'bg-[#FAFAF8] border-[#EFEDE8]'}`}>
+              <span className="truncate">
+                {medal[x.rank - 1]} {x.isMe ? 'You' : x.name}
+              </span>
+              <strong>{x.score.toLocaleString('en-PK')} pts</strong>
+            </li>
+          ))}
+          {!r.top.length && <li className="text-[12.5px] text-[#8A8780]">No points yet this month. The first order puts you on the board.</li>}
+        </ul>
+      </div>
+    </Panel>
+  );
+};
+
 export const SellerTrafficTab: React.FC<{ api: (url: string, init?: RequestInit) => Promise<any>; shopUrl: string }> = ({ api, shopUrl }) => {
   const [days, setDays] = useState<'7' | '30' | '90'>('30');
   const [metric, setMetric] = useState<Metric>('visitors');
@@ -175,6 +245,8 @@ export const SellerTrafficTab: React.FC<{ api: (url: string, init?: RequestInit)
         />
         <HelpDot id="seller.traffic" />
       </div>
+
+      <TopSellerRace api={api} />
 
       {!data ? (
         <Loading text="Loading your traffic..." rows={4} />

@@ -1,4 +1,5 @@
 import { readShopId } from './src/services/shopCode';
+import { createTopSellers } from './server/topSellers';
 import express from 'express';
 import http from 'http';
 import { createServer as createViteServer } from 'vite';
@@ -3704,6 +3705,8 @@ app.post('/api/orders/create', async (req, res) => {
           const freeDays = Number((storeSettings as any)?.newSellerFreeDays ?? DEFAULT_NEW_SELLER_FREE_DAYS);
           const since = Date.parse(s?.approvedAt || s?.createdAt || '');
           if (freeDays > 0 && !isNaN(since) && Date.now() - since < freeDays * 86400_000) pct = 0;
+          // Last month's Top Sellers pay less commission this month (server/topSellers.ts)
+          pct = Math.max(0, pct - topSellers.discountFor(sid));
           sellerInfo.set(sid, { shopName: String(s?.shopName || 'Seller'), commissionPercent: Math.min(100, Math.max(0, pct)) });
         }
 
@@ -4819,6 +4822,7 @@ const marketplace = registerMarketplaceRoutes(app, {
   supplierOf: (productId) => (catalogStore.privateReady ? catalogStore.supplierOf(productId) : undefined),
   HOUSE_SELLER_ID,
   DEFAULT_COMMISSION_PERCENT,
+  commissionDiscount: (sellerId: string) => topSellers.discountFor(sellerId),
   emailSellerStatus: async (seller, status, reason, vendorId) => {
     const s: any = catalogStore.settings() || {};
     const r = await sendSellerStatusEmail(adminDb, {
@@ -5006,6 +5010,19 @@ marketplace.setProductsLiveHook((sellerId, shopName, products) => follows.produc
 // Traffic, sales and conversion analytics (one document per day; see server/analytics.ts)
 analytics.register(app);
 ads.register(app);
+
+// Top Sellers of the month: home page spot and lower commission for last month's top 3
+const topSellers = createTopSellers({
+  adminDb,
+  requireSeller: marketplace.requireSeller,
+  sellerTotals: (from, to) => analytics.sellerTotals(from, to),
+  shopOf: (id) => {
+    const p: any = catalogStore.ready ? catalogStore.productsOfSeller(id)[0] : null;
+    return p ? { name: String(p.sellerName || 'Shop'), shopId: String(p.vendorId || ''), logo: '' } : null;
+  },
+  isQuotaHit: firestoreQuotaHit,
+});
+topSellers.register(app);
 
 // Seller Center → Traffic: the signed-in seller's own visitors, views, orders and sales (7/30/90 days)
 const sellerTrafficCache = new Map<string, { at: number; data: any }>();
