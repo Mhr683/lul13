@@ -51,7 +51,7 @@ import { famousBrandIn } from '../services/brandRules';
 import { CategoryPicker, VariantsEditor, type VariantRow } from './SellerListingFields';
 import { groupOfCategory, suggestCategories } from '../data/productCategories';
 import { DIRECT_SOURCE, SOURCE_APPS, isDirectSource, normalizeSource } from '../services/productSource';
-import { fixLink, shrinkImage, MAX_IMAGES } from './ProductMediaEditor';
+import { fixLink, shrinkImage, checkPicture, MAX_IMAGES } from './ProductMediaEditor';
 import { ShareProductButton, storeOrigin } from './ShareProductButton';
 import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services/vendorRules';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
@@ -2702,6 +2702,19 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
     // Downloads, services and subscriptions have no colours / sizes
     const variants = kind.countsStock ? editing.variants.filter((v) => v.name.trim()) : [];
     if (editing.variants.some((v) => !v.name.trim() && (v.price || v.sku))) return showToast('Give every variant a name, or remove the empty row.');
+    // A product that ships goes live only with its main picture on a pure white background (a draft can be saved)
+    if (kind.ships && editing.status === 'ACTIVE') {
+      const main = editing.images[0];
+      if (!main) return showToast('Add the main picture (product on a white background) to make it live, or save it as a Draft.');
+      const c = await checkPicture(main);
+      if (!c || c.whiteBackground !== true) {
+        return showToast(
+          c?.whiteBackground === false
+            ? 'The main picture (1) must have a pure white background to go live. Press "Make white background", or upload a white-background picture, or save as a Draft for now.'
+            : 'The main picture is a link that cannot be checked. Upload the picture itself (white background) to go live, or save as a Draft for now.'
+        );
+      }
+    }
     setSaving(true);
     try {
       // Shipping is cleared, as every product is delivered in the customer's own country with the
@@ -2973,6 +2986,12 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
               onChange={(m) => setEditing((p) => (p ? { ...p, ...m, primaryImage: m.images[0] || '' } : p))}
               upload={uploadMedia}
               onError={showToast}
+              makeWhite={
+                kind.ships
+                  ? async (url) =>
+                      String((await api('/api/seller/media/white-background', { method: 'POST', body: JSON.stringify({ url }) })).url)
+                  : undefined
+              }
             />
             {/* Shop Coach's video maker: an ad made from the saved pictures (needs the product saved once) */}
             {!editing.videoUrl && (
@@ -3417,6 +3436,23 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
   }, [photoMatch]);
   useEffect(() => () => thumbs.forEach((u) => URL.revokeObjectURL(u)), [thumbs]);
   const rowsWithPhotos = ready.filter((r) => photoMatch.byRow.has(r.row)).length;
+  // Main picture on white: only those products go live; the others are saved as drafts
+  const [whiteMain, setWhiteMain] = useState<Map<number, boolean>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    const next = new Map<number, boolean>();
+    Promise.all(
+      rows.map(async (r) => {
+        const src = thumbs.get(r.row) || r.primaryImage;
+        const c = src ? await checkPicture(src) : null;
+        next.set(r.row, c?.whiteBackground === true);
+      })
+    ).then(() => alive && setWhiteMain(next));
+    return () => {
+      alive = false;
+    };
+  }, [rows, thumbs]);
+  const draftForPicture = ready.filter((r) => r.status === 'ACTIVE' && whiteMain.get(r.row) !== true).length;
   const noPhotoCount = ready.filter((r) => !photoMatch.byRow.has(r.row) && !r.primaryImage).length;
   const addPhotos = (list: FileList | null) => {
     const all = Array.from(list || []);
@@ -3522,7 +3558,9 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
     setProgress({ done: 0, total });
     try {
       for (let i = 0; i < total; i += BULK_CHUNK) {
-        const chunk = ready.slice(i, i + BULK_CHUNK).map(({ problem, ...r }) => {
+        const chunk = ready.slice(i, i + BULK_CHUNK).map(({ problem, ...raw }) => {
+          // not on white -> saved as a draft (the seller fixes the main picture, then makes it live)
+          const r = raw.status === 'ACTIVE' && whiteMain.get(raw.row) !== true ? { ...raw, status: 'DRAFT' as const } : raw;
           const urls = pictures.get(r.row);
           if (!urls?.length) return r;
           // A link already in the file stays the main picture, the chosen photos follow it
@@ -3551,6 +3589,7 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
       setResult(sum);
       showToast(
         `${sum.created} new · ${sum.updated} prices updated · ${sum.unchanged} already listed, no change.` +
+          (draftForPicture ? ` ${draftForPicture} new products were saved as drafts: put their main picture on a white background, then make them live.` : '') +
           (held ? ` ${held} branded items were saved as drafts: open each one and upload its invoice to go live.` : '')
       );
     } catch (err: any) {
@@ -3763,6 +3802,11 @@ const BulkUpload: React.FC<{ categoryNames: string[]; onClose: () => void; onDon
 
           <div className="flex flex-wrap gap-2">
             <span className={`${ui.chip} ${chipTone.green} !text-[12px] !px-3 !py-1`}>✓ {ready.length} products ready</span>
+            {draftForPicture > 0 && (
+              <span className={`${ui.chip} ${chipTone.amber} !text-[12px] !px-3 !py-1`} title="Live products need the main picture on a pure white background">
+                {draftForPicture} will be saved as Draft: main picture not on a white background
+              </span>
+            )}
             {skipped > 0 && <span className={`${ui.chip} ${chipTone.red} !text-[12px] !px-3 !py-1`}>{skipped} will be skipped (reason in the table)</span>}
           </div>
 

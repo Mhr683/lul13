@@ -1027,6 +1027,67 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
     }
   };
 
+  // ---------------------------------------------------------------- main picture on a white background
+  // Google's image AI keeps the product and puts it on pure white, square (the main picture must be on
+  // white). Google gives image AI only to keys with billing, so it works on the seller's own billed key
+  // or the store's key once billing is on; otherwise the seller is told how to do it for free.
+  const WHITE_BG_MODELS = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'];
+  app.post('/api/seller/media/white-background', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const url = str(req.body?.url, 980);
+    if (!/^\/media\/[a-zA-Z0-9_.-]+$/.test(url) && !/^https:\/\//i.test(url)) return res.status(400).json({ error: 'Choose a picture first.' });
+    if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
+    if (!d.takeAi(uid).granted) return res.status(403).json(d.aiKeyNeeded);
+    try {
+      const pic = await fetchPicture(url);
+      if (!pic) return res.status(400).json({ error: 'This picture could not be opened. Upload the picture itself instead of a link.' });
+      const ai = d.getAI(uid);
+      let lastErr = '';
+      for (const model of WHITE_BG_MODELS) {
+        try {
+          const r: any = await ai.models.generateContent({
+            model,
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { inlineData: { mimeType: pic.type, data: pic.buf.toString('base64') } },
+                  {
+                    text: 'Edit this product photo into an online store main picture: keep exactly the same product (same shape, colours, pattern, text printed on it, details), remove everything else (background, props, hands, other text), and place the product centred on a pure white background (#FFFFFF) filling about 85% of a square picture, with a soft natural shadow under it. Do not add any text, logo, border or watermark.',
+                  },
+                ],
+              },
+            ],
+            config: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '1:1' }, httpOptions: { timeout: 90_000 } } as any,
+          });
+          const part = (r.candidates?.[0]?.content?.parts || []).find((x: any) => x.inlineData?.data);
+          if (!part) {
+            lastErr = 'no picture';
+            continue;
+          }
+          const buf = Buffer.from(part.inlineData.data, 'base64');
+          const png = buf.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+          const stored = await d.storeMedia(buf, png ? 'png' : 'jpg', png ? 'image/png' : 'image/jpeg');
+          return res.json({ success: true, url: stored });
+        } catch (err: any) {
+          lastErr = String(err?.message || '');
+        }
+      }
+      console.warn('[white background] failed:', lastErr.slice(0, 200));
+      if (/429|quota|billing|RESOURCE_EXHAUSTED|free tier/i.test(lastErr))
+        return res.status(402).json({
+          code: 'IMAGE_AI_NEEDS_BILLING',
+          error:
+            'The picture AI needs a Google key with billing on (Google gives no free picture AI). Turn on billing for your key in Google AI Studio, or make the background white for free with the Photoroom / Pixelcut phone app or remove.bg, then upload it.',
+        });
+      if (/safety|blocked|SAFETY|prohibited/i.test(lastErr)) return res.status(422).json({ error: 'Google refused this picture under its safety rules. Please make the background white with a phone app instead.' });
+      res.status(503).json({ error: 'The picture could not be made right now. Please try again in a few minutes.' });
+    } catch (err: any) {
+      console.error('[white background] failed:', err?.message);
+      res.status(503).json({ error: 'The picture could not be made right now. Please try again in a few minutes.' });
+    }
+  });
+
   app.get('/api/seller/coach/video-image', d.requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     try {

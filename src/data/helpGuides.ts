@@ -285,6 +285,10 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       '9. In the box: dabbe mein jo kuch milta hai, alag rakh kar aur gin kar.',
     ],
     tips: [
+      'Zaroori: parcel wala product tab hi LIVE hota hai jab main tasveer (1) ka background bilkul safed ho. Warna "Draft" mein save karein, tasveer theek karein, phir Live karein. CSV se aane wale aise naye products khud Draft mein save hote hain (check list mein pehle bata diya jata hai).',
+      'Main tasveer safed nahi? "✨ Make white background (AI)" dabayein: AI product ko safed background par laga deta hai aur purani tasveer aakhir mein chali jati hai. Is ke liye Google key par billing chahiye (Google tasveer wala AI muft nahi deta).',
+      'Muft tareeqa: phone par Photoroom ya Pixelcut app, ya remove.bg website se background hata kar safed karein, phir woh tasveer upload karein.',
+      'Tasveer ka link (doosri website) check nahi ho sakta: live karne ke liye tasveer khud upload karein.',
       'Size: 2000 × 2000 pixel, chokor (1:1). Is se customer zoom kare to tasveer saaf rehti hai.',
       'Tasveer lagate hi jaanch hoti hai: main tasveer ka background safed na ho, tasveer chokor na ho, ya 1000 pixel se chhoti ho to tasveeron ke neeche peeli note aati hai (aur us tasveer par "!").',
       'Shop Coach batata hai kin products mein 9 mein se tasveerein kam hain.',

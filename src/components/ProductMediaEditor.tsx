@@ -119,7 +119,9 @@ export const ProductMediaEditor: React.FC<{
   onChange: (next: { images: string[]; videoUrl: string }) => void;
   upload: (file: Blob) => Promise<string>;
   onError: (message: string) => void;
-}> = ({ images, videoUrl, onChange, upload, onError }) => {
+  // Puts the main picture's product on a white background with AI; returns the new picture's link
+  makeWhite?: (url: string) => Promise<string>;
+}> = ({ images, videoUrl, onChange, upload, onError, makeWhite }) => {
   const photoInput = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState('');
@@ -286,6 +288,34 @@ export const ProductMediaEditor: React.FC<{
             <li key={w}>{w}</li>
           ))}
         </ul>
+      )}
+      {/* The main picture is not on white (or cannot be checked): AI can put the product on white */}
+      {makeWhite && images[0] && main && main.whiteBackground !== true && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={async () => {
+              setBusy('Making a white background with AI (up to a minute)...');
+              try {
+                const fresh = await makeWhite(images[0]);
+                // the old picture moves to the end (useful as a lifestyle picture) when there is room
+                const rest = images.slice(1);
+                onChange({ images: [fresh, ...rest, ...(rest.length < MAX_IMAGES - 1 ? [images[0]] : [])].slice(0, MAX_IMAGES), videoUrl });
+              } catch (err: any) {
+                onError(err.message || 'The picture could not be made right now.');
+              } finally {
+                setBusy('');
+              }
+            }}
+            className="px-3 py-1.5 rounded-lg bg-[#0E7A43] text-white font-semibold cursor-pointer disabled:opacity-50"
+          >
+            ✨ Make white background (AI)
+          </button>
+          <span className="text-[#575653]">
+            Live products need the main picture on pure white. Free way: the Photoroom or Pixelcut phone app, or remove.bg, then upload.
+          </span>
+        </div>
       )}
       <input
         ref={photoInput}
