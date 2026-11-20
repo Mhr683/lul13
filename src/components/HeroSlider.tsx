@@ -318,6 +318,13 @@ export const HeroSlider: React.FC<{
         @keyframes hs-bar { from { width: 0 } to { width: 100% } }
         .hs-zoom { animation: hs-zoom 9s ease-out forwards }
         .hs-up { animation: hs-up .6s ease-out both }
+        /* product ads: the picture flies in from the side, then keeps floating gently; offers pop in */
+        @keyframes hs-fly { 0% { opacity: 0; transform: translateX(28%) translateY(6%) scale(1.25) rotate(2deg) } 60% { opacity: 1 } 100% { opacity: 1; transform: none } }
+        @keyframes hs-float { 0%, 100% { transform: scale(1.04) translateY(0) } 50% { transform: scale(1.09) translateY(-2.5%) } }
+        @keyframes hs-pop { 0% { opacity: 0; transform: translateY(18px) scale(.85) } 70% { opacity: 1; transform: translateY(-3px) scale(1.04) } 100% { opacity: 1; transform: none } }
+        .hs-fly { animation: hs-fly 1.1s cubic-bezier(.2,.9,.25,1) both }
+        .hs-float { animation: hs-float 6s ease-in-out 1.1s infinite }
+        .hs-pop { animation: hs-pop .6s cubic-bezier(.2,.9,.25,1) both }
       `}</style>
 
       <div
@@ -357,13 +364,15 @@ export const HeroSlider: React.FC<{
                       <>
                         {/* the picture under the video: shows while the video loads or if the phone does not play it */}
                         {s.image && <div className="absolute inset-0">{renderImage(s.image, s.title, 'h-full w-full object-cover', near(i))}</div>}
-                        <div className="absolute inset-0">
+                        <div className="absolute inset-0 hs-fly">
                           <HeroVideo src={s.video} poster={s.image} fill />
                         </div>
                       </>
                     ) : s.image ? (
-                      <div className={`h-full w-full ${isActive ? 'hs-zoom' : ''}`}>
+                      <div className={`h-full w-full ${isActive ? 'hs-fly' : ''}`}>
+                        <div className={`h-full w-full ${isActive ? 'hs-float' : ''}`}>
                         {renderImage(s.image, s.title, 'h-full w-full object-cover', near(i))}
+                        </div>
                       </div>
                     ) : null}
                     {s.video && !isActive && <PlayCircle className="absolute inset-0 m-auto w-14 h-14 text-white/80" />}
@@ -373,7 +382,7 @@ export const HeroSlider: React.FC<{
                     key={isActive ? `on-${s.key}` : s.key}
                     className="absolute inset-x-0 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:left-0 sm:right-auto sm:w-[38%] px-4 sm:pl-14 pb-8 sm:pb-0 text-white space-y-1.5 sm:space-y-3"
                   >
-                    <div className={`${isActive ? 'hs-up' : ''} flex flex-wrap items-center gap-1.5`}>
+                    <div className={`${isActive ? 'hs-pop' : ''} flex flex-wrap items-center gap-1.5`} style={{ animationDelay: '450ms' }}>
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/15 backdrop-blur border border-white/25 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider rounded-full">
                         {s.kind === 'FLASH' ? <Zap className="w-3 h-3 text-yellow-300" /> : s.kind === 'SALE' ? <Tag className="w-3 h-3" /> : s.kind === 'VIDEO' ? <PlayCircle className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
                         {s.badge}
@@ -384,13 +393,8 @@ export const HeroSlider: React.FC<{
                         </span>
                       ))}
                     </div>
-                    <h2
-                      className={`${isActive ? 'hs-up' : ''} text-[15px] sm:text-2xl lg:text-3xl font-display font-medium leading-snug line-clamp-1 sm:line-clamp-2 [text-shadow:0_2px_8px_rgba(0,0,0,0.5)]`}
-                      style={{ animationDelay: '80ms' }}
-                    >
-                      {s.title}
-                    </h2>
-                    <div className={`${isActive ? 'hs-up' : ''} flex flex-wrap items-center gap-x-2.5 gap-y-1`} style={{ animationDelay: '140ms' }}>
+                    {/* (no product name: the picture, price and offers speak for themselves) */}
+                    <div className={`${isActive ? 'hs-pop' : ''} flex flex-wrap items-center gap-x-2.5 gap-y-1`} style={{ animationDelay: '650ms' }}>
                       {s.price ? <span className="text-xl sm:text-3xl font-extrabold font-mono text-[#FDE68A]">{formatMoney(s.price)}</span> : null}
                       {off > 0 && (
                         <>
@@ -405,7 +409,7 @@ export const HeroSlider: React.FC<{
                         </span>
                       )}
                     </div>
-                    <div className={isActive ? 'hs-up' : ''} style={{ animationDelay: '200ms' }}>
+                    <div className={isActive ? 'hs-pop' : ''} style={{ animationDelay: '850ms' }}>
                       <span className="inline-flex items-center gap-1.5 px-4 sm:px-6 py-1.5 sm:py-3 bg-white text-[#141413] text-xs sm:text-sm font-bold rounded-full shadow-lg">
                         {s.cta} <ArrowRight className="w-4 h-4" />
                       </span>
