@@ -1490,33 +1490,7 @@ export const StorefrontView: React.FC = () => {
           {settings.announcementText ||
             `Free delivery on orders above PKR ${(settings.domesticFreeShippingThreshold || 10000).toLocaleString()} · Cash on Delivery available`}
         </span>
-        {/* Phones: the floating help button below already opens Help & Support */}
-        <div className="hidden sm:flex items-center gap-3 text-[11px] shrink-0">
-
-          <button
-            type="button"
-            onClick={() => {
-              setHelplineInitialTab('AI_CHAT');
-              setIsHelplineOpen(true);
-            }}
-            className="text-white/80 hover:text-white flex items-center gap-1 cursor-pointer"
-          >
-            <Headphones className="w-3 h-3 text-emerald-400" />
-            <span>Help &amp; Support</span>
-          </button>
-          <span className="text-white/30">|</span>
-          <button
-            type="button"
-            onClick={() => {
-              setHelplineInitialTab('WHATSAPP');
-              setIsHelplineOpen(true);
-            }}
-            className="text-emerald-300 hover:text-emerald-200 font-medium flex items-center gap-1 cursor-pointer"
-          >
-            <MessageCircle className="w-3 h-3 text-emerald-400" />
-            <span>WhatsApp: {settings.helplineWhatsAppFormatted || settings.helplineWhatsApp || 'Contact Support'}</span>
-          </button>
-        </div>
+        {/* (help is in one place only: the Helpline button next to the bag) */}
       </div>
 
       {/* Top Bar Contract: Zone 1 Brand Wordmark | Zone 2 Dropdown Nav Links | Zone 3 Actions */}
@@ -1572,19 +1546,6 @@ export const StorefrontView: React.FC = () => {
           {/* Primary actions */}
           <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
             <button
-              type="button"
-              onClick={() => {
-                setHelplineInitialTab('AI_CHAT');
-                setIsHelplineOpen(true);
-              }}
-              className="hidden sm:flex px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-full text-xs font-semibold items-center gap-1.5 transition-colors cursor-pointer"
-              title="Helpline (AI Chat, WhatsApp, Email)"
-            >
-              <Headphones className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-              <span className="hidden xl:inline">Helpline</span>
-            </button>
-
-            <button
               onClick={() => setSubView('WISHLIST')}
               aria-label="Wishlist"
               className="p-2 text-[#575653] hover:text-[#141413] transition-colors relative cursor-pointer hidden sm:flex items-center"
@@ -1601,6 +1562,22 @@ export const StorefrontView: React.FC = () => {
             </span>
 
             <CustomerNotificationsBell onOpenOrder={openOrderTracking} />
+
+            {/* The one place for help in the whole store: AI chat, WhatsApp, e-mail and phone, next to the bag */}
+            <button
+              type="button"
+              onClick={() => {
+                setHelplineInitialTab('AI_CHAT');
+                setIsHelplineOpen(true);
+              }}
+              className="relative px-2 max-[360px]:px-1.5 sm:px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+              title="Helpline: AI chat, WhatsApp, e-mail"
+              aria-label="Helpline and WhatsApp"
+            >
+              <Headphones className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Help</span>
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-300 animate-ping" aria-hidden="true" />
+            </button>
 
             <button
               onClick={() => setCartDrawerOpen(true)}
@@ -1790,20 +1767,6 @@ export const StorefrontView: React.FC = () => {
                 <span>Show prices in</span>
                 <CurrencySelector />
               </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setHelplineInitialTab('AI_CHAT');
-                  setIsHelplineOpen(true);
-                }}
-                className="w-full text-left py-2 px-3 rounded hover:bg-neutral-50 text-sm font-semibold text-neutral-800 flex items-center justify-between"
-              >
-                {/* One entry for all help: AI chat, WhatsApp, e-mail (the Contact Us page stays in the footer) */}
-                <span>Helpline &amp; WhatsApp</span>
-                <Headphones className="w-4 h-4 text-emerald-600" />
-              </button>
 
               {navSections.map((section) => {
                 const isExpanded = mobileExpandedSection === section.id;
@@ -5437,18 +5400,6 @@ export const StorefrontView: React.FC = () => {
             <p className="text-white/60 leading-relaxed">
               Quality curated products, nationwide expedited delivery, and dedicated customer support. Operated with precision and care.
             </p>
-            {/* Click-to-Chat WhatsApp Badge */}
-            <div className="pt-1">
-              <a
-                href={`https://wa.me/${(settings.whatsappNumber || settings.helplineWhatsApp || '923001234567').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Assalam-o-Alaikum! I have an inquiry for ${settings.storeName || 'your store'}.`)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded transition-colors shadow-xs"
-              >
-                <MessageCircle className="w-4 h-4 fill-white text-emerald-600" />
-                <span>WhatsApp: {settings.helplineWhatsAppFormatted || settings.whatsappNumber || '+92 300 1234567'}</span>
-              </a>
-            </div>
           </div>
 
           {/* Col 2: Customer Policies & Legal */}
@@ -5560,17 +5511,6 @@ export const StorefrontView: React.FC = () => {
               Client Support &amp; Couriers
             </div>
             <ul className="space-y-2 text-white/60">
-              <li>
-                <a
-                  href={`https://wa.me/${(settings.whatsappNumber || settings.helplineWhatsApp || '923001234567').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Assalam-o-Alaikum! I need help with my order on ${settings.storeName || 'the store'}.`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-emerald-400 flex items-center gap-1.5 transition-colors"
-                >
-                  <MessageCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>WhatsApp: {settings.helplineWhatsAppFormatted || settings.whatsappNumber || '+92 300 1234567'}</span>
-                </a>
-              </li>
               <li>
                 <a
                   href={`mailto:${settings.helplineEmail || settings.contactEmail || 'support@store.com'}`}
@@ -5865,42 +5805,7 @@ export const StorefrontView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* 8. FLOATING 24/7 HELPLINE & CLIENT CONCIERGE WIDGET */}
-      {/* Quick access to AI Chat, WhatsApp direct chat, and Email Tickets */}
-      {/* ========================================================================= */}
-      <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center gap-2">
-        {/* Direct WhatsApp Instant Chat Launch Pill */}
-        <a
-          href={`https://wa.me/${settings.helplineWhatsApp || ''}?text=${encodeURIComponent(
-            'Assalam o Alaikum, I need assistance regarding an inquiry.'
-          )}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={`Direct WhatsApp (${settings.helplineWhatsAppFormatted || 'Helpline'})`}
-          className="w-11 h-11 rounded-full bg-emerald-700 hover:bg-emerald-600 text-white flex items-center justify-center shadow-lg border border-emerald-500/40 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
-        >
-          <MessageCircle className="w-5 h-5" />
-        </a>
-
-        {/* 24/7 Helpline & AI Concierge Pill */}
-        <button
-          type="button"
-          onClick={() => {
-            setHelplineInitialTab('AI_CHAT');
-            setIsHelplineOpen(true);
-          }}
-          aria-label="24/7 Helpline & AI"
-          className="w-11 h-11 sm:w-auto sm:h-auto justify-center sm:px-4 sm:py-2.5 rounded-full bg-[#141413] hover:bg-[#2A2A28] text-[#FBFBF9] shadow-xl border border-white/20 flex items-center gap-2.5 transition-transform hover:scale-105 active:scale-95 cursor-pointer text-xs font-medium"
-        >
-          <div className="relative flex items-center justify-center">
-            <Headphones className="w-5 h-5 sm:w-4 sm:h-4 text-emerald-400" />
-            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-          </div>
-          {/* Phones: icon only, so it does not cover the page */}
-          <span className="hidden sm:inline font-semibold tracking-wide">24/7 Helpline & AI</span>
-        </button>
-      </div>
+      {/* (no floating help buttons: help is only the Helpline button next to the bag at the top) */}
 
       {/* "The seller answered your question" notice (questions asked from this phone) */}
       <QuestionAnswerNotifier />
