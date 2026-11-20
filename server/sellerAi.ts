@@ -42,7 +42,10 @@ export interface SellerAiDeps {
   setCoachViewedHook: (fn: (uid: string, seller: any) => void) => void;
 }
 
-const MODEL = 'gemini-3.8-flash';
+// Light, fast models: they call the shop tools correctly in about a second, while the big model was
+// often busy and took 30-90 seconds (or gave no answer); if one is busy the key pool tries the other
+// light models first (server/aiFallback.ts)
+const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 const PER_MINUTE = 8;
 const PER_DAY = 150;

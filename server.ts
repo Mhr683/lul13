@@ -1996,7 +1996,7 @@ app.post('/api/ai/generate-product-content', requireAdminOrSeller, async (req, r
     const ai = getGenAIClient((req as any).user?.uid);
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.5-flash-lite',
       contents: `Generate complete e-commerce product content, bullet highlights, FAQ, social caption, ad copy, tags, and SEO metadata for:
 Product Name: ${name}
 Category: ${category || 'General'}
@@ -2076,7 +2076,7 @@ app.post('/api/ai/enrich-csv-rows', requireAdminOrSeller, async (req, res) => {
     if ((req as any).asSeller && !takeSellerAi((req as any).user.uid).granted) return res.status(403).json(AI_KEY_NEEDED);
     const ai = getGenAIClient((req as any).user?.uid);
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.5-flash-lite',
       contents: `Enrich these imported e-commerce product rows with missing shortDescription, description, seoTitle, seoDescription, and seoKeywords in a ${tone} tone. Keep existing valid fields intact:\n${JSON.stringify(rows.slice(0, 25))}`,
       config: {
         responseMimeType: 'application/json',
@@ -4682,7 +4682,7 @@ registerOrderChatRoutes(app, {
     } catch {
       return null;
     }
-    for (const model of ['gemini-3.8-flash', 'gemini-3.1-flash-lite']) {
+    for (const model of ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']) {
       try {
         const r = await ai.models.generateContent({ model, contents, config: { systemInstruction: system, temperature: 0.4, maxOutputTokens: 300 } });
         if (r.text) return r.text.trim();
