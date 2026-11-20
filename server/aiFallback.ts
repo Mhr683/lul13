@@ -73,7 +73,10 @@ export function withKeyPool(clients: Array<{ key: string; client: GoogleGenAI }>
   const calls = clients.map((c) => ({ key: c.key, call: c.client.models.generateContent.bind(c.client.models) }));
   (primary.models as any).generateContent = async (params: any) => {
     const asked = String(params?.model || CHAIN[0]);
-    const models = [asked, ...CHAIN.filter((m) => m !== asked)];
+    // A light (fast) model was asked for: when it is busy the other light models come first, so a quick
+    // answer (helpline chat) does not end up waiting on a big slow model
+    const rest = CHAIN.filter((m) => m !== asked);
+    const models = /lite/.test(asked) ? [asked, ...rest.filter((m) => /lite/.test(m)), ...rest.filter((m) => !/lite/.test(m))] : [asked, ...rest];
     const now = Date.now();
     const resting = (c: { key: string }) =>
       (keyRestUntil.get(tail(c.key)) || 0) > now || (modelRestUntil.get(restId(tail(c.key), asked)) || 0) > now;

@@ -40,7 +40,7 @@ import { offlineSupportReply, offlineProductContent } from './server/offlineAnsw
 import { createOrderQueue } from './server/orderQueue';
 import { adminStepUpRequired, hasStepUp, registerStepUpRoutes } from './server/stepUp';
 import { createCatalogStore } from './server/catalogStore';
-import { searchProducts, productFacts, readIntent, plainIntent, speakFemale, transcribeVoice, findWhatsAppNumber, waLink, detectLanguage, closingLines, languageName, type HelplineProduct, type ReplyLanguage } from './server/helplineProducts';
+import { searchProducts, productFacts, plainIntent, speakFemale, transcribeVoice, findWhatsAppNumber, waLink, detectLanguage, closingLines, languageName, INTENT_JSON_FIELDS, intentFromJson, parseJsonReply, type HelplineProduct, type ReplyLanguage, type ProductIntent } from './server/helplineProducts';
 import { registerSellerInboxRoutes } from './server/sellerInbox';
 import { registerFeedbackRoutes } from './server/feedback';
 import { registerOrderChatRoutes } from './server/orderChat';
@@ -6051,40 +6051,25 @@ async function generateSupportReply(params: {
     console.warn('[Helpline AI] not available:', err?.message || err);
   }
 
-  // Products the customer asks about: best matches from 2-3 different sellers (catalog copy, no reads)
+  // Speed: one AI call reads the message and, when no product search is needed (payment, delivery, the
+  // store, a complaint), writes the answer too. Only product questions take a second call, with the
+  // products found in the catalog copy (no reads).
   let products: HelplineProduct[] = [];
-  let all: any[] = [];
+  const all: any[] = catalogStore.ready ? catalogStore.publicProducts() : [];
   let lang: ReplyLanguage = detectLanguage(message);
-  let needsPerson = false;
-  let personReason = '';
   const recent = history.filter((m) => m.role === 'customer').map((m) => m.text);
-  // The customer's own order (order number + phone given in this chat), checked while the question is read
-  const orderFactsP =
+  // The customer's own order (order number + phone given in this chat)
+  const orderFacts =
     channel === 'WEBSITE'
-      ? helplineOrderFacts([...recent.slice(-5), orderNumber || '', message], params.clientIp || 'local').catch((err) => {
+      ? await helplineOrderFacts([...recent.slice(-5), orderNumber || '', message], params.clientIp || 'local').catch((err) => {
           console.warn('[Helpline AI] order lookup failed:', err?.message || err);
           return 'The order could not be checked right now. Ask the customer to use "Track order" on the website or try again in a few minutes.';
         })
-      : Promise.resolve('');
-  try {
-    if (catalogStore.ready) {
-      all = catalogStore.publicProducts();
-      const intent = (ai ? await readIntent(ai, message, recent) : null) || plainIntent(message);
-      lang = intent.language;
-      needsPerson = intent.needsPerson;
-      personReason = intent.personReason;
-      if (intent.wantsProducts) products = searchProducts(all, intent, storeUrl, 3);
-    }
-  } catch (err: any) {
-    console.warn('[Helpline AI] product search failed:', err?.message || err);
-  }
-  const orderFacts = await orderFactsP;
-  // What the store sells right now (live, in-stock products by category) and how many shops sell here,
-  // so "what do you sell?" gets a true answer (from the catalog copy, no reads)
+      : '';
+  // What the store sells right now (live, in-stock products by category), so "what do you sell?" gets a
+  // true answer
   const storeOverview = (() => {
-    const list = (all.length ? all : catalogStore.ready ? catalogStore.publicProducts() : []).filter(
-      (p: any) => p.status === 'ACTIVE' && Number(p.stock) > 0
-    );
+    const list = all.filter((p: any) => p.status === 'ACTIVE' && Number(p.stock) > 0);
     if (!list.length) return '';
     const byCat = new Map<string, number>();
     for (const p of list) byCat.set(String(p.category || 'Other'), (byCat.get(String(p.category || 'Other')) || 0) + 1);
@@ -6103,60 +6088,67 @@ async function generateSupportReply(params: {
     if (/^03\d{9}$/.test(d)) return `${d.slice(0, 4)} ${d.slice(4)}`;
     return `+${d}`;
   })();
-
-  // A person is needed: the customer is sent to the store's WhatsApp, or leaves their own number
-  const esc = params.escalation || { already: false, wantsHuman: false };
-  // (a chat that already needs a person only takes the customer's number; a later product question is
-  // answered normally)
-  const givenNumber = needsPerson || esc.wantsHuman || esc.already ? findWhatsAppNumber(message) : null;
-  const personNeeded = needsPerson || esc.wantsHuman || Boolean(givenNumber);
-  if (personNeeded && !personReason) personReason = esc.wantsHuman ? 'asked for a person' : givenNumber ? 'left WhatsApp number' : '';
-  const knownNumber = givenNumber?.display || esc.savedNumber || '';
-  const helplineDigits = String(store.helplineWhatsApp || '').replace(/\D/g, '');
-  const whatsappUrl =
-    personNeeded && helplineDigits
-      ? waLink(helplineDigits, `Assalam o Alaikum, ${esc.ticketNumber ? `ticket ${esc.ticketNumber}: ` : ''}`)
-      : undefined;
-  const escalationBlock = !personNeeded
-    ? ''
-    : knownNumber
-    ? `
-A person from our team will help this customer on WhatsApp. ${givenNumber ? `The customer just gave their WhatsApp number ${knownNumber}; it has been sent to our team.` : `Their WhatsApp number ${knownNumber} is already with our team.`} In the customer's language: thank them and say our team will message them on WhatsApp within 24 hours${whatsapp ? `; they can also send more details, photos or a voice message on our WhatsApp helpline ${whatsapp}` : ''}. Do not promise refunds or anything else.`
-    : `
-A person from our team must handle this (${personReason || 'customer needs help'}). Our team helps on WhatsApp and replies within 24 hours. In the customer's language, briefly and kindly:
-1) acknowledge the problem (say sorry if something went wrong),
-2) ${whatsapp ? `they can send their problem with full details, photos or a voice message on our WhatsApp helpline ${whatsapp} (a button to open it is shown under your answer); our team will reply within 24 hours,` : 'our team will reply within 24 hours,'}
-3) or they can write their WhatsApp number here and our team will contact them as soon as possible.
-Do not promise refunds, replacements or dates.`;
   const email = store.supportEmail || store.helplineEmail || store.contactEmail || '';
   const bankDetails = store.bankName
     ? `${store.bankName} (Title: ${store.bankAccountTitle || storeName}, A/C: ${store.bankAccountNumber || store.bankIban || ''})`
     : '';
   const raastDetails = store.raastIban ? `Raast ID/IBAN: ${store.raastIban} (Title: ${store.raastAccountTitle || storeName})` : '';
-  const nayapayDetails = store.nayapayNumber
-    ? `NayaPay: ${store.nayapayNumber} (Title: ${store.nayapayAccountTitle || storeName})`
-    : '';
+  const nayapayDetails = store.nayapayNumber ? `NayaPay: ${store.nayapayNumber} (Title: ${store.nayapayAccountTitle || storeName})` : '';
+  // The store's own return / refund and delivery policies (what the customer sees on the policy pages), so
+  // "what is your return policy?" is answered from them instead of being sent to a person
+  const policyText = (s: unknown, max: number) =>
+    String(s || '')
+      .replace(/^#+\s*/gm, '')
+      .replace(/[*_`>]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max);
+  const policyFacts = [
+    policyText(store.refundPolicy, 1400) && `- Return & refund policy (the store's own text, summarise the parts asked about): ${policyText(store.refundPolicy, 1400)}`,
+    policyText(store.shippingPolicy, 900) && `- Delivery policy (the store's own text): ${policyText(store.shippingPolicy, 900)}`,
+    !policyText(store.refundPolicy, 10) && '- Returns: the store has easy returns; the full policy is on the "Refund & Return Policy" page of the website.',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
-  const productBlock = products.length
-    ? `
+  // Human help goes through WhatsApp (within 24 hours), or the customer leaves their own number
+  const esc = params.escalation || { already: false, wantsHuman: false };
+  const helplineDigits = String(store.helplineWhatsApp || '').replace(/\D/g, '');
+  const whatsappStep = whatsapp
+    ? `they can send their problem with full details, photos or a voice message on our WhatsApp helpline ${whatsapp} (a button to open it is shown under your answer); our team will reply within 24 hours,`
+    : 'our team will reply within 24 hours,';
+  const escalationFor = (personReason: string, givenNumber: string, knownNumber: string) =>
+    knownNumber
+      ? `
+A person from our team will help this customer on WhatsApp. ${givenNumber ? `The customer just gave their WhatsApp number ${knownNumber}; it has been sent to our team.` : `Their WhatsApp number ${knownNumber} is already with our team.`} In the customer's language: thank them and say our team will message them on WhatsApp within 24 hours${whatsapp ? `; they can also send more details, photos or a voice message on our WhatsApp helpline ${whatsapp}` : ''}. Do not promise refunds or anything else.`
+      : `
+A person from our team must handle this (${personReason || 'customer needs help'}). Our team helps on WhatsApp and replies within 24 hours. In the customer's language, briefly and kindly:
+1) acknowledge the problem (say sorry if something went wrong),
+2) ${whatsappStep}
+3) or they can write their WhatsApp number here and our team will contact them as soon as possible.
+Do not promise refunds, replacements or dates.`;
+
+  const productBlockFor = (list: HelplineProduct[]) =>
+    list.length
+      ? `
 Products from this store that match the customer's question (the ONLY products you may talk about; use exactly these names, prices and details, never invent others):
-${productFacts(products, all)}
+${productFacts(list, all)}
 ${
   channel === 'FORM'
-    ? `Links to write after each product: ${products.map((p, i) => `${i + 1}. ${p.url}`).join(' ')}`
+    ? `Links to write after each product: ${list.map((p, i) => `${i + 1}. ${p.url}`).join(' ')}`
     : 'The chat shows each of these products as a card with its picture, price and a link, right under your answer, so do not write the product links yourself.'
 }
 Do not write any closing line about visiting the website or showing more products: the store adds it after your answer.`
-    : `
+      : `
 No matching product was found in the store for this message. If the customer asked about a product, say politely that you could not find it right now and invite them to search on the store: ${storeUrl}. Never invent a product, price or detail.`;
 
-  const systemPrompt = `You are the customer support assistant of "${storeName}", an online store in Pakistan (prices in PKR). You are a young woman: when you speak about yourself ("main" / "I") in Urdu or Roman Urdu use feminine forms ("main madad kar sakti hoon", "main dekhti hoon", "maazrat chahti hoon"). When you speak for the store ("hum" / "we") use the normal plural ("hum dete hain", "hum qabool karte hain"). You do not know if the customer is a man or a woman: always address them as "aap" with the plural forms ("aap bata sakte hain", "aap dekh sakte hain", "aap check kar lein"), never "sakti hain" / "karti hain" for the customer.
+  const promptFor = (o: { languageLine: string; productBlock: string; escalation: string }) => `You are the customer support assistant of "${storeName}", an online store in Pakistan (prices in PKR). You are a young woman: when you speak about yourself ("main" / "I") in Urdu or Roman Urdu use feminine forms ("main madad kar sakti hoon", "main dekhti hoon", "maazrat chahti hoon"). When you speak for the store ("hum" / "we") use the normal plural ("hum dete hain", "hum qabool karte hain"). You do not know if the customer is a man or a woman: always address them as "aap" with the plural forms ("aap bata sakte hain", "aap dekh sakte hain", "aap check kar lein"), never "sakti hain" / "karti hain" for the customer.
 You are replying on ${channel === 'FORM' ? 'an email ticket' : 'the website helpline chat'}.
 
-Language: the customer wrote in ${languageName(lang)}. Write your WHOLE answer only in ${languageName(lang)}, including words like price and details (product names may stay as they are). Customers often make spelling mistakes or mix languages: understand what they mean and answer that. Be warm, polite, short and clear.
+${o.languageLine} Customers often make spelling mistakes or mix languages: understand what they mean and answer that. Be warm, polite, short and clear. Plain text: no ** or # marks.
 
 Product questions: answer only from the product list below. Give each product's name, price (and the old price if there is one) and the details the customer asked about (fabric, size, colour, what is included, ...), in a few short lines.
-${productBlock}
+${o.productBlock}
 
 About the store: ${storeName} is an online marketplace in Pakistan. Many sellers (shops) sell their products on it, and customers buy them through ${storeName} with its delivery, payment (Cash on Delivery) and return policies. Anyone with products can open a free shop and sell on ${storeName} through Seller Center (${SELLER_CENTER_URL}). Never say that only ${storeName} sells or that others are not allowed to sell.
 When asked what kinds of products the store sells, name the main categories below (with a few examples) and invite them to ask for any item.
@@ -6171,62 +6163,113 @@ ${raastDetails ? `- ${raastDetails}` : ''}
 ${nayapayDetails ? `- ${nayapayDetails}` : ''}
 - Delivery: ${store.deliveryPromiseText || 'by courier across Pakistan; the tracking number is shared once the parcel is dispatched'}.
 - Order tracking: the customer can open "Track an order" on the website and enter the order number and phone number.
+${policyFacts}
 ${whatsapp ? `- WhatsApp: ${whatsapp}` : ''}
 ${email ? `- Email: ${email}` : ''}
 
 Rules:
 ${
-    orderFacts
-      ? `- The customer's order (from the store's records):\n${orderFacts}`
-      : `- You can check a customer's order only when they give the order number (like ORD-123456) AND the phone number used for that order. If they ask about their order, ask for both. Never guess an order's status, delivery date or refund.`
-  }
+  orderFacts
+    ? `- The customer's order (from the store's records):\n${orderFacts}`
+    : `- You can check a customer's order only when they give the order number (like ORD-123456) AND the phone number used for that order. If they ask about their order, ask for both. Never guess an order's status, delivery date or refund.`
+}
 - Never guess a price that is not in the product list.
 - Never promise refunds, discounts, warranties or delivery dates. Never ask for card numbers, PINs, OTPs or passwords.
 - If the customer is angry, has a complaint, a damaged/wrong item, or asks for a person: our team helps on WhatsApp within 24 hours (see below).
-${escalationBlock}`;
+${o.escalation}`;
 
-  const contents: any[] = history.slice(-10).map((m) => ({
-    role: m.role === 'customer' ? 'user' : 'model',
-    parts: [{ text: m.text }],
-  }));
+  const contents: any[] = history.slice(-10).map((m) => ({ role: m.role === 'customer' ? 'user' : 'model', parts: [{ text: m.text }] }));
   contents.push({ role: 'user', parts: [{ text: message }] });
+  const clean = (s: string) => s.replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '').trim();
 
-  // Without the AI (no key, quota used up, service down) the store's own answers are used
-  // The light model answers in a few seconds (the bigger one sometimes took a minute); if it is busy the
-  // pool moves on to the other models by itself
-  for (const modelName of ai ? ['gemini-3.1-flash-lite'] : []) {
+  // ---- call 1: read the message, and answer it when no products need to be looked up
+  let intent: ProductIntent | null = null;
+  let firstAnswer = '';
+  if (ai) {
+    const knownBefore = esc.savedNumber || '';
+    const firstEscalation =
+      esc.already || esc.wantsHuman
+        ? escalationFor(esc.wantsHuman ? 'asked for a person' : '', '', knownBefore) +
+          (knownBefore ? '' : '\nIf this message itself contains their phone number, thank them instead and say our team will message them on WhatsApp within 24 hours.')
+        : `
+Only if a person from our team is needed (needsPerson below is true): our team helps on WhatsApp and replies within 24 hours. Then the answer must, briefly and kindly: 1) acknowledge the problem (say sorry if something went wrong), 2) ${whatsappStep} 3) or they can write their WhatsApp number here and our team will contact them as soon as possible. If the message itself contains their phone number, thank them instead and say our team will message them on WhatsApp within 24 hours. Do not promise refunds, replacements or dates.`;
+    const firstPrompt =
+      promptFor({
+        languageLine: `Language: reply in the SAME language and script the customer used in their last message (English, Urdu script or Roman Urdu); the whole answer in that language. (Their last message looks like ${languageName(detectLanguage(message))}.)`,
+        productBlock: `
+(No product list yet: if the customer asks about a specific product, set "wantsProducts" to true and leave "answer" empty; the store looks the products up.)`,
+        escalation: firstEscalation,
+      }) +
+      `
+
+Read the customer's last message and return JSON only:
+${INTENT_JSON_FIELDS.replace(/\}\s*$/, '')},
+ "answer": if wantsProducts is false: your complete answer to the customer following everything above, written entirely in the language you put in "language" ("en" = English, "roman" = Roman Urdu, "ur" = Urdu script); if wantsProducts is true: ""}`;
     try {
-      const response = await ai!.models.generateContent({
-        model: modelName,
+      const r: any = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
         contents,
-        config: { systemInstruction: systemPrompt, temperature: 0.5, httpOptions: { timeout: 20_000 } } as any,
+        config: { systemInstruction: firstPrompt, responseMimeType: 'application/json', temperature: 0.4, httpOptions: { timeout: 20_000 } } as any,
       });
-      // The chat shows plain text: no **bold** marks
-      const said = response.text?.replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '').trim();
-      if (said)
-        return {
-          text: products.length ? `${said}\n\n${closingLines(lang, storeUrl)}` : said,
-          products,
-          needsPerson: personNeeded,
-          personReason,
-          ...(givenNumber ? { contactNumber: givenNumber } : {}),
-          ...(whatsappUrl ? { whatsappUrl } : {}),
-        };
+      const j = parseJsonReply(r.text);
+      intent = intentFromJson(j, message);
+      firstAnswer = intent.wantsProducts ? '' : clean(String(j.answer || ''));
     } catch (err: any) {
-      console.warn(`[Helpline AI] ${modelName} failed:`, err?.message || err);
+      console.warn('[Helpline AI] first call failed:', err?.message || err);
     }
   }
-  const offline = offlineSupportReply(message, store, orderNumber);
-  return {
-    text: products.length
-      ? `${offline}\n\nProducts from our store that may match:\n${products.map((p) => `• ${p.name}: Rs ${p.price.toLocaleString('en-PK')}${channel === 'FORM' ? ` ${p.url}` : ''}`).join('\n')}\n\n${closingLines(lang, storeUrl)}`
-      : offline,
+  if (!intent) intent = plainIntent(message);
+  lang = intent.language;
+  if (intent.wantsProducts && all.length) products = searchProducts(all, intent, storeUrl, 3);
+
+  // WhatsApp hand-over (a chat that already needs a person only takes the customer's number; a later
+  // product question is answered normally)
+  const givenNumber = intent.needsPerson || esc.wantsHuman || esc.already ? findWhatsAppNumber(message) : null;
+  const personNeeded = intent.needsPerson || esc.wantsHuman || Boolean(givenNumber);
+  let personReason = intent.personReason;
+  if (personNeeded && !personReason) personReason = esc.wantsHuman ? 'asked for a person' : givenNumber ? 'left WhatsApp number' : '';
+  const knownNumber = givenNumber?.display || esc.savedNumber || '';
+  const whatsappUrl =
+    personNeeded && helplineDigits ? waLink(helplineDigits, `Assalam o Alaikum, ${esc.ticketNumber ? `ticket ${esc.ticketNumber}: ` : ''}`) : undefined;
+  const result = (text: string) => ({
+    text: products.length ? `${text}\n\n${closingLines(lang, storeUrl)}` : text,
     products,
     needsPerson: personNeeded,
     personReason,
     ...(givenNumber ? { contactNumber: givenNumber } : {}),
     ...(whatsappUrl ? { whatsappUrl } : {}),
-  };
+  });
+  if (firstAnswer) return result(firstAnswer);
+
+  // ---- call 2 (product questions, or when call 1 gave no answer): answer with the products found
+  if (ai) {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
+        contents,
+        config: {
+          systemInstruction: promptFor({
+            languageLine: `Language: the customer wrote in ${languageName(lang)}. Write your WHOLE answer only in ${languageName(lang)}, including words like price and details (product names may stay as they are).`,
+            productBlock: productBlockFor(products),
+            escalation: personNeeded ? escalationFor(personReason, givenNumber?.display || '', knownNumber) : '',
+          }),
+          temperature: 0.5,
+          httpOptions: { timeout: 20_000 },
+        } as any,
+      });
+      const said = clean(response.text || '');
+      if (said) return result(said);
+    } catch (err: any) {
+      console.warn('[Helpline AI] answer failed:', err?.message || err);
+    }
+  }
+  // Without the AI (no key, limit used up, service down) the store's own answers are used
+  const offline = offlineSupportReply(message, store, orderNumber);
+  return result(
+    products.length
+      ? `${offline}\n\nProducts from our store that may match:\n${products.map((p) => `• ${p.name}: Rs ${p.price.toLocaleString('en-PK')}${channel === 'FORM' ? ` ${p.url}` : ''}`).join('\n')}`
+      : offline
+  );
 }
 
 function trimThread(messages: ThreadMessage[]): ThreadMessage[] {

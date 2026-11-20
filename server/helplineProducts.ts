@@ -214,6 +214,33 @@ export function productFacts(list: HelplineProduct[], all: any[]): string {
     .join('\n');
 }
 
+// The fields the AI fills in when it reads a customer's message (shared by the reading call and the
+// one-call answer for questions that need no product search)
+export const INTENT_JSON_FIELDS = `{"wantsProducts": true if they ask about a specific kind of product / item / price / availability / details or want to buy or see something specific; false for general questions about the store (what kinds of products do you sell, how many products, can I sell here) and for questions about payment, delivery or orders,
+ "keywords": product words for a store search, corrected spelling, in BOTH English and the Roman Urdu / common Pakistani name (e.g. "khaddar","suit","men"; "joote" -> "shoes","joota"), at most 8, no colours unless asked, empty if none,
+ "item": the one kind of product asked for, as a shop would name it in English, with the material / type the customer named but without colour, gender, size or price (e.g. "suit", "khaddar suit", "leather handbag", "shoes", "shawl", "hair dryer", "headphones"), or "" if none / general,
+ "minPrice": number or 0, "maxPrice": number or 0 (e.g. "2000 tak" -> 2000),
+ "language": "ur" if written in Urdu script, "roman" if Urdu/Hindi written in English letters (Roman Urdu), "en" if English,
+ "needsPerson": true only if a person from the store must handle it: a complaint, damaged / wrong / missing item, they want their money back or want to return / exchange an item THEY received, payment problem, very late order, angry or upset customer, or they ask for a person / call; false for normal questions (products, prices, COD, delivery time, how to track, what the return / refund / delivery POLICY is, what the store sells, how to become a seller / sell on the store),
+ "personReason": if needsPerson, a 3-6 word English reason (e.g. "damaged item complaint", "refund request"), else ""}`;
+
+/** Turns the AI's JSON into a clean intent */
+export function intentFromJson(j: any, message: string): ProductIntent {
+  return {
+    wantsProducts: Boolean(j?.wantsProducts),
+    keywords: (Array.isArray(j?.keywords) ? j.keywords : []).map((k: any) => String(k).slice(0, 40)).slice(0, 8),
+    item: String(j?.item || '').slice(0, 40),
+    minPrice: Math.max(0, Number(j?.minPrice) || 0),
+    maxPrice: Math.max(0, Number(j?.maxPrice) || 0),
+    // Urdu letters are certain; otherwise the AI's reading of English vs Roman Urdu
+    language: /[؀-ۿ]/.test(message) ? 'ur' : j?.language === 'roman' || j?.language === 'en' ? j.language : detectLanguage(message),
+    needsPerson: Boolean(j?.needsPerson),
+    personReason: j?.needsPerson ? String(j?.personReason || 'customer needs help').slice(0, 60) : '',
+  };
+}
+
+export const parseJsonReply = (text: string) => JSON.parse(String(text || '{}').replace(/^\s*```(json)?|```\s*$/g, ''));
+
 // Reads what the customer is looking for (English, Urdu, Roman Urdu, with spelling mistakes)
 export async function readIntent(ai: any, message: string, history: string[]): Promise<ProductIntent | null> {
   const prompt = `A customer wrote this in an online store's help chat (Pakistan). They may write English, Urdu script or Roman Urdu, with spelling mistakes.
@@ -221,31 +248,14 @@ Earlier messages (for context): ${history.slice(-4).join(' | ').slice(0, 800) ||
 Message: "${message.slice(0, 600)}"
 
 Return JSON only:
-{"wantsProducts": true if they ask about a specific kind of product / item / price / availability / details or want to buy or see something specific; false for general questions about the store (what kinds of products do you sell, how many products, can I sell here) and for questions about payment, delivery or orders,
- "keywords": product words for a store search, corrected spelling, in BOTH English and the Roman Urdu / common Pakistani name (e.g. "khaddar","suit","men"; "joote" -> "shoes","joota"), at most 8, no colours unless asked, empty if none,
- "item": the one kind of product asked for, as a shop would name it in English, with the material / type the customer named but without colour, gender, size or price (e.g. "suit", "khaddar suit", "leather handbag", "shoes", "shawl", "hair dryer", "headphones"), or "" if none / general,
- "minPrice": number or 0, "maxPrice": number or 0 (e.g. "2000 tak" -> 2000),
- "language": "ur" if written in Urdu script, "roman" if Urdu/Hindi written in English letters (Roman Urdu), "en" if English,
- "needsPerson": true only if a person from the store must handle it: a complaint, damaged / wrong / missing item, refund or money back, return or exchange request for their order, payment problem, very late order, angry or upset customer, or they ask for a person / call; false for normal questions (products, prices, COD, delivery time, how to track, what the store sells, how to become a seller / sell on the store),
- "personReason": if needsPerson, a 3-6 word English reason (e.g. "damaged item complaint", "refund request"), else ""}`;
+${INTENT_JSON_FIELDS}`;
   try {
     const r: any = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: { responseMimeType: 'application/json', temperature: 0, httpOptions: { timeout: 20_000 } },
     });
-    const j = JSON.parse(String(r.text || '{}').replace(/^```(json)?|```$/g, ''));
-    return {
-      wantsProducts: Boolean(j.wantsProducts),
-      keywords: (Array.isArray(j.keywords) ? j.keywords : []).map((k: any) => String(k).slice(0, 40)).slice(0, 8),
-      item: String(j.item || '').slice(0, 40),
-      minPrice: Math.max(0, Number(j.minPrice) || 0),
-      maxPrice: Math.max(0, Number(j.maxPrice) || 0),
-      // Urdu letters are certain; otherwise the AI's reading of English vs Roman Urdu
-      language: /[؀-ۿ]/.test(message) ? 'ur' : j.language === 'roman' || j.language === 'en' ? j.language : detectLanguage(message),
-      needsPerson: Boolean(j.needsPerson),
-      personReason: j.needsPerson ? String(j.personReason || 'customer needs help').slice(0, 60) : '',
-    };
+    return intentFromJson(parseJsonReply(r.text), message);
   } catch {
     return null;
   }
