@@ -66,7 +66,7 @@ export interface MarketplaceDeps {
 const SELLER_ORDER_STATUSES = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
 const CLOSED_STATUSES = ['CANCELLED', 'RETURNED', 'REFUNDED', 'QUOTE_REJECTED', 'QUOTE_EXPIRED'];
 const SHIPPED_OR_LATER = ['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'];
-const MAX_PRODUCT_IMAGES = 8;
+const MAX_PRODUCT_IMAGES = 9;
 
 const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
 const money = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
@@ -691,7 +691,7 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
     const name = str(b.name, 190);
     const price = money(b.price);
     const category = str(b.category, 75);
-    // Up to 8 pictures (the first is the main one) and one optional video
+    // Up to 9 pictures (the first is the main one) and one optional video
     const mediaOk = (u: string) => /^https:\/\//i.test(u) || /^\/media\/[a-zA-Z0-9_.-]+$/.test(u);
     // Links are optional: http:// is upgraded to https://, anything that is not a usable link is left out
     const mediaLink = (v: unknown) => {

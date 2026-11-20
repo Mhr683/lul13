@@ -135,7 +135,7 @@ export interface Product {
   seoDescription?: string;
   seoKeywords?: string;
   primaryImage?: string;
-  /** All pictures (up to 8, the first is primaryImage) */
+  /** All pictures (up to 9, the first is primaryImage) */
   images?: string[];
   /** Optional product video (uploaded file or https link, e.g. YouTube) */
   videoUrl?: string;

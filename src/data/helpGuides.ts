@@ -262,12 +262,34 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
   'seller.product.media': {
     title: 'Tasveerein aur video',
     steps: [
-      'Tasveer upload karein (zyada se zyada 5 MB). Pehli tasveer "MAIN" hoti hai: wahi list mein dikhti hai.',
+      'Tasveer upload karein (9 tak). Pehli tasveer (1, hari) main hoti hai: wahi list mein dikhti hai.',
+      'Har khaali khane par likha hai wahan kaunsi tasveer aaye (main, features, benefits, size...). Poori tafseel tasveeron ke "?" mein.',
       'Ya tasveer ka link paste karke "Add link" dabayein.',
       'Video (optional): "Upload video" (50 MB tak) ya YouTube link paste karein.',
-      'Ghalat tasveer par Remove dabayein.',
+      'Ghalat tasveer par X dabayein; teer se jagah badlein, ⭐ se main banayein.',
     ],
-    tips: ['Saaf, roshan aur safed background wali tasveerein zyada bikti hain.'],
+    tips: ['Saaf, roshan aur safed background wali tasveerein zyada bikti hain.', 'Behtareen size: 2000 × 2000 pixel, chokor (1:1).'],
+  },
+  'seller.product.pictures9': {
+    title: '9 tasveeron ka set (bade marketplaces wala tareeqa)',
+    what: 'Har product ki 9 tasveerein, har ek ka apna kaam. Customer ke sawal tasveer hi se hal ho jate hain: zyada order, kam return.',
+    steps: [
+      '1. Main: sirf product, bilkul safed background, koi likhai ya logo nahi. Product tasveer ka zyada hissa bhare.',
+      '2. Features: product ke saath 3-5 khoobiyan, teer ke nishan se (jaise "3 heat levels", "USB-C").',
+      '3. Benefits: customer ko kya faida (zindagi kaise aasan hogi).',
+      '4. Size: lambai, chaurai, unchai, wazan; haath ya kisi aam cheez ke saath taake size samajh aaye.',
+      '5. Lifestyle: asal zindagi mein istemal hota hua (ghar, daftar, kisi ke haath mein).',
+      '6. How to use: 3-4 qadam tasveeron ke saath (1 → 2 → 3), kam likhai.',
+      '7. Why us: aap ki dukaan kyun (quality, guarantee, Cash on Delivery, aasan return).',
+      '8. Compare: "hamara product vs aam product" ✓ aur ✗ ke saath. Kisi doosre brand ka naam ya logo na lagayein, "Others" likhein.',
+      '9. In the box: dabbe mein jo kuch milta hai, alag rakh kar aur gin kar.',
+    ],
+    tips: [
+      'Size: 2000 × 2000 pixel, chokor (1:1). Is se customer zoom kare to tasveer saaf rehti hai.',
+      'Tasveer lagate hi jaanch hoti hai: main tasveer ka background safed na ho, tasveer chokor na ho, ya 1000 pixel se chhoti ho to tasveeron ke neeche peeli note aati hai (aur us tasveer par "!").',
+      'Shop Coach batata hai kin products mein 9 mein se tasveerein kam hain.',
+      'Canva ya kisi bhi design app mein 2000 × 2000 ka khaka bana kar har product ke liye wahi 9 design istemal karein.',
+    ],
   },
   'seller.product.ai': {
     title: 'AI se description likhwana',

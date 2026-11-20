@@ -51,7 +51,7 @@ export const ProductGallery: React.FC<{
   videoAi?: boolean;
 }> = ({ images, primaryImage, videoUrl, alt, fallback, overlay, videoAi }) => {
   const slides = useMemo<Slide[]>(() => {
-    const pics = Array.from(new Set([...(images || []), ...(primaryImage ? [primaryImage] : [])].filter(Boolean))).slice(0, 8);
+    const pics = Array.from(new Set([...(images || []), ...(primaryImage ? [primaryImage] : [])].filter(Boolean))).slice(0, 9);
     const list: Slide[] = pics.map((src) => ({ kind: 'image', src }));
     if (isPlayableVideo(videoUrl)) list.push({ kind: 'video', src: videoUrl!, youTube: youTubeId(videoUrl!) });
     return list;

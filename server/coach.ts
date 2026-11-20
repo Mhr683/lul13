@@ -182,14 +182,28 @@ export function buildCoach(input: {
       tab: 'PRODUCTS',
     });
   }
-  const fewPictures = live.filter((p) => (Array.isArray(p.images) ? p.images.length : p.primaryImage ? 1 : 0) < 3);
+  const pictureCount = (p: any) => (Array.isArray(p.images) ? p.images.length : p.primaryImage ? 1 : 0);
+  const fewPictures = live.filter((p) => pictureCount(p) < 3);
   if (fewPictures.length) {
     issues.push({
       level: 'INFO',
       title: `${fewPictures.length} product${fewPictures.length > 1 ? 's have' : ' has'} fewer than 3 pictures`,
-      detail: 'You can add up to 8 pictures and 1 video per product.',
+      detail: 'You can add up to 9 pictures and 1 video per product.',
       impact: 'Products with several real pictures and a video get more clicks and fewer returns.',
-      fix: 'Open each product and add more pictures (front, back, size, packing) and a short video.',
+      fix: 'Open each product and fill the 9 picture places: main on white, features, benefits, size, lifestyle, how to use, why us, compare, in the box.',
+      tab: 'PRODUCTS',
+    });
+  }
+  // The full 9-picture set (the one big marketplaces use): products that have some pictures but not all 9
+  const partSet = live.filter((p) => pictureCount(p) >= 3 && pictureCount(p) < 9);
+  if (partSet.length) {
+    const missing = Math.round(partSet.reduce((s, p) => s + (9 - pictureCount(p)), 0) / partSet.length);
+    issues.push({
+      level: 'INFO',
+      title: `${partSet.length} product${partSet.length > 1 ? 's do' : ' does'} not have the full 9-picture set`,
+      detail: `On average ${missing} picture${missing > 1 ? 's are' : ' is'} missing. Each place has its own job: 1 main (white background), 2 features, 3 benefits, 4 size, 5 lifestyle, 6 how to use, 7 why us, 8 compare, 9 what is in the box.`,
+      impact: 'A full set answers the customer\'s questions before they ask: more orders, fewer "not as described" returns.',
+      fix: 'Open the product: the empty picture places show what belongs in each. Square 2000 × 2000 pictures look sharpest.',
       tab: 'PRODUCTS',
     });
   }
