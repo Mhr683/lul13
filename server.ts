@@ -1603,18 +1603,55 @@ const escAttr = (s: unknown) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+// Search engine crawlers stay on /p/ and /s/ pages (same product content, no redirect), so each
+// product is indexed as its own page; people are sent on to the store page as before.
+const SEARCH_BOT = /googlebot|google-inspectiontool|bingbot|yandex|duckduckbot|baiduspider|applebot|slurp/i;
+const isSearchBot = (req: express.Request) => SEARCH_BOT.test(String(req.get('user-agent') || ''));
+const pageOrigin = (req: express.Request) => (STORE_HOST ? `https://${STORE_HOST}` : `${req.protocol}://${req.get('host')}`);
+const absImage = (origin: string, raw: unknown) => {
+  const s = String(raw || '');
+  return /^https?:\/\//i.test(s) ? s : s.startsWith('/') ? `${origin}${s}` : '';
+};
+const jsonLd = (data: unknown) => `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`;
 app.get('/p/:id', (req, res) => {
   const id = String(req.params.id || '').slice(0, 128);
   const p = catalogStore.ready ? catalogStore.product(id) : null;
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = pageOrigin(req);
+  const bot = isSearchBot(req);
   const target = `/#product/${encodeURIComponent(id)}`;
   if (!p || p.status !== 'ACTIVE') return res.redirect(302, '/');
   const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
   const price = Number(effectivePrice(p as any)) || Number(p.price) || 0;
   const title = `${p.name} | PKR ${price.toLocaleString('en-PK')}`;
   const description = String(p.shortDescription || p.description || `Buy ${p.name} at ${store}. Cash on Delivery across Pakistan.`).slice(0, 200);
-  const rawImage = String(p.primaryImage || (Array.isArray(p.images) ? p.images[0] : '') || '');
-  const image = /^https?:\/\//i.test(rawImage) ? rawImage : rawImage.startsWith('/') ? `${origin}${rawImage}` : '';
+  const image = absImage(origin, p.primaryImage || (Array.isArray(p.images) ? p.images[0] : ''));
+  const images = [...new Set([image, ...(Array.isArray(p.images) ? p.images : []).map((s) => absImage(origin, s))].filter(Boolean))].slice(0, 9);
+  const pageUrl = `${origin}/p/${encodeURIComponent(id)}`;
+  const inStock = Number((p as any).stock) > 0 || (Array.isArray((p as any).variants) && (p as any).variants.some((v: any) => Number(v?.stock) > 0));
+  const reviews = Number(p.reviewCount) || 0;
+  const fullText = String(p.description || p.shortDescription || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500);
+  const productLd: any = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: p.name,
+    image: images,
+    description: fullText || description,
+    sku: p.sku || p.id,
+    category: p.category || undefined,
+    brand: p.brand ? { '@type': 'Brand', name: p.brand } : undefined,
+    offers: {
+      '@type': 'Offer',
+      url: pageUrl,
+      price: price.toFixed(0),
+      priceCurrency: 'PKR',
+      availability: `https://schema.org/${inStock ? 'InStock' : 'OutOfStock'}`,
+      itemCondition: 'https://schema.org/NewCondition',
+      seller: { '@type': 'Organization', name: String(p.sellerName || store) },
+    },
+  };
+  if (reviews > 0 && Number(p.rating) > 0)
+    productLd.aggregateRating = { '@type': 'AggregateRating', ratingValue: Number(p.rating).toFixed(1), reviewCount: reviews };
+  const shopLink = p.sellerId ? `<p>Sold by <a href="/s/${escAttr(encodeURIComponent(p.sellerId))}">${escAttr(p.sellerName || 'this shop')}</a></p>` : '';
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.type('html').send(`<!doctype html>
 <html lang="en"><head>
@@ -1622,6 +1659,7 @@ app.get('/p/:id', (req, res) => {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escAttr(title)}</title>
 <meta name="description" content="${escAttr(description)}">
+${jsonLd(productLd)}
 <meta property="og:type" content="product">
 <meta property="og:site_name" content="${escAttr(store)}">
 <meta property="og:title" content="${escAttr(title)}">
@@ -1633,11 +1671,17 @@ ${image ? `<meta property="og:image" content="${escAttr(image)}">` : ''}
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escAttr(title)}">
 ${image ? `<meta name="twitter:image" content="${escAttr(image)}">` : ''}
-<meta http-equiv="refresh" content="0;url=${escAttr(target)}">
-<link rel="canonical" href="${escAttr(`${origin}/p/${encodeURIComponent(id)}`)}">
-</head><body style="font-family:system-ui,sans-serif;text-align:center;padding:40px">
-<p>Opening <a href="${escAttr(target)}">${escAttr(p.name)}</a>...</p>
-<script>location.replace(${JSON.stringify(target)});</script>
+${bot ? '' : `<meta http-equiv="refresh" content="0;url=${escAttr(target)}">\n<script>location.replace(${JSON.stringify(target)});</script>`}
+<link rel="canonical" href="${escAttr(pageUrl)}">
+</head><body style="font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px">
+<p><a href="/">${escAttr(store)}</a>${p.category ? ` › ${escAttr(p.category)}` : ''}</p>
+<h1>${escAttr(p.name)}</h1>
+${images.map((src, i) => `<img src="${escAttr(src)}" alt="${escAttr(i ? `${p.name} picture ${i + 1}` : p.name)}" style="max-width:100%;height:auto" loading="${i ? 'lazy' : 'eager'}">`).join('\n')}
+<p><strong>PKR ${price.toLocaleString('en-PK')}</strong> · ${inStock ? 'In stock' : 'Out of stock'} · Cash on Delivery across Pakistan</p>
+${p.brand ? `<p>Brand: ${escAttr(p.brand)}</p>` : ''}
+${shopLink}
+${fullText ? `<p>${escAttr(fullText)}</p>` : ''}
+<p><a href="${escAttr(target)}">Order ${escAttr(p.name)}</a></p>
 </body></html>`);
 });
 
@@ -1653,9 +1697,11 @@ app.get('/s/:id', (req, res) => {
     if (hit) id = String((hit as any).sellerId);
   }
   const target = `/#shop/${encodeURIComponent(id)}`;
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = pageOrigin(req);
+  const bot = isSearchBot(req);
   const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
-  const items = catalogStore.ready ? catalogStore.publicProducts().filter((p: any) => p.sellerId === id) : [];
+  const items = catalogStore.ready ? catalogStore.publicProducts().filter((p: any) => p.sellerId === id && p.status === 'ACTIVE') : [];
+  if (bot && !items.length) return res.redirect(302, '/');
   const shopName = String((items[0] as any)?.sellerName || 'Shop');
   const title = `${shopName} | ${store}`;
   const description = items.length
@@ -1679,11 +1725,19 @@ ${image ? `<meta property="og:image" content="${escAttr(image)}">` : ''}
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escAttr(title)}">
 ${image ? `<meta name="twitter:image" content="${escAttr(image)}">` : ''}
-<meta http-equiv="refresh" content="0;url=${escAttr(target)}">
+${bot ? '' : `<meta http-equiv="refresh" content="0;url=${escAttr(target)}">\n<script>location.replace(${JSON.stringify(target)});</script>`}
 <link rel="canonical" href="${escAttr(`${origin}/s/${encodeURIComponent(id)}`)}">
-</head><body style="font-family:system-ui,sans-serif;text-align:center;padding:40px">
-<p>Opening <a href="${escAttr(target)}">${escAttr(shopName)}</a>...</p>
-<script>location.replace(${JSON.stringify(target)});</script>
+</head><body style="font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px">
+<p><a href="/">${escAttr(store)}</a></p>
+<h1>${escAttr(shopName)}</h1>
+<p>${escAttr(description)}${(items[0] as any)?.vendorId ? ` Shop ID: ${escAttr((items[0] as any).vendorId)}.` : ''}</p>
+<ul>
+${items
+  .slice(0, 500)
+  .map((p: any) => `<li><a href="/p/${escAttr(encodeURIComponent(p.id))}">${escAttr(p.name)}</a> · PKR ${(Number(effectivePrice(p)) || Number(p.price) || 0).toLocaleString('en-PK')}</li>`)
+  .join('\n')}
+</ul>
+<p><a href="${escAttr(target)}">Visit ${escAttr(shopName)}</a></p>
 </body></html>`);
 });
 
@@ -7227,11 +7281,22 @@ async function startServer() {
     app.get('/sitemap.xml', (req, res) => {
       const origin = STORE_HOST ? `https://${STORE_HOST}` : `${req.protocol}://${req.get('host')}`;
       res.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
-      res.send(
-        `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-          `  <url><loc>${origin}/</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>\n` +
-          `</urlset>\n`
-      );
+      // Every live product (/p/<id>) and shop (/s/<sellerId>) from the catalog copy: no database reads,
+      // and new products appear here by themselves
+      const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const day = (v: unknown) => {
+        const d = new Date(String(v || ''));
+        return isNaN(d.getTime()) ? '' : `<lastmod>${d.toISOString().slice(0, 10)}</lastmod>`;
+      };
+      const live = catalogStore.ready ? catalogStore.publicProducts().filter((p: any) => p.status === 'ACTIVE') : [];
+      const shops = new Set<string>();
+      const rows = [`  <url><loc>${origin}/</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`];
+      for (const p of live.slice(0, 45000) as any[]) {
+        if (p.sellerId) shops.add(String(p.sellerId));
+        rows.push(`  <url><loc>${xml(`${origin}/p/${encodeURIComponent(p.id)}`)}</loc>${day(p.updatedAt || p.createdAt)}<changefreq>weekly</changefreq><priority>0.8</priority></url>`);
+      }
+      for (const s of shops) rows.push(`  <url><loc>${xml(`${origin}/s/${encodeURIComponent(s)}`)}</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>`);
+      res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${rows.join('\n')}\n</urlset>\n`);
     });
     app.use((req, res, next) => {
       if (privatePortal(req)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
