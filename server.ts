@@ -1647,6 +1647,15 @@ app.get('/p/:id', (req, res) => {
       availability: `https://schema.org/${inStock ? 'InStock' : 'OutOfStock'}`,
       itemCondition: 'https://schema.org/NewCondition',
       seller: { '@type': 'Organization', name: String(p.sellerName || store) },
+      // Store policy (Customer Protection & Returns page): return or replacement within 7 days of delivery.
+      // Delivery fees are left out: they differ by seller, product and city.
+      hasMerchantReturnPolicy: {
+        '@type': 'MerchantReturnPolicy',
+        applicableCountry: 'PK',
+        returnPolicyCategory: 'https://schema.org/MerchantReturnFiniteReturnWindow',
+        merchantReturnDays: 7,
+        returnMethod: 'https://schema.org/ReturnByMail',
+      },
     },
   };
   if (reviews > 0 && Number(p.rating) > 0)
