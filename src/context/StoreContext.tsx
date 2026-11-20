@@ -451,6 +451,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const hydrateServerCatalog = async () => {
       // Seller Center loads only the seller's own products through its own API
       if (!SELLER_PORTAL) try {
+        // Marked as loading at once: the store-data effect below (started in the same moment) then does
+        // not download the same catalog a second time
+        lastCatalogLoad = Date.now();
         const prodRes = await fetch('/api/catalog/products');
         if (prodRes.ok) {
           const prodData = await prodRes.json();

@@ -7207,6 +7207,13 @@ async function startServer() {
     };
     const portalHtml = new Map<string, string>();
     let portalHtmlBuiltAt = 0;
+    // A file that is not there (an old build's script after a new deploy, a bot probing): a real 404 that
+    // nobody keeps. Before, the store page itself was sent back with "200": the browser tried to run that
+    // HTML as the script and stayed blank, and the CDN kept that wrong answer for hours.
+    app.get(/\.(js|mjs|css|map|json|webmanifest|png|jpe?g|webp|gif|svg|ico|woff2?|ttf|txt|xml|wasm)$/i, (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(404).type('text/plain').send('Not found');
+    });
     app.get('*', (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       const portal = /^\/(seller|admin)(\/|$)/i.exec(req.path)?.[1]?.toLowerCase();

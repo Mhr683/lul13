@@ -50,7 +50,23 @@
             report('app-start', 'installed app started');
           }
         } catch (e) {}
+        // A new version was put live while this page was open (or an old copy of the page was shown): its
+        // script files are gone. Load the page again once, at once, instead of staying blank.
+        function reloadOnce() {
+          try {
+            var last = Number(sessionStorage.getItem('anokhaReloadAt') || 0);
+            if (Date.now() - last < 30000) return false;
+            sessionStorage.setItem('anokhaReloadAt', String(Date.now()));
+          } catch (e) {}
+          location.reload();
+          return true;
+        }
+        w.addEventListener('vite:preloadError', function (e) {
+          if (reloadOnce() && e && e.preventDefault) e.preventDefault();
+        });
         w.addEventListener('error', function (e) {
+          var src = e && e.target && (e.target.src || e.target.href);
+          if (src && /\/assets\//.test(src) && reloadOnce()) return;
           var root = document.getElementById('root');
           if (root && root.firstChild) return;
           var m = (e && (e.message || (e.error && e.error.message))) || (e && e.target && e.target.src ? 'failed to load ' + e.target.src : 'error');
