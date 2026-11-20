@@ -61,9 +61,11 @@ const Countdown: React.FC<{ endsAt: string }> = ({ endsAt }) => {
 // The slide's video. Some phones (battery saver, data saver, older Android) do not start a video by
 // themselves: then it is started from code, and if the phone still refuses, a big play button shows
 // so one tap starts it (the tap plays the video instead of opening the product).
-const HeroVideo: React.FC<{ src: string; poster?: string }> = ({ src, poster }) => {
+const HeroVideo: React.FC<{ src: string; poster?: string; fill?: boolean }> = ({ src, poster, fill }) => {
   const ref = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
+  // (a full-size video shows only once it really plays; until then the picture under it shows)
+  const [playing, setPlaying] = useState(false);
   const start = () => {
     const v = ref.current;
     if (!v) return;
@@ -86,13 +88,16 @@ const HeroVideo: React.FC<{ src: string; poster?: string }> = ({ src, poster }) 
         ref={ref}
         src={src}
         poster={poster}
-        className="max-h-full max-w-full object-contain sm:rounded shadow-2xl"
+        className={fill ? `w-full h-full object-cover transition-opacity duration-500 ${playing && !blocked ? 'opacity-100' : 'opacity-0'}` : 'max-h-full max-w-full object-contain sm:rounded shadow-2xl'}
         autoPlay
         muted
         loop
         playsInline
         preload="metadata"
-        onPlaying={() => setBlocked(false)}
+        onPlaying={() => {
+          setBlocked(false);
+          setPlaying(true);
+        }}
       />
       {blocked && (
         <button
@@ -326,6 +331,8 @@ export const HeroSlider: React.FC<{
       >
         {slides.map((s, i) => {
           const isActive = i === active;
+          // the current, next and first pictures load at once (the others wait), so a slide never shows empty
+          const near = (k: number) => k === 0 || k === active || k === (active + 1) % count;
           const off = pctOff(s.price || 0, s.oldPrice);
           return (
             <div
@@ -344,18 +351,24 @@ export const HeroSlider: React.FC<{
               )}
               {isProductSlide(s) ? (
                 <>
-                  {/* Product ad: the whole picture, big; below / beside it only the price and the offers */}
-                  <div className="absolute inset-x-0 top-0 bottom-[118px] sm:bottom-0 sm:left-[36%] flex items-center justify-center overflow-hidden">
+                  {/* Product ad: the picture fills the whole ad; the price and offers sit on top of it */}
+                  <div className="absolute inset-0 overflow-hidden">
                     {s.video && isActive ? (
-                      <HeroVideo src={s.video} poster={s.image} />
+                      <>
+                        {/* the picture under the video: shows while the video loads or if the phone does not play it */}
+                        {s.image && <div className="absolute inset-0">{renderImage(s.image, s.title, 'h-full w-full object-cover', near(i))}</div>}
+                        <div className="absolute inset-0">
+                          <HeroVideo src={s.video} poster={s.image} fill />
+                        </div>
+                      </>
                     ) : s.image ? (
-                      <div className={`h-full w-full flex items-center justify-center p-2 sm:p-5 ${isActive ? 'hs-zoom' : ''}`}>
-                        {renderImage(s.image, s.title, 'h-full w-full object-contain drop-shadow-2xl', i === 0)}
+                      <div className={`h-full w-full ${isActive ? 'hs-zoom' : ''}`}>
+                        {renderImage(s.image, s.title, 'h-full w-full object-cover', near(i))}
                       </div>
                     ) : null}
-                    {s.video && !isActive && <PlayCircle className="absolute w-14 h-14 text-white/80" />}
+                    {s.video && !isActive && <PlayCircle className="absolute inset-0 m-auto w-14 h-14 text-white/80" />}
                   </div>
-                  <div className="absolute inset-x-0 bottom-0 h-[150px] sm:h-full sm:inset-y-0 sm:right-auto sm:w-[46%] bg-gradient-to-t sm:bg-gradient-to-r from-black/85 via-black/60 to-transparent pointer-events-none" />
+                  <div className="absolute inset-x-0 bottom-0 h-[62%] sm:h-full sm:inset-y-0 sm:right-auto sm:w-[55%] bg-gradient-to-t sm:bg-gradient-to-r from-black/90 via-black/55 to-transparent pointer-events-none" />
                   <div
                     key={isActive ? `on-${s.key}` : s.key}
                     className="absolute inset-x-0 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:left-0 sm:right-auto sm:w-[38%] px-4 sm:pl-14 pb-8 sm:pb-0 text-white space-y-1.5 sm:space-y-3"
