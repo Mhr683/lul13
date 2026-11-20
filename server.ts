@@ -1640,6 +1640,46 @@ ${image ? `<meta name="twitter:image" content="${escAttr(image)}">` : ''}
 </body></html>`);
 });
 
+// Share link of one shop (/s/<sellerId>). "#shop/<id>" links lost the part after # in Facebook and
+// some chat apps, so the customer landed on the home page. The preview uses the shop's name and a
+// product picture from the catalog copy (no database reads); a person goes on to the shop page.
+app.get('/s/:id', (req, res) => {
+  const id = String(req.params.id || '').slice(0, 128);
+  const target = `/#shop/${encodeURIComponent(id)}`;
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
+  const items = catalogStore.ready ? catalogStore.publicProducts().filter((p: any) => p.sellerId === id) : [];
+  const shopName = String((items[0] as any)?.sellerName || 'Shop');
+  const title = `${shopName} | ${store}`;
+  const description = items.length
+    ? `${items.length} product${items.length === 1 ? '' : 's'} from ${shopName}. Cash on Delivery across Pakistan.`
+    : `Shop on ${store}. Cash on Delivery across Pakistan.`;
+  const rawImage = String((items[0] as any)?.primaryImage || '');
+  const image = /^https?:\/\//i.test(rawImage) ? rawImage : rawImage.startsWith('/') ? `${origin}${rawImage}` : '';
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.type('html').send(`<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escAttr(title)}</title>
+<meta name="description" content="${escAttr(description)}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${escAttr(store)}">
+<meta property="og:title" content="${escAttr(title)}">
+<meta property="og:description" content="${escAttr(description)}">
+<meta property="og:url" content="${escAttr(`${origin}/s/${encodeURIComponent(id)}`)}">
+${image ? `<meta property="og:image" content="${escAttr(image)}">` : ''}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escAttr(title)}">
+${image ? `<meta name="twitter:image" content="${escAttr(image)}">` : ''}
+<meta http-equiv="refresh" content="0;url=${escAttr(target)}">
+<link rel="canonical" href="${escAttr(`${origin}/s/${encodeURIComponent(id)}`)}">
+</head><body style="font-family:system-ui,sans-serif;text-align:center;padding:40px">
+<p>Opening <a href="${escAttr(target)}">${escAttr(shopName)}</a>...</p>
+<script>location.replace(${JSON.stringify(target)});</script>
+</body></html>`);
+});
+
 // Store settings, active coupons and approved reviews for customers, from the same copy
 app.get('/api/catalog/bootstrap', (_req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=60');

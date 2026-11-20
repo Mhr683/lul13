@@ -53,7 +53,7 @@ import { CategoryPicker, VariantsEditor, type VariantRow } from './SellerListing
 import { groupOfCategory, suggestCategories } from '../data/productCategories';
 import { DIRECT_SOURCE, SOURCE_APPS, isDirectSource, normalizeSource } from '../services/productSource';
 import { fixLink, shrinkImage, checkPicture, MAX_IMAGES } from './ProductMediaEditor';
-import { ShareProductButton, storeOrigin } from './ShareProductButton';
+import { ShareProductButton, shopShareUrl, storeOrigin } from './ShareProductButton';
 import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services/vendorRules';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { callingCodeOf } from '../services/intlAddress';
@@ -664,7 +664,7 @@ export const SellerCenterView: React.FC = () => {
       storeName={storeName}
       shopName={seller.shopName}
       shopLogo={seller.logoUrl || firebaseUser?.photoURL}
-      shopUrl={`${storeOrigin()}/#shop/${encodeURIComponent(seller.id || uid)}`}
+      shopUrl={shopShareUrl(seller.id || uid)}
       storeUrl={`${storeOrigin()}/`}
       subtitle={
         <>
@@ -4708,7 +4708,7 @@ const ProfileTab: React.FC<{ seller: SellerShop; privateData: SellerPrivate; onS
       <SellerSocialLinks
         initial={Array.isArray((seller as any).socialLinks) ? (seller as any).socialLinks : []}
         shopName={seller.shopName}
-        shopUrl={`${storeOrigin()}/#shop/${encodeURIComponent(seller.id || firebaseUser?.uid || '')}`}
+        shopUrl={shopShareUrl(seller.id || firebaseUser?.uid || '')}
         showToast={showToast}
         onSave={async (socialLinks) => {
           await api('/api/seller/profile', { method: 'PUT', body: JSON.stringify({ socialLinks }) });

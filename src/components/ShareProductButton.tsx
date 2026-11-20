@@ -21,6 +21,8 @@ export const storeOrigin = () => {
 };
 
 export const productShareUrl = (productId: string) => `${storeOrigin()}/p/${encodeURIComponent(productId)}`;
+/** A shop's share link. Not "#shop/<id>": Facebook and some chat apps drop the part after #. */
+export const shopShareUrl = (sellerId: string) => `${storeOrigin()}/s/${encodeURIComponent(sellerId)}`;
 
 /**
  * Share icon for the top-left corner of a product card's picture (the wishlist heart sits top-right).

@@ -464,7 +464,7 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       'Usi khane ke saath hara "Connect" button dabayein: link foran save ho jata hai aur button ki jagah "✓ Connected" aa jata hai.',
       'List mein na ho (Pinterest, Snapchat, Threads, website...) to "Add another link" dabayein: naam aur link likh kar uske saath "Connect" dabayein.',
       'Ghalat link par laal likhai batati hai kya theek karna hai. Hatana ho to khana khali karein aur laal "Remove" dabayein (other links mein ✕).',
-      '"Share my shop" se poori dukaan ka link kisi bhi app par bhejein.',
+      '"Share my shop" se poori dukaan ka link kisi bhi app par bhejein. Link .../s/... jaisa hota hai aur seedha aap ki dukaan kholta hai (customer ke phone mein store ki app ho to dukaan usi app ke andar khulti hai). Product ka link .../p/... seedha us product ka page kholta hai.',
       'Product share karne ke liye Products mein "Share" dabayein: WhatsApp, Facebook, X, Telegram seedha khulte hain; Instagram, TikTok, YouTube ke liye caption aur link copy ho jata hai, app mein paste kar dein.',
     ],
     tips: [

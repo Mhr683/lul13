@@ -124,7 +124,7 @@ export function registerFollowRoutes(app: express.Express, d: FollowDeps) {
     const followers = await col().where('sellerId', '==', sellerId).limit(MAX_FOLLOWERS_EMAILED).get();
     if (followers.empty) return;
     const s = d.getSettings() || {};
-    const shopUrl = `${storeUrl()}/#shop/${encodeURIComponent(sellerId)}`;
+    const shopUrl = `${storeUrl()}/s/${encodeURIComponent(sellerId)}`;
     const products = Array.from(entry.products.values()).map((p) => ({
       name: String(p.name || 'New product'),
       price: Number(p.price) || 0,

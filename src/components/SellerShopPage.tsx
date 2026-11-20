@@ -6,7 +6,7 @@ import { FollowStoreButton } from './FollowStoreButton';
 import { SocialIcon } from './SocialIcon';
 import { socialLabel } from '../services/socialLinks';
 import { ReviewMediaStrip } from './ReviewMedia';
-import { CardShareButton } from './ShareProductButton';
+import { CardShareButton, shopShareUrl } from './ShareProductButton';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
@@ -95,7 +95,7 @@ export const SellerShopPage: React.FC<{
   useEffect(() => setShown(PAGE), [search, category, sort, sellerId]);
 
   const share = async () => {
-    const url = `${window.location.origin}/#shop/${encodeURIComponent(sellerId)}`;
+    const url = shopShareUrl(sellerId);
     try {
       if (navigator.share) await navigator.share({ title: name, url });
       else {

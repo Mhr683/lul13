@@ -157,6 +157,13 @@ function parseStoreRoute(): { view: StoreSubView; arg: string } {
   const rawHash = window.location.hash;
   const path = window.location.pathname.toLowerCase();
   const hash = rawHash.toLowerCase().split('?')[0];
+  // Share links /p/<productId> and /s/<sellerId>: the server sends them on to #product / #shop, but a
+  // phone with an older installed copy of the store opens the store page itself at that address
+  const shared = /^\/(p|s)\/([^/]+)\/?$/i.exec(window.location.pathname);
+  if (shared && !rawHash) {
+    const arg = decodeURIComponent(shared[2]);
+    return shared[1].toLowerCase() === 'p' ? { view: 'PRODUCT_DETAIL', arg } : { view: 'SHOP', arg };
+  }
   // Product, seller and campaign ids are case-sensitive, so they are read from the original hash
   const withArg = /^#(product|shop|campaign)\/(.+)$/i.exec(rawHash);
   if (withArg) {
