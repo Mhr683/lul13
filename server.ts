@@ -1529,6 +1529,7 @@ const analytics = createAnalytics({
   isQuotaHit: () => firestoreQuotaHit(),
   productName: (id) => (catalogStore.ready ? catalogStore.product(id)?.name || null : null),
   sellerName: (id) => (catalogStore.ready ? catalogStore.productsOfSeller(id)[0]?.sellerName || null : null),
+  productSeller: (id) => (catalogStore.ready ? String((catalogStore.product(id) as any)?.sellerId || '') || null : null),
   onEvents: (visitor, events, req) => ads.onFunnelEvents(visitor, events, req),
 });
 
@@ -4973,6 +4974,27 @@ marketplace.setProductsLiveHook((sellerId, shopName, products) => follows.produc
 // Traffic, sales and conversion analytics (one document per day; see server/analytics.ts)
 analytics.register(app);
 ads.register(app);
+
+// Seller Center → Traffic: the signed-in seller's own visitors, views, orders and sales (7/30/90 days)
+const sellerTrafficCache = new Map<string, { at: number; data: any }>();
+app.get('/api/seller/traffic', marketplace.requireSeller, async (req, res) => {
+  const uid = String((req as any).user?.uid || '');
+  const days = Number(req.query.days) || 30;
+  const key = `${uid}|${days}`;
+  try {
+    let hit = sellerTrafficCache.get(key);
+    if (!hit || Date.now() - hit.at > 2 * 60_000) {
+      hit = { at: Date.now(), data: await analytics.sellerReport(uid, days) };
+      if (sellerTrafficCache.size > 500) sellerTrafficCache.clear();
+      sellerTrafficCache.set(key, hit);
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...hit.data });
+  } catch (err) {
+    console.error('[seller/traffic] failed:', err);
+    res.status(503).json({ error: 'Could not load your traffic report. Please try again.' });
+  }
+});
 
 // Growth: social proof, abandoned checkouts, refer & earn, flash deals
 registerGrowthRoutes(app, {

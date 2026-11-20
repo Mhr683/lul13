@@ -20,6 +20,8 @@ export interface AnalyticsDeps {
   isQuotaHit: () => boolean;
   productName: (id: string) => string | null;
   sellerName: (id: string) => string | null;
+  /** The seller of a product (for each seller's own traffic report) */
+  productSeller: (id: string) => string | null;
   /** Called with each accepted batch (e.g. Meta Conversions API for add-to-cart / checkout) */
   onEvents?: (visitor: string, events: { t: string; p?: string; n?: number }[], req: express.Request) => void;
 }
@@ -39,13 +41,19 @@ type Day = {
   os: Record<string, number>; // orders per traffic source
   or: Record<string, number>; // revenue per traffic source
   oc: Record<string, Record<string, number>>; // per "source|campaign": o (orders), r (revenue)
+  sv: Record<string, number>; // shop page views per seller
+  sx: Record<string, number>; // visitors per seller (opened the shop or one of its products; once a day)
+  ss: Record<string, number>; // those visitors per "sellerId|source"
+  sr: Record<string, number>; // revenue per seller
   visitors: string[]; // new visitor hashes for the HyperLogLog
 };
+// Per-seller counters (added to the daily document like the others)
+const SELLER_FIELDS = ['sv', 'sx', 'ss', 'sr'] as const;
 
 const PK_OFFSET = 5 * 3600_000;
 export const dayKey = (t = Date.now()) => new Date(t + PK_OFFSET).toISOString().slice(0, 10);
 const hourOf = (t = Date.now()) => new Date(t + PK_OFFSET).getUTCHours();
-const emptyDay = (): Day => ({ c: {}, src: {}, hrs: {}, p: {}, s: {}, cr: {}, rr: {}, os: {}, or: {}, oc: {}, visitors: [] });
+const emptyDay = (): Day => ({ c: {}, src: {}, hrs: {}, p: {}, s: {}, cr: {}, rr: {}, os: {}, or: {}, oc: {}, sv: {}, sx: {}, ss: {}, sr: {}, visitors: [] });
 const add = (o: Record<string, number>, k: string, n = 1) => (o[k] = (o[k] || 0) + n);
 
 // ---------------------------------------------------------------- HyperLogLog (unique visitors)
@@ -105,6 +113,7 @@ export function createAnalytics(d: AnalyticsDeps) {
   const col = () => adminDb.collection('analytics_daily');
   const pending = new Map<string, Day>();
   const seenToday = new Map<string, Set<string>>(); // day -> visitor hashes already counted
+  const seenBySeller = new Map<string, Set<string>>(); // day -> "visitor|seller" already counted
   const dayOf = (k: string) => {
     let x = pending.get(k);
     if (!x) pending.set(k, (x = emptyDay()));
@@ -128,7 +137,31 @@ export function createAnalytics(d: AnalyticsDeps) {
       add(day.src, source);
       add(day.c, 'visitors');
     }
+    // A visitor of a seller: opened the seller's shop or one of their products (counted once a day)
+    let sellerSeen = seenBySeller.get(k);
+    if (!sellerSeen) {
+      seenBySeller.set(k, (sellerSeen = new Set()));
+      for (const old of seenBySeller.keys()) if (old < dayKey(now - 2 * 86400_000)) seenBySeller.delete(old);
+    }
+    const sellerVisit = (sid: string | null) => {
+      if (!sid || sid === 'house') return;
+      const key = `${vh}|${sid}`;
+      if (sellerSeen!.has(key) || sellerSeen!.size >= 500_000) return;
+      sellerSeen!.add(key);
+      add(day.sx, sid);
+      add(day.ss, `${sid}|${source}`);
+    };
+    const validId = (v: unknown) => (typeof v === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(v) ? v : '');
     for (const e of events.slice(0, 200)) {
+      if (e.t === 'shop') {
+        const sid = validId(e.p);
+        if (sid && d.sellerName(sid)) {
+          add(day.sv, sid);
+          sellerVisit(sid);
+        }
+        continue;
+      }
+      if ((e.t === 'clk' || e.t === 'view' || e.t === 'cart') && validId(e.p)) sellerVisit(d.productSeller(e.p!));
       const field = (EVENT_TYPES as any)[e.t] as string | undefined;
       if (!field) continue;
       const n = Math.max(1, Math.min(20, Math.floor(Number(e.n) || 1)));
@@ -158,11 +191,14 @@ export function createAnalytics(d: AnalyticsDeps) {
     add(day.or, source, revenue);
     const campaign = String(attribution?.campaign || '').replace(/[^\w\- ]+/g, '_').trim().slice(0, 60);
     if (campaign) {
-      const k = `|`;
+      const k = `${source}|${campaign}`;
       add((day.oc[k] ||= {}), 'o');
       add(day.oc[k], 'r', revenue);
     }
-    if (o.sellerId) add(day.s, String(o.sellerId));
+    if (o.sellerId) {
+      add(day.s, String(o.sellerId));
+      add(day.sr, String(o.sellerId), revenue);
+    }
     for (const it of o.items || []) {
       if (!it.productId) continue;
       add(day.c, 'units', Number(it.quantity) || 1);
@@ -215,6 +251,7 @@ export function createAnalytics(d: AnalyticsDeps) {
               os: inc(day.os),
               or: inc(day.or),
               oc: Object.fromEntries(Object.entries(day.oc).map(([k, v]) => [k, inc(v)])),
+              ...Object.fromEntries(SELLER_FIELDS.map((f) => [f, inc(day[f])])),
               ...(hll ? { hll } : {}),
               updatedAt: new Date().toISOString(),
             },
@@ -228,7 +265,7 @@ export function createAnalytics(d: AnalyticsDeps) {
       // put the numbers back so nothing is lost
       for (const [k, day] of batch) {
         const cur = dayOf(k);
-        for (const f of ['c', 'src', 'hrs', 's', 'cr', 'rr', 'os', 'or'] as const) for (const [key, n] of Object.entries(day[f])) add(cur[f], key, n);
+        for (const f of ['c', 'src', 'hrs', 's', 'cr', 'rr', 'os', 'or', ...SELLER_FIELDS] as const) for (const [key, n] of Object.entries(day[f])) add(cur[f], key, n);
         for (const [k, v] of Object.entries(day.oc)) for (const [key, n] of Object.entries(v)) add((cur.oc[k] ||= {}), key, n);
         for (const [pid, v] of Object.entries(day.p)) for (const [key, n] of Object.entries(v)) add((cur.p[pid] ||= {}), key, n);
         cur.visitors.push(...day.visitors);
@@ -421,6 +458,101 @@ export function createAnalytics(d: AnalyticsDeps) {
     };
   };
 
+  // ---------------------------------------------------------------- one seller's report
+  // Seller Center → Traffic: visitors, shop visits, product views, add to cart, orders and sales per
+  // day for this seller only, compared with the period before. Uses the same daily documents (shared
+  // cache), so many sellers opening it costs no extra reads.
+  const sellerReport = async (sellerId: string, days: number) => {
+    const n = [7, 30, 90].includes(days) ? days : 30;
+    const today = dayKey();
+    const keys: string[] = [];
+    for (let i = 2 * n - 1; i >= 0; i--) keys.push(dayKey(Date.now() - i * 86400_000));
+    const docs = await readDays(keys);
+    const products = new Map<string, Record<string, number>>();
+    const sources: Record<string, number> = {};
+    const series: any[] = [];
+    const prev: Record<string, number> = {};
+    const cur: Record<string, number> = {};
+    keys.forEach((k, idx) => {
+      const doc = docs.get(k) || {};
+      const mem = pending.get(k);
+      const num = (f: string, key: string) => (Number(doc[f]?.[key]) || 0) + (Number((mem as any)?.[f]?.[key]) || 0);
+      const row: Record<string, any> = {
+        date: k,
+        visitors: num('sx', sellerId),
+        shopViews: num('sv', sellerId),
+        productViews: 0,
+        clicks: 0,
+        addToCart: 0,
+        orders: num('s', sellerId),
+        unitsSold: 0,
+        revenue: num('sr', sellerId),
+      };
+      const inCurrent = idx >= n;
+      const pp: Record<string, Record<string, number>> = {};
+      for (const src of [doc.p || {}, (mem as any)?.p || {}])
+        for (const [pid, v] of Object.entries(src as Record<string, Record<string, number>>)) {
+          if (d.productSeller(pid) !== sellerId) continue;
+          const t = (pp[pid] ||= {});
+          for (const [key, x] of Object.entries(v)) add(t, key, Number(x) || 0);
+        }
+      for (const [pid, v] of Object.entries(pp)) {
+        row.productViews += v.v || 0;
+        row.clicks += v.c || 0;
+        row.addToCart += v.a || 0;
+        row.unitsSold += v.o || 0;
+        if (inCurrent) {
+          const t = products.get(pid) || {};
+          for (const [key, x] of Object.entries(v)) add(t, key, x);
+          products.set(pid, t);
+        }
+      }
+      if (inCurrent) {
+        for (const src of [doc.ss || {}, (mem as any)?.ss || {}])
+          for (const [key, x] of Object.entries(src as Record<string, number>)) {
+            const [sid, s] = key.split('|');
+            if (sid === sellerId) add(sources, s || 'other', Number(x) || 0);
+          }
+        series.push(row);
+      }
+      const bucket = inCurrent ? cur : prev;
+      for (const f of ['visitors', 'shopViews', 'productViews', 'clicks', 'addToCart', 'orders', 'unitsSold', 'revenue']) add(bucket, f, row[f]);
+    });
+    const change = (a: number, b: number) => (b ? Math.round(((a - b) / b) * 1000) / 10 : a ? 100 : 0);
+    const totals = Object.fromEntries(
+      ['visitors', 'shopViews', 'productViews', 'clicks', 'addToCart', 'orders', 'unitsSold', 'revenue'].map((f) => [
+        f,
+        { value: cur[f] || 0, previous: prev[f] || 0, change: change(cur[f] || 0, prev[f] || 0) },
+      ])
+    );
+    const conv = (o: number, v: number) => (v ? Math.round((o / v) * 1000) / 10 : 0);
+    const rows = Array.from(products.entries()).map(([id, v]) => ({
+      id,
+      name: d.productName(id) || id,
+      impressions: v.i || 0,
+      views: v.v || 0,
+      addToCart: v.a || 0,
+      sold: v.o || 0,
+    }));
+    return {
+      days: n,
+      from: series[0]?.date,
+      to: today,
+      totals,
+      conversionRate: { value: conv(cur.orders || 0, cur.visitors || 0), previous: conv(prev.orders || 0, prev.visitors || 0) },
+      series,
+      sources: SOURCES.map((s) => ({ source: s, visitors: sources[s] || 0 })).filter((s) => s.visitors > 0),
+      topProducts: rows.sort((a, b) => b.views - a.views || b.sold - a.sold).slice(0, 10),
+      // Shown on screen but rarely opened: these need a better picture, title or price
+      lowClick: rows
+        .filter((r) => r.impressions >= 50)
+        .map((r) => ({ ...r, openRate: Math.round((r.views / r.impressions) * 1000) / 10 }))
+        .sort((a, b) => a.openRate - b.openRate)
+        .slice(0, 5),
+      generatedAt: new Date().toISOString(),
+    };
+  };
+
   // ---------------------------------------------------------------- routes
   const register = (app: express.Express) => {
     // Small batches from the store (sendBeacon). No personal data: a random device id, hashed.
@@ -466,5 +598,5 @@ export function createAnalytics(d: AnalyticsDeps) {
     });
   };
 
-  return { register, recordOrder, recordCancel, recordReturn, flush, report };
+  return { register, recordOrder, recordCancel, recordReturn, flush, report, sellerReport };
 }

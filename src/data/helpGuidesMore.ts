@@ -344,7 +344,7 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
     title: 'Dashboard aur Seller Center ka naqsha',
     what: 'Aaj ka khulasa: bhejne wale orders, raste mein, payout ke liye tayyar raqam, stock aur Shop Coach.',
     steps: [
-      'Laptop par: baayein taraf menu (sidebar) hai, groups mein: Overview, Sales (Orders, Returns), Catalog (Products), Customers (Reviews, Questions, Messages), Finance (Earnings), Growth (AI Assistant), Account (Profile, Seller rules).',
+      'Laptop par: baayein taraf menu (sidebar) hai, groups mein: Overview (Dashboard, Traffic), Sales (Orders, Returns), Catalog (Products), Customers (Reviews, Questions, Messages), Finance (Earnings), Growth (AI Assistant), Account (Profile, Seller rules).',
       'Mobile par: neeche patti mein Dashboard, Orders, Products, Messages; baqi sab "More" dabane par.',
       'Upar ghanti (🔔) par laal number = store ke naye paigham; dabane se Messages khulta hai.',
       'Upar daayein apni dukaan ki tasveer dabayein: "View my shop", "Profile & payout", "Seller rules" aur "Logout".',
@@ -355,6 +355,37 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       'Coach "products have no video" bataye to "✨ Self fix" dabayein: likhein kaisi video chahiye, AI aap ki tasveeron se video bana kar listing mein laga deta hai. Ya "Upload my own video" se apni video daalein.',
     ],
     tips: ['Har page ke upar us ka naam, ek line ka matlab aur rangeen ? hota hai.', 'Roz ek dafa Dashboard zaroor dekhein taa ke koi order late na ho.'],
+  },
+  'seller.tab.TRAFFIC': {
+    title: 'Traffic (kitne log aap ki dukaan dekh rahe hain)',
+    what: 'Aap ki dukaan par aane wale log, product views, cart, orders aur sales: din ba din graph ke saath, aur pichhle dor se muqabla.',
+    steps: [
+      'Menu mein Overview → "Traffic" kholein.',
+      'Upar "Last 7 days", "Last 30 days" ya "Last 90 days" chunein.',
+      '6 dabbe: Visitors (kitne alag log aaye), Shop page visits (dukaan ka page kitni dafa khula), Product views, Added to cart, Orders, Sales.',
+      'Har dabbe ke neeche hara ▲ = pichhle utne hi dinon se zyada, laal ▼ = kam. Masalan "+24% vs previous 30 days".',
+      'Kisi dabbe par click karein to neeche "Day by day" graph usi ka ban jata hai. Har dot ek din hai; dot dabayein to us din ki ginti upar likhi aati hai.',
+      '"Where your visitors came from": WhatsApp, Facebook/Instagram/TikTok, Google, seedha link waghera se kitne log aaye.',
+      '"Your most viewed products": kaun se products sab se zyada dekhe, cart mein daale aur beche gaye.',
+      '"Seen a lot, opened rarely": yeh products screen par bohot dikhe magar kam khole gaye. Behtar main tasveer, saaf naam ya munasib qeemat lagayein.',
+    ],
+    tips: [
+      'Visitor = jis ne aap ki dukaan ya aap ka koi product khola (ek shakhs din mein ek dafa gina jata hai).',
+      'Visitors barhane ke liye apni dukaan ka link (/s/...) aur product links WhatsApp status, Facebook aur TikTok par share karein.',
+      'Naye numbers kuch minute mein graph par aa jate hain.',
+    ],
+  },
+  'seller.traffic': {
+    title: 'Traffic ke numbers ka matlab',
+    what: 'Har number kahan se aata hai aur upar ya neeche jane ka matlab.',
+    steps: [
+      'Visitors: alag alag log jinhon ne aap ki dukaan ya products khole.',
+      'Shop page visits: aap ki dukaan ka page kitni dafa khula.',
+      'Product views: aap ke products ke page kitni dafa khule.',
+      'Orders aur Sales: aap ki dukaan ke naye orders aur un ki raqam.',
+      '"Visitors who ordered": 100 mein se kitne logon ne order kiya.',
+    ],
+    tips: ['Visitors barh rahe hon magar orders nahi, to qeemat, tasveerein aur description behtar karein.'],
   },
   'seller.tab.RULES': {
     title: 'Seller rules',

@@ -327,6 +327,9 @@ export const StorefrontView: React.FC = () => {
   useEffect(() => {
     if (subView === 'PRODUCT_DETAIL' && selectedProduct?.id) track.productView(selectedProduct.id);
   }, [subView, selectedProduct?.id]);
+  useEffect(() => {
+    if (subView === 'SHOP' && shopSellerId) track.shopView(shopSellerId);
+  }, [subView, shopSellerId]);
 
   // Festival campaign page (#campaign/<slug>)
   const campaignSlugRef = useRef('');

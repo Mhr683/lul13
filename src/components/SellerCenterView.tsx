@@ -38,6 +38,7 @@ import {
   MessageCircleQuestion,
   ShieldCheck,
   Trash2,
+  TrendingUp,
 } from 'lucide-react';
 import { SellerAiAssistant } from './SellerAiAssistant';
 import { SellerHelpButton, SellerHelpPanel } from './SellerHelpPanel';
@@ -82,6 +83,7 @@ import { SellerLanding } from './SellerLanding';
 import { AdminAiKeysPanel } from './AdminAiKeysPanel';
 import { VideoFixActions, VideoMakerModal } from './AiVideoMaker';
 import { AiKeyNudge, askForAiKey } from './AiKeyNudge';
+import { SellerTrafficTab } from './SellerTrafficTab';
 
 // Seller Center (/seller): marketplace sellers apply, then manage their own products, orders,
 // shipping/tracking and earnings. Everything goes through the /api/seller/* server routes.
@@ -89,7 +91,7 @@ import { AiKeyNudge, askForAiKey } from './AiKeyNudge';
 // It opens instantly: the shop and product list from the last visit are shown at once (Firebase can
 // take many seconds to restore a sign-in) and refreshed in the background.
 
-const SELLER_TABS = ['DASHBOARD', 'AI', 'PRODUCTS', 'ORDERS', 'RETURNS', 'EARNINGS', 'REVIEWS', 'QUESTIONS', 'MESSAGES', 'PROFILE', 'RULES'] as const;
+const SELLER_TABS = ['DASHBOARD', 'TRAFFIC', 'AI', 'PRODUCTS', 'ORDERS', 'RETURNS', 'EARNINGS', 'REVIEWS', 'QUESTIONS', 'MESSAGES', 'PROFILE', 'RULES'] as const;
 type Tab = (typeof SELLER_TABS)[number];
 
 type ThreadMessage = { id: string; from: 'SELLER' | 'ADMIN'; author: string; text: string; at: string };
@@ -607,6 +609,7 @@ export const SellerCenterView: React.FC = () => {
 
   const tabs: { id: Tab; label: string; icon: any; badge?: number }[] = [
     { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'TRAFFIC', label: 'Traffic', icon: TrendingUp },
     { id: 'AI', label: 'AI Assistant', icon: Bot },
     { id: 'ORDERS', label: 'Orders', icon: ShoppingCart, badge: ordersBadge },
     { id: 'PRODUCTS', label: 'Products', icon: Package },
@@ -636,6 +639,7 @@ export const SellerCenterView: React.FC = () => {
   // Each page's title, one-line explanation and "?" guide (shown in the page header)
   const PAGES: Record<string, { title: string; description: string; help?: string }> = {
     DASHBOARD: { title: 'Dashboard', description: '', help: 'seller.tab.DASHBOARD' },
+    TRAFFIC: { title: 'Traffic', description: 'How many people visit your shop, and whether visits, orders and sales are going up or down.', help: 'seller.tab.TRAFFIC' },
     ORDERS: { title: 'Orders', description: 'Confirm, pack, ship and deliver your orders.', help: 'seller.tab.ORDERS' },
     RETURNS: { title: 'Returns', description: 'Return requests from customers and your side of the story.', help: 'seller.tab.RETURNS' },
     PRODUCTS: { title: 'Products', description: 'Add, edit and bulk-upload the products of your shop.', help: 'seller.tab.PRODUCTS' },
@@ -649,7 +653,7 @@ export const SellerCenterView: React.FC = () => {
   };
   const byId = Object.fromEntries(tabs.map((t) => [t.id, t]));
   const groups = [
-    { label: 'Overview', tabs: [byId.DASHBOARD] },
+    { label: 'Overview', tabs: [byId.DASHBOARD, byId.TRAFFIC] },
     { label: 'Sales', tabs: [byId.ORDERS, byId.RETURNS] },
     { label: 'Catalog', tabs: [byId.PRODUCTS] },
     { label: 'Customers', tabs: [byId.REVIEWS, byId.QUESTIONS, byId.MESSAGES] },
@@ -741,6 +745,7 @@ export const SellerCenterView: React.FC = () => {
           shipsFrom={String(seller?.shipsFromCountry || seller?.warehouseCountry || seller?.countryCode || 'PK').toUpperCase()}
         />
       )}
+      {tab === 'TRAFFIC' && <SellerTrafficTab api={api} shopUrl={shopShareUrl(seller.id || uid)} />}
       {tab === 'EARNINGS' && <EarningsTab />}
       {tab === 'RETURNS' && <ReturnsTab />}
       {tab === 'AI' && (

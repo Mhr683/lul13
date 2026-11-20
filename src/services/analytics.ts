@@ -143,6 +143,8 @@ export const track = {
     push({ t: 'pv' });
   },
   productView: (productId: string) => push({ t: 'view', p: productId }),
+  /** A seller's shop page opened (Seller Center → Traffic shows each seller their visits) */
+  shopView: (sellerId: string) => push({ t: 'shop', p: sellerId }),
   addToCart: (productId: string, qty = 1) => push({ t: 'cart', p: productId, n: qty }),
   checkoutStarted: () => push({ t: 'chk' }),
 };
