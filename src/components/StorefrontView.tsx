@@ -187,6 +187,18 @@ function parseStoreRoute(): { view: StoreSubView; arg: string } {
   return { view: 'HOME', arg: '' };
 }
 
+// The screen drawn first. A shared shop / product link opens it straight away, so the home page does
+// not flash first. A refresh starts on the home page (see the routing effect).
+function firstStoreRoute(): { view: StoreSubView; arg: string } {
+  try {
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    if (nav?.type === 'reload') return { view: 'HOME', arg: '' };
+  } catch {
+    /* old browser */
+  }
+  return parseStoreRoute();
+}
+
 // The address of a screen (the opposite of parseStoreRoute)
 function storeRouteUrl(view: StoreSubView, arg: string): string {
   const fixed: Partial<Record<StoreSubView, string>> = {
@@ -253,7 +265,15 @@ export const StorefrontView: React.FC = () => {
 
   // Prices are shown in the shopper's currency (formatMoney); re-render when it or the rates change
   useCurrency();
-  const [subView, setSubView] = useState<StoreSubView>('HOME');
+  const [firstRoute] = useState(firstStoreRoute);
+  const [subView, setSubView] = useState<StoreSubView>(firstRoute.view === 'SHOP' ? 'SHOP' : 'HOME');
+  // A product link waits for the catalog: a loader is shown meanwhile instead of the home page
+  const [openingProductLink, setOpeningProductLink] = useState(firstRoute.view === 'PRODUCT_DETAIL');
+  useEffect(() => {
+    if (!openingProductLink) return;
+    const t = setTimeout(() => setOpeningProductLink(false), 12_000);
+    return () => clearTimeout(t);
+  }, [openingProductLink]);
   const subViewRef = useRef<StoreSubView>('HOME');
   subViewRef.current = subView;
 
@@ -279,7 +299,7 @@ export const StorefrontView: React.FC = () => {
     }, 600);
   };
   // The seller whose shop page is open (#shop/<sellerId>)
-  const [shopSellerId, setShopSellerId] = useState<string | null>(null);
+  const [shopSellerId, setShopSellerId] = useState<string | null>(firstRoute.view === 'SHOP' ? firstRoute.arg : null);
   const openShop = (sellerId: string) => {
     setShopSellerId(sellerId);
     setSubView('SHOP');
@@ -347,7 +367,11 @@ export const StorefrontView: React.FC = () => {
       const st = window.history.state;
       if (st?.inSite || st?.exitMarker) return;
       const href = window.location.href;
+      const landedOn = parseStoreRoute().view;
       window.history.replaceState({ exitMarker: true }, '', '/');
+      // Came from a shared link (a shop, product, campaign...): back goes to the store's home page
+      // first, so the customer can look at the rest of the store; back again asks before leaving
+      if (landedOn !== 'HOME') window.history.pushState({ inSite: true, y: 0 }, '', '/');
       window.history.pushState({ ...(st || {}), inSite: true }, '', href);
     };
     armEvents.forEach((n) => window.addEventListener(n, armExitGuard, true));
@@ -1243,12 +1267,14 @@ export const StorefrontView: React.FC = () => {
       // The catalog is loaded but the product is gone (removed or sold out): the home page is shown
       if (products.length > 0) {
         pendingProductIdRef.current = '';
+        setOpeningProductLink(false);
         setSubView('HOME');
         window.history.replaceState({ inSite: true, y: 0 }, '', '/');
       }
       return;
     }
     pendingProductIdRef.current = '';
+    setOpeningProductLink(false);
     handleSelectProduct(p);
   }, [pendingProductTick, products]);
 
@@ -1988,8 +2014,15 @@ export const StorefrontView: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1">
+        {/* A shared product link: shown until the product opens (not the home page) */}
+        {subView === 'HOME' && openingProductLink && (
+          <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-sm text-[#575653]">
+            <div className="w-8 h-8 border-2 border-black/15 border-t-[#141413] rounded-full animate-spin" />
+            Opening product...
+          </div>
+        )}
         {/* ======================== 1. HOME VIEW ======================== */}
-        {subView === 'HOME' && (
+        {subView === 'HOME' && !openingProductLink && (
           <div>
             {/* Moving hero: campaigns, flash deals with a countdown, product videos, sales, new arrivals */}
             <HeroSlider
