@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
-import { Search, X, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Search, X, ArrowRight, ArrowLeft, Store } from 'lucide-react';
 import { Product } from '../types/store';
 import { ProductImage } from './ProductImage';
 import { formatMoney } from '../services/currency';
+import { readShopCode, shopCode } from '../services/shopCode';
 
 // Store search box (header). Laptop: a results panel under the box that always stays inside the
 // screen. Phone: a full-screen search page with a Back button. Esc, Back, a tap outside or picking a
@@ -13,6 +14,8 @@ interface GlobalHeaderSearchProps {
   categories: { id: string; name: string }[];
   onSelectProduct: (product: Product) => void;
   onViewAllResults: (query: string, category?: string) => void;
+  /** Opens a shop found by its name or shop ID (AS-XXXXXX) */
+  onSelectShop?: (sellerId: string) => void;
   /** Phone search row: the box takes the full width and opens a full-screen search page */
   fullWidth?: boolean;
 }
@@ -32,7 +35,7 @@ function matches(p: Product, q: string, tokens: string[]) {
   return tokens.every((t) => text.includes(t));
 }
 
-export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products, categories, onSelectProduct, onViewAllResults, fullWidth = false }) => {
+export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products, categories, onSelectProduct, onViewAllResults, onSelectShop, fullWidth = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('ALL');
@@ -144,6 +147,31 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
     return { results: found.slice(0, SHOW), total: found.length };
   }, [products, q, category]);
 
+  // Shops (from the catalog, no extra download): every shop with live products, found by its name
+  // or its shop ID. Shown above the products, so typing a shop's name opens the shop itself.
+  const shopList = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; code: string; count: number; image: string; category: string }>();
+    for (const p of products) {
+      if (p.status !== 'ACTIVE' || !p.sellerId) continue;
+      const s = map.get(p.sellerId);
+      if (s) s.count++;
+      else map.set(p.sellerId, { id: p.sellerId, name: String((p as any).sellerName || 'Shop'), code: shopCode(p.sellerId), count: 1, image: p.primaryImage || '', category: p.category });
+    }
+    return [...map.values()];
+  }, [products]);
+  const shops = useMemo(() => {
+    if (!q || !onSelectShop) return [];
+    const code = readShopCode(q);
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, '');
+    const typed = clean(q);
+    return shopList
+      .filter((s) => (code && s.code === code) || (typed.length >= 2 && (tokens.every((t) => s.name.toLowerCase().includes(t)) || clean(s.name).includes(typed))))
+      .sort((a, b) => Number(!!code && b.code === code) - Number(!!code && a.code === code) || Number(clean(b.name).startsWith(typed)) - Number(clean(a.name).startsWith(typed)) || b.count - a.count)
+      .slice(0, 4);
+  }, [shopList, q, onSelectShop]);
+  const pickShop = (id: string) => close(() => onSelectShop?.(id));
+
   useEffect(() => setActive(-1), [q, category]);
 
   const pick = (p: Product) => close(() => onSelectProduct(p));
@@ -154,6 +182,8 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (active >= 0 && results[active]) return pick(results[active]);
+    // A shop ID typed and Enter pressed: the shop opens
+    if (shops.length && readShopCode(q) === shops[0].code) return pickShop(shops[0].id);
     if (query.trim()) seeAll();
   };
   const onArrows = (e: React.KeyboardEvent) => {
@@ -181,8 +211,8 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
           setIsOpen(true);
         }}
         onKeyDown={onArrows}
-        placeholder="Search products..."
-        aria-label="Search products"
+        placeholder="Search products or shops..."
+        aria-label="Search products or shops"
         className={`w-full pl-9 pr-9 ${big ? 'py-2.5 text-[15px]' : 'py-2 text-[13px]'} rounded-full text-[#141413] bg-[#F3F2EE] border border-black/10 placeholder:text-[#8C8A85] focus:outline-none focus:bg-white focus:border-[#141413] focus:ring-2 focus:ring-black/5 transition-colors [&::-webkit-search-cancel-button]:hidden`}
       />
       {query && (
@@ -235,11 +265,39 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
         )}
       </div>
 
-      <div className="px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#8C8A85]">
-        {q ? (total ? 'Results' : 'No results') : 'Popular products'}
-      </div>
-
       <div className={`overflow-y-auto overscroll-contain ${sheet ? 'flex-1' : 'max-h-[min(400px,calc(100vh-220px))]'}`}>
+        {shops.length > 0 && (
+          <>
+            <div className="px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#8C8A85]">Shops</div>
+            <ul aria-label="Shops">
+              {shops.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => pickShop(s.id)}
+                    className="w-full px-4 py-2.5 flex items-center gap-3 text-left cursor-pointer hover:bg-[#F5F4F0]"
+                  >
+                    <span className="w-12 h-12 rounded-full bg-[#E8F3EC] shrink-0 overflow-hidden border border-black/[0.06] flex items-center justify-center">
+                      <Store className="w-5 h-5 text-[#0E7A43]" />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[13px] font-bold text-[#141413] truncate">{s.name}</span>
+                      <span className="block text-[11px] text-[#8C8A85] truncate mt-0.5">
+                        Shop ID {s.code} · {s.count} product{s.count === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[12px] font-semibold text-[#0E7A43] flex items-center gap-1">
+                      Visit shop <ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <div className="px-4 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#8C8A85]">
+          {q ? (total ? 'Products' : shops.length ? 'No products with this name' : 'No results') : 'Popular products'}
+        </div>
         {results.length > 0 ? (
           <ul role="listbox" aria-label="Search results">
             {results.map((p, i) => (
@@ -265,7 +323,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
               </li>
             ))}
           </ul>
-        ) : (
+        ) : shops.length ? null : (
           <div className="px-6 py-10 text-center">
             <Search className="w-7 h-7 mx-auto text-[#C9C6BE]" />
             <p className="mt-2 text-[13px] font-semibold text-[#141413]">Nothing found for &ldquo;{query.trim()}&rdquo;</p>

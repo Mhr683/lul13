@@ -7,6 +7,7 @@ import { SocialIcon } from './SocialIcon';
 import { socialLabel } from '../services/socialLinks';
 import { ReviewMediaStrip } from './ReviewMedia';
 import { CardShareButton, shopShareUrl } from './ShareProductButton';
+import { shopCode } from '../services/shopCode';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { formatPKR } from '../services/abstractions';
 import type { Product } from '../types/store';
@@ -152,6 +153,22 @@ export const SellerShopPage: React.FC<{
               </>
             )}
           </p>
+          {/* The shop's ID: customers can type it in the store search to find this shop again */}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(shopCode(sellerId));
+                showToast('Shop ID copied.');
+              } catch {
+                /* clipboard blocked: the ID is on screen */
+              }
+            }}
+            title="Copy the shop ID"
+            className="mt-1 inline-flex items-center gap-1 text-[11px] text-[#575653] hover:text-[#141413] cursor-pointer"
+          >
+            Shop ID: <strong className="font-mono text-[#141413] tracking-wide">{shopCode(sellerId)}</strong>
+          </button>
           {/* The shop's own social media pages (Seller Center → Profile → Shop connect to media) */}
           {shop?.socialLinks && shop.socialLinks.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">

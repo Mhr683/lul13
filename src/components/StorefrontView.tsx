@@ -1567,6 +1567,7 @@ export const StorefrontView: React.FC = () => {
               products={products}
               categories={categories}
               onSelectProduct={handleSelectProduct}
+              onSelectShop={openShop}
               onViewAllResults={(q, cat) => {
                 setSearchQuery(q);
                 if (cat) setActiveCategory(cat);
@@ -1710,6 +1711,7 @@ export const StorefrontView: React.FC = () => {
               products={products}
               categories={categories}
               onSelectProduct={handleSelectProduct}
+              onSelectShop={openShop}
               onViewAllResults={(q, cat) => {
                 setSearchQuery(q);
                 if (cat) setActiveCategory(cat);

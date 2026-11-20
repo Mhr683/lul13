@@ -25,6 +25,8 @@ export const SellerShell: React.FC<{
   shopName: string;
   shopLogo?: string | null;
   shopUrl: string;
+  /** The shop's ID (AS-XXXXXX, src/services/shopCode.ts) that customers can search for */
+  shopId?: string;
   storeUrl: string;
   subtitle: React.ReactNode;
   groups: ShellGroup[];
@@ -110,6 +112,7 @@ export const SellerShell: React.FC<{
       <SellerAvatar src={p.shopLogo} name={p.shopName} size={40} className="border border-black/10" />
       <div className="min-w-0">
         <div className="text-[13px] font-bold truncate">{p.shopName}</div>
+        {p.shopId && <div className="text-[11px] text-[#575653]">Shop ID: <strong className="font-mono text-[#141413]">{p.shopId}</strong></div>}
         <a href={p.shopUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-[#0E7A43] inline-flex items-center gap-1">
           View my shop <ExternalLink className="w-3 h-3" />
         </a>

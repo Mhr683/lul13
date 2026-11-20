@@ -54,6 +54,7 @@ import { groupOfCategory, suggestCategories } from '../data/productCategories';
 import { DIRECT_SOURCE, SOURCE_APPS, isDirectSource, normalizeSource } from '../services/productSource';
 import { fixLink, shrinkImage, checkPicture, MAX_IMAGES } from './ProductMediaEditor';
 import { ShareProductButton, shopShareUrl, storeOrigin } from './ShareProductButton';
+import { shopCode } from '../services/shopCode';
 import { PAYOUT_METHODS, type PayoutDetails, type SellerType } from '../services/vendorRules';
 import { ALL_WORLD_COUNTRIES } from '../services/addressAndPaymentVerification';
 import { callingCodeOf } from '../services/intlAddress';
@@ -665,6 +666,7 @@ export const SellerCenterView: React.FC = () => {
       shopName={seller.shopName}
       shopLogo={seller.logoUrl || firebaseUser?.photoURL}
       shopUrl={shopShareUrl(seller.id || uid)}
+      shopId={shopCode(seller.id || uid)}
       storeUrl={`${storeOrigin()}/`}
       subtitle={
         <>

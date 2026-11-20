@@ -1,3 +1,4 @@
+import { shopCode, readShopCode } from './src/services/shopCode';
 import express from 'express';
 import http from 'http';
 import { createServer as createViteServer } from 'vite';
@@ -1644,7 +1645,13 @@ ${image ? `<meta name="twitter:image" content="${escAttr(image)}">` : ''}
 // some chat apps, so the customer landed on the home page. The preview uses the shop's name and a
 // product picture from the catalog copy (no database reads); a person goes on to the shop page.
 app.get('/s/:id', (req, res) => {
-  const id = String(req.params.id || '').slice(0, 128);
+  let id = String(req.params.id || '').slice(0, 128);
+  // The shop ID (/s/AS-7K2QX9) works too: the shop is found in the catalog copy
+  const code = readShopCode(id);
+  if (code && catalogStore.ready) {
+    const hit = catalogStore.publicProducts().find((p: any) => p.sellerId && shopCode(p.sellerId) === code);
+    if (hit) id = String((hit as any).sellerId);
+  }
   const target = `/#shop/${encodeURIComponent(id)}`;
   const origin = `${req.protocol}://${req.get('host')}`;
   const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
