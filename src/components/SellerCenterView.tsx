@@ -302,6 +302,12 @@ export const SellerCenterView: React.FC = () => {
   const [commissionPercent, setCommissionPercent] = useState<number | null>(cachedMe?.commissionPercent ?? null);
   const [sellerPrivate, setSellerPrivate] = useState<SellerPrivate | null>(null);
   const [loadingMe, setLoadingMe] = useState(!cachedMe);
+  // The registration form shows only after the store has answered "no shop for this account" (before,
+  // it showed while the answer was still on its way, and stayed on a slow or broken connection)
+  const [meCheckedFor, setMeCheckedFor] = useState<string | null>(cachedMe ? uid || null : null);
+  const [meError, setMeError] = useState('');
+  const [slowMe, setSlowMe] = useState(false);
+  const meTries = useRef(0);
   const [tab, setTab] = useState<Tab>('DASHBOARD');
   // The phone's back button goes to the previous tab
   useTabHistory(tab, setTab, (t) => SELLER_TABS.includes(t as Tab));
@@ -312,16 +318,31 @@ export const SellerCenterView: React.FC = () => {
       setLoadingMe(false);
       return;
     }
+    // Just signed in on this phone before: show the shop from the saved copy at once
+    const saved = readCache<Me>(ME_CACHE_KEY, uid);
+    if (saved?.seller) {
+      setSeller(saved.seller);
+      setCommissionPercent(saved.commissionPercent ?? null);
+      setMeCheckedFor(uid);
+    }
+    setMeError('');
+    if (!saved?.seller) setLoadingMe(true);
     try {
       const data = await api('/api/seller/me');
       setSeller(data.seller);
       setSellerPrivate(data.privateData);
       setCommissionPercent(data.commissionPercent);
+      setMeCheckedFor(uid);
+      meTries.current = 0;
       writeCache(ME_CACHE_KEY, uid, { seller: data.seller, commissionPercent: data.commissionPercent });
     } catch (err: any) {
       if (err.code === 'SIGNED_OUT') {
         setSeller(null);
         clearSellerCache();
+      } else if (!saved?.seller) {
+        // No answer (slow or broken connection): never the registration form; try again by itself
+        setMeError(err.message || 'Could not reach the store right now.');
+        if (meTries.current++ < 3) setTimeout(() => loadMeRef.current(), 4000 * meTries.current);
       } else {
         showToast(err.message);
       }
@@ -329,6 +350,14 @@ export const SellerCenterView: React.FC = () => {
       setLoadingMe(false);
     }
   }, [uid, showToast]);
+  const loadMeRef = useRef(loadMe);
+  loadMeRef.current = loadMe;
+  // A slow connection: say so while Seller Center opens
+  useEffect(() => {
+    if (!uid || seller || meCheckedFor === uid) return setSlowMe(false);
+    const t = setTimeout(() => setSlowMe(true), 6000);
+    return () => clearTimeout(t);
+  }, [uid, seller, meCheckedFor]);
 
   // Seller login check (captcha / email code) when the server has it switched on
   const [sellerCheckRequired, setSellerCheckRequired] = useState<boolean | undefined>(undefined);
@@ -465,8 +494,32 @@ export const SellerCenterView: React.FC = () => {
 
   if (needsLoginCheck) return <LoginStepUp portal="SELLER" />;
 
-  if (!authReady || (uid && loadingMe && !seller)) {
-    return shell(<div className="p-10 text-center text-sm text-[#575653]">Opening Seller Center...</div>);
+  if (!authReady || (uid && !seller && (loadingMe || meCheckedFor !== uid))) {
+    return shell(
+      <div className="p-10 text-center text-sm text-[#575653] space-y-3">
+        {meError && !loadingMe ? (
+          <>
+            <p className="font-semibold text-[#141413]">Seller Center could not open: {meError}</p>
+            <p>Internet slow ya band lag raha hai. Connection check karein aur dobara koshish karein.</p>
+            <button
+              type="button"
+              onClick={() => {
+                meTries.current = 0;
+                loadMe();
+              }}
+              className={ui.primary}
+            >
+              Try again
+            </button>
+          </>
+        ) : (
+          <>
+            <p>Opening Seller Center...</p>
+            {slowMe && <p className="text-[12px]">Internet slow lag raha hai, thora intezar karein…</p>}
+          </>
+        )}
+      </div>
+    );
   }
 
   if (!uid) {
