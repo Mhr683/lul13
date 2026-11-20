@@ -268,7 +268,7 @@ export const StorefrontView: React.FC = () => {
   // Prices are shown in the shopper's currency (formatMoney); re-render when it or the rates change
   useCurrency();
   const [firstRoute] = useState(firstStoreRoute);
-  const [subView, setSubView] = useState<StoreSubView>(firstRoute.view === 'SHOP' ? 'SHOP' : 'HOME');
+  const [subView, setSubView] = useState<StoreSubView>(firstRoute.view === 'SHOP' || firstRoute.view === 'CATALOG' ? firstRoute.view : 'HOME');
   // A product link waits for the catalog: a loader is shown meanwhile instead of the home page
   const [openingProductLink, setOpeningProductLink] = useState(firstRoute.view === 'PRODUCT_DETAIL');
   useEffect(() => {
@@ -489,7 +489,15 @@ export const StorefrontView: React.FC = () => {
 
   // Search & Filter states
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<string>('ALL');
+  // A category page from Google (/c/<category>) opens the catalog at #catalog?cat=<name>
+  const [activeCategory, setActiveCategory] = useState<string>(() => {
+    try {
+      const m = /^#catalog\?(.*)$/i.exec(window.location.hash);
+      return (m && new URLSearchParams(m[1]).get('cat')) || 'ALL';
+    } catch {
+      return 'ALL';
+    }
+  });
   const [activeSubcategory, setActiveSubcategory] = useState<string>('ALL');
   const [activeCollection, setActiveCollection] = useState<'ALL' | 'NEW_ARRIVALS' | 'BEST_SELLERS' | 'OFFERS'>('ALL');
   // "Shop by type": physical, digital products, services, wholesale, rent, ... (src/services/productTypes.ts)

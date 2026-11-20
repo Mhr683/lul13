@@ -1613,6 +1613,18 @@ const absImage = (origin: string, raw: unknown) => {
   return /^https?:\/\//i.test(s) ? s : s.startsWith('/') ? `${origin}${s}` : '';
 };
 const jsonLd = (data: unknown) => `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`;
+/** Category page address: "Airpods & Headsets" -> airpods-and-headsets (/c/<slug>) */
+const catSlug = (name: unknown) =>
+  String(name || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+const liveProducts = (): any[] => (catalogStore.ready ? catalogStore.publicProducts().filter((p: any) => p.status === 'ACTIVE') : []);
+const priceOf = (p: any) => Number(effectivePrice(p)) || Number(p.price) || 0;
+const pkr = (n: number) => `PKR ${n.toLocaleString('en-PK')}`;
+const productLinks = (items: any[]) =>
+  `<ul>\n${items.map((p) => `<li><a href="/p/${escAttr(encodeURIComponent(p.id))}">${escAttr(p.name)}</a> · ${pkr(priceOf(p))}</li>`).join('\n')}\n</ul>`;
 app.get('/p/:id', (req, res) => {
   const id = String(req.params.id || '').slice(0, 128);
   const p = catalogStore.ready ? catalogStore.product(id) : null;
@@ -1622,8 +1634,10 @@ app.get('/p/:id', (req, res) => {
   if (!p || p.status !== 'ACTIVE') return res.redirect(302, '/');
   const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
   const price = Number(effectivePrice(p as any)) || Number(p.price) || 0;
-  const title = `${p.name} | PKR ${price.toLocaleString('en-PK')}`;
-  const description = String(p.shortDescription || p.description || `Buy ${p.name} at ${store}. Cash on Delivery across Pakistan.`).slice(0, 200);
+  // "... Price in Pakistan" is how people in Pakistan search for products on Google
+  const title = `${p.name} Price in Pakistan – ${pkr(price)} | ${store}`;
+  const summary = String(p.shortDescription || p.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const description = `${p.name} price in Pakistan: ${pkr(price)}. ${summary ? `${summary.slice(0, 110)} ` : ''}Cash on Delivery, 7-day returns.`.slice(0, 220);
   const image = absImage(origin, p.primaryImage || (Array.isArray(p.images) ? p.images[0] : ''));
   const images = [...new Set([image, ...(Array.isArray(p.images) ? p.images : []).map((s) => absImage(origin, s))].filter(Boolean))].slice(0, 9);
   const pageUrl = `${origin}/p/${encodeURIComponent(id)}`;
@@ -1661,6 +1675,18 @@ app.get('/p/:id', (req, res) => {
   if (reviews > 0 && Number(p.rating) > 0)
     productLd.aggregateRating = { '@type': 'AggregateRating', ratingValue: Number(p.rating).toFixed(1), reviewCount: reviews };
   const shopLink = p.sellerId ? `<p>Sold by <a href="/s/${escAttr(encodeURIComponent(p.sellerId))}">${escAttr(p.sellerName || 'this shop')}</a></p>` : '';
+  const slug = catSlug(p.category);
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: store, item: `${origin}/` },
+      ...(slug ? [{ '@type': 'ListItem', position: 2, name: p.category, item: `${origin}/c/${slug}` }] : []),
+      { '@type': 'ListItem', position: slug ? 3 : 2, name: p.name, item: pageUrl },
+    ],
+  };
+  // More from the same category: links that help Google find (and people move between) products
+  const related = bot && slug ? liveProducts().filter((x) => x.id !== p.id && catSlug(x.category) === slug).slice(0, 12) : [];
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.type('html').send(`<!doctype html>
 <html lang="en"><head>
@@ -1669,6 +1695,7 @@ app.get('/p/:id', (req, res) => {
 <title>${escAttr(title)}</title>
 <meta name="description" content="${escAttr(description)}">
 ${jsonLd(productLd)}
+${jsonLd(breadcrumbLd)}
 <meta property="og:type" content="product">
 <meta property="og:site_name" content="${escAttr(store)}">
 <meta property="og:title" content="${escAttr(title)}">
@@ -1683,15 +1710,113 @@ ${image ? `<meta name="twitter:image" content="${escAttr(image)}">` : ''}
 ${bot ? '' : `<meta http-equiv="refresh" content="0;url=${escAttr(target)}">\n<script>location.replace(${JSON.stringify(target)});</script>`}
 <link rel="canonical" href="${escAttr(pageUrl)}">
 </head><body style="font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px">
-<p><a href="/">${escAttr(store)}</a>${p.category ? ` › ${escAttr(p.category)}` : ''}</p>
-<h1>${escAttr(p.name)}</h1>
+<p><a href="/">${escAttr(store)}</a>${slug ? ` › <a href="/c/${slug}">${escAttr(p.category)}</a>` : ''}</p>
+<h1>${escAttr(p.name)} Price in Pakistan</h1>
 ${images.map((src, i) => `<img src="${escAttr(src)}" alt="${escAttr(i ? `${p.name} picture ${i + 1}` : p.name)}" style="max-width:100%;height:auto" loading="${i ? 'lazy' : 'eager'}">`).join('\n')}
 <p><strong>PKR ${price.toLocaleString('en-PK')}</strong> · ${inStock ? 'In stock' : 'Out of stock'} · Cash on Delivery across Pakistan</p>
 ${p.brand ? `<p>Brand: ${escAttr(p.brand)}</p>` : ''}
 ${shopLink}
 ${fullText ? `<p>${escAttr(fullText)}</p>` : ''}
 <p><a href="${escAttr(target)}">Order ${escAttr(p.name)}</a></p>
+${related.length ? `<h2>More ${escAttr(p.category)}</h2>\n${productLinks(related)}` : ''}
 </body></html>`);
+});
+
+// Category pages (/c/<slug>): "earbuds price in Pakistan" style searches land on a list of the
+// category's products. Crawlers get the list; people open the store catalog filtered to it.
+app.get('/c/:slug', (req, res) => {
+  const slug = catSlug(req.params.slug).slice(0, 80);
+  const items = liveProducts().filter((p) => catSlug(p.category) === slug);
+  if (!items.length) return res.redirect(302, '/');
+  const name = String(items[0].category);
+  const target = `/#catalog?cat=${encodeURIComponent(name)}`;
+  const origin = pageOrigin(req);
+  const bot = isSearchBot(req);
+  const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
+  const prices = items.map(priceOf).filter((n) => n > 0);
+  const low = prices.length ? Math.min(...prices) : 0;
+  const title = `${name} Price in Pakistan – ${items.length} products from ${pkr(low)} | ${store}`;
+  const description = `Buy ${name} online in Pakistan: ${items.length} products starting at ${pkr(low)}. Cash on Delivery, 7-day returns.`;
+  const pageUrl = `${origin}/c/${slug}`;
+  const shown = items.slice(0, 300);
+  const listLd = {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name,
+    numberOfItems: items.length,
+    itemListElement: shown.slice(0, 50).map((p, i) => ({ '@type': 'ListItem', position: i + 1, url: `${origin}/p/${encodeURIComponent(p.id)}`, name: p.name })),
+  };
+  const others = [...new Set(liveProducts().map((p) => String(p.category || '')).filter(Boolean))].filter((c) => catSlug(c) !== slug).slice(0, 40);
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.type('html').send(`<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escAttr(title)}</title>
+<meta name="description" content="${escAttr(description)}">
+${jsonLd(listLd)}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${escAttr(store)}">
+<meta property="og:title" content="${escAttr(title)}">
+<meta property="og:description" content="${escAttr(description)}">
+<meta property="og:url" content="${escAttr(pageUrl)}">
+${items[0]?.primaryImage ? `<meta property="og:image" content="${escAttr(absImage(origin, items[0].primaryImage))}">` : ''}
+${bot ? '' : `<meta http-equiv="refresh" content="0;url=${escAttr(target)}">\n<script>location.replace(${JSON.stringify(target)});</script>`}
+<link rel="canonical" href="${escAttr(pageUrl)}">
+</head><body style="font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px">
+<p><a href="/">${escAttr(store)}</a> › ${escAttr(name)}</p>
+<h1>${escAttr(name)} Price in Pakistan</h1>
+<p>${escAttr(description)}</p>
+${productLinks(shown)}
+<p><a href="${escAttr(target)}">See all ${escAttr(name)}</a></p>
+${others.length ? `<h2>Other categories</h2>\n<ul>\n${others.map((c) => `<li><a href="/c/${catSlug(c)}">${escAttr(c)}</a></li>`).join('\n')}\n</ul>` : ''}
+</body></html>`);
+});
+
+// Product feed for Google Merchant Center (free listings in the Shopping tab) and the Facebook /
+// Instagram catalog: every live product with price, stock and pictures, from the catalog copy.
+app.get('/feeds/products.xml', (req, res) => {
+  const origin = pageOrigin(req);
+  const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
+  const x = (s: unknown) =>
+    String(s ?? '')
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  const rows = liveProducts()
+    .map((p) => {
+      const price = priceOf(p);
+      const image = absImage(origin, p.primaryImage || (Array.isArray(p.images) ? p.images[0] : ''));
+      if (!price || !image) return '';
+      const extra = (Array.isArray(p.images) ? p.images : []).map((s: unknown) => absImage(origin, s)).filter((s: string) => s && s !== image).slice(0, 8);
+      const inStock = Number(p.stock) > 0 || (Array.isArray(p.variants) && p.variants.some((v: any) => Number(v?.stock) > 0));
+      const text = String(p.description || p.shortDescription || p.name).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 4900);
+      return [
+        '<item>',
+        `<g:id>${x(p.id)}</g:id>`,
+        `<g:title>${x(String(p.name).slice(0, 150))}</g:title>`,
+        `<g:description>${x(text)}</g:description>`,
+        `<g:link>${x(`${origin}/p/${encodeURIComponent(p.id)}`)}</g:link>`,
+        `<g:image_link>${x(image)}</g:image_link>`,
+        ...extra.map((s: string) => `<g:additional_image_link>${x(s)}</g:additional_image_link>`),
+        `<g:availability>${inStock ? 'in_stock' : 'out_of_stock'}</g:availability>`,
+        `<g:price>${price.toFixed(2)} PKR</g:price>`,
+        `<g:condition>new</g:condition>`,
+        p.brand ? `<g:brand>${x(p.brand)}</g:brand>` : '',
+        `<g:identifier_exists>no</g:identifier_exists>`,
+        p.category ? `<g:product_type>${x(p.category)}${p.subcategory ? ` &gt; ${x(p.subcategory)}` : ''}</g:product_type>` : '',
+        '</item>',
+      ]
+        .filter(Boolean)
+        .join('');
+    })
+    .filter(Boolean);
+  res.type('application/xml').setHeader('Cache-Control', 'public, max-age=1800');
+  res.send(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel>` +
+      `<title>${x(store)}</title><link>${x(origin)}/</link><description>${x(store)} products</description>\n${rows.join('\n')}\n</channel></rss>\n`
+  );
 });
 
 // Share link of one shop (/s/<sellerId>). "#shop/<id>" links lost the part after # in Facebook and
@@ -7297,15 +7422,23 @@ async function startServer() {
         const d = new Date(String(v || ''));
         return isNaN(d.getTime()) ? '' : `<lastmod>${d.toISOString().slice(0, 10)}</lastmod>`;
       };
-      const live = catalogStore.ready ? catalogStore.publicProducts().filter((p: any) => p.status === 'ACTIVE') : [];
+      const live = liveProducts();
       const shops = new Set<string>();
+      const cats = new Set<string>();
       const rows = [`  <url><loc>${origin}/</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`];
-      for (const p of live.slice(0, 45000) as any[]) {
+      for (const p of live.slice(0, 40000)) {
         if (p.sellerId) shops.add(String(p.sellerId));
-        rows.push(`  <url><loc>${xml(`${origin}/p/${encodeURIComponent(p.id)}`)}</loc>${day(p.updatedAt || p.createdAt)}<changefreq>weekly</changefreq><priority>0.8</priority></url>`);
+        if (catSlug(p.category)) cats.add(catSlug(p.category));
+        // Product pictures too, so products can also be found in Google Images
+        const pics = [p.primaryImage, ...(Array.isArray(p.images) ? p.images : [])].map((s) => absImage(origin, s)).filter(Boolean);
+        const imgs = [...new Set(pics)].slice(0, 5).map((s) => `<image:image><image:loc>${xml(String(s))}</image:loc></image:image>`).join('');
+        rows.push(`  <url><loc>${xml(`${origin}/p/${encodeURIComponent(p.id)}`)}</loc>${day(p.updatedAt || p.createdAt)}<changefreq>weekly</changefreq><priority>0.8</priority>${imgs}</url>`);
       }
+      for (const c of cats) rows.push(`  <url><loc>${xml(`${origin}/c/${c}`)}</loc><changefreq>daily</changefreq><priority>0.9</priority></url>`);
       for (const s of shops) rows.push(`  <url><loc>${xml(`${origin}/s/${encodeURIComponent(s)}`)}</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>`);
-      res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${rows.join('\n')}\n</urlset>\n`);
+      res.send(
+        `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${rows.join('\n')}\n</urlset>\n`
+      );
     });
     app.use((req, res, next) => {
       if (privatePortal(req)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');

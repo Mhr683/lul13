@@ -121,7 +121,7 @@ export default defineConfig(() => {
           // seller./admin. subdomain), and phones then would not install the Seller / Admin app.
           // Share links /p/<product> and /s/<shop> also come from the server (it sends them on to the
           // product / shop page); the cached store page opened the home page instead.
-          navigateFallbackDenylist: [/^\/api\//, /^\/(seller|admin|vendor)(\/|$)/i, /^\/(p|s)\//i],
+          navigateFallbackDenylist: [/^\/api\//, /^\/(seller|admin|vendor)(\/|$)/i, /^\/(p|s|c)\//i, /^\/feeds\//i],
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff,woff2}'],
           runtimeCaching: [
