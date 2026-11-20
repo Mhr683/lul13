@@ -628,6 +628,24 @@ registerStepUpRoutes(app, {
   sendLoginEmail: ({ storeName, ...params }) => sendLoginCheckEmail(adminDb, { ...params, storeName }),
 });
 
+// One-time policy update (2026-11-20, owner's request): the store's Refund & Return Policy says who
+// pays return shipping, matching the return policy set in Google Merchant Center. Runs once: skipped
+// when the line is already there, so an admin's later edits are never overwritten.
+const RETURN_SHIPPING_LINE =
+  '- **Return shipping:** free when the item is defective, damaged or wrong (merchant error); for any other return (change of mind, size, colour) the customer pays the return courier fee.';
+setTimeout(async () => {
+  try {
+    const ref = adminDb.collection('settings').doc('store_config');
+    const snap = await ref.get();
+    const policy = String(snap.data()?.refundPolicy || '');
+    if (!policy.trim() || /return shipping:/i.test(policy) || snap.data()?.returnShippingLineAdded) return;
+    await ref.set({ refundPolicy: `${policy.trimEnd()}\n${RETURN_SHIPPING_LINE}`, returnShippingLineAdded: true }, { merge: true });
+    console.log('Refund policy: return shipping line added');
+  } catch (err: any) {
+    console.error('Refund policy update failed:', err?.message || err);
+  }
+}, 20000);
+
 // Owner, current admins and pending admin invites
 app.get('/api/admin/team', requireSuperAdmin, async (_req, res) => {
   try {
