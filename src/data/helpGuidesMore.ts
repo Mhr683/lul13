@@ -540,8 +540,9 @@ export const HELP_GUIDES_MORE: Record<string, HelpGuide> = {
       '"What is it about?" chunein (order, payout, product...).',
       'Order ka masla ho to order number likhein (jaise ORD-123456).',
       'Subject aur poori baat likh kar bhejein.',
-      'Jawab isi baat chit mein aata hai.',
+      'Jawab isi baat chit mein aata hai, aur aap ki email par bhi.',
     ],
+    tips: ['Upar hare 🎧 "Help" button se bhi seedha yahi form khulta hai, saath WhatsApp aur AI Assistant ke raaste bhi.'],
   },
   'seller.earnings.payouts': {
     title: 'Payouts (aap ko kab aur kitna mila)',

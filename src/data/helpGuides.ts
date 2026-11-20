@@ -119,7 +119,8 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       '🛍️ Customers: buyers ke returns aur shikayatein. Inhein sab se pehle dekhein. Product ke sawal Questions tab mein hain (neeche button).',
       '🏪 Store / Admin: store team ke notices, store ke qawaid (late dispatch, return charge waghera) aur store se aap ki baat chit.',
       'Store ko kuch kehna ho to Store / Admin mein "New complaint / message" dabayein, "What is it about?" chunein, order number (agar ho), Subject aur message likh kar bhej dein.',
-      'Jawab yahin aata hai. Band baat chit par dobara likhne se woh phir khul jati hai.',
+      'Jawab yahin aata hai, aur aap ki email par bhi. Band baat chit par dobara likhne se woh phir khul jati hai.',
+      'Madad ke saare raaste ek jagah: upar hara 🎧 "Help" button. Is mein AI Assistant (foran jawab), store team ko message (ek din mein jawab), WhatsApp seller support (detail, screenshot ya voice bhejein, 24 ghante mein jawab), email aur Seller rules hain.',
       '🤖 AI Coach: dukaan behtar karne ke mashware. Yeh hukam nahi, salah hai. Poori report Dashboard par hai.',
     ],
     tips: [
@@ -649,6 +650,11 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       '"Complaint box" mein sellers ki shikayatein: kholein, "Send reply" se jawab dein.',
       '"Message a seller": seller chunein, subject aur message likh kar bhejein.',
       '"Notices to sellers": sab ya ek seller ko elaan. "Urgent alert" Seller Center mein sab se upar dikhta hai.',
+    ],
+    tips: [
+      'Seller naya message bheje (ya jawab mil jane ke baad dobara likhe) to aap ko fauran email aati hai: "💬 Seller message: dukaan – subject".',
+      'Aap jawab dein to seller ko bhi email jati hai. Sellers ko bataya gaya hai ke jawab ek din mein milega.',
+      'Seller Center mein hare 🎧 "Help" button mein yahi message, AI Assistant, aur helpline ka WhatsApp number (Admin → Settings → Helpline) hai.',
     ],
   },
   'admin.tab.SELLERS': {

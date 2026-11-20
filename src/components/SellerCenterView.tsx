@@ -40,6 +40,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { SellerAiAssistant } from './SellerAiAssistant';
+import { SellerHelpButton, SellerHelpPanel } from './SellerHelpPanel';
 import { QuestionsInbox, sellerWaitingQuestions } from './QuestionsInbox';
 import { OrderChat } from './OrderChat';
 import { SellerSocialLinks } from './SellerSocialLinks';
@@ -371,6 +372,9 @@ export const SellerCenterView: React.FC = () => {
   // allowed). Checked every 45 s, also while the app is in the background (browsers slow that to ~1/min).
   const [alerts, setAlerts] = useState<{ chats: number; newOrders: number } | null>(null);
   const [sound, setSound] = useState(soundOn);
+  // Help (top bar): every way to get help; it can open Messages → Store with a new message ready
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [openStore, setOpenStore] = useState<{ key: number; compose: boolean } | null>(null);
   const lastAlerts = useRef<{ chats: number; newOrders: number } | null>(null);
   const checkAlerts = useCallback(async () => {
     try {
@@ -622,6 +626,9 @@ export const SellerCenterView: React.FC = () => {
       page={PAGES[tab] || PAGES.DASHBOARD}
       unread={unreadTotal}
       topExtra={
+        <>
+        {/* Help: every way to get help in one place (AI, store team, WhatsApp, e-mail, rules) */}
+        <SellerHelpButton onClick={() => setHelpOpen(true)} unread={inbox?.unread.threads || 0} />
         <button
           type="button"
           aria-label={sound ? 'Turn the order bell sound off' : 'Turn the order bell sound on'}
@@ -637,6 +644,7 @@ export const SellerCenterView: React.FC = () => {
         >
           {sound ? '🔊' : '🔇'}
         </button>
+        </>
       }
       onSignOut={handleSignOut}
       banner={
@@ -713,7 +721,29 @@ export const SellerCenterView: React.FC = () => {
       )}
       {tab === 'REVIEWS' && <ReviewsTab onSeen={clearActivity} />}
       {tab === 'QUESTIONS' && <QuestionsInbox mode="seller" onWaitingChange={setQuestionsWaiting} />}
-      {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} onTab={(t) => setTab(t as Tab)} />}
+      {tab === 'MESSAGES' && <MessagesTab inbox={inbox} reload={loadInbox} onTab={(t) => setTab(t as Tab)} openStore={openStore} />}
+      <SellerHelpPanel
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        shopName={seller.shopName}
+        whatsappDigits={String(settings.helplineWhatsApp || '').replace(/\D/g, '')}
+        whatsappShown={(() => {
+          const d = String(settings.helplineWhatsApp || '').replace(/\D/g, '');
+          return /^923\d{9}$/.test(d) ? `+92 ${d.slice(2, 5)} ${d.slice(5)}` : String(settings.helplineWhatsAppFormatted || d);
+        })()}
+        email={settings.helplineEmail || settings.supportEmail || settings.contactEmail || ''}
+        waitingReplies={inbox?.unread.threads || 0}
+        onAi={() => setTab('AI')}
+        onMessageStore={() => {
+          setOpenStore({ key: Date.now(), compose: true });
+          setTab('MESSAGES');
+        }}
+        onConversations={() => {
+          setOpenStore({ key: Date.now(), compose: false });
+          setTab('MESSAGES');
+        }}
+        onRules={() => setTab('RULES' as Tab)}
+      />
       {tab === 'PROFILE' &&
         (sellerPrivate ? (
           <ProfileTab seller={seller} privateData={sellerPrivate} onSaved={loadMe} commissionPercent={commissionPercent ?? 0} followers={followers} />
@@ -3941,15 +3971,24 @@ const NOTICE_FROM: Record<NoticeSource, string> = {
 type InboxBox = 'CUSTOMER' | 'STORE' | 'COACH';
 const boxOf = (n: StoreNotice): InboxBox => (n.source === 'CUSTOMER' ? 'CUSTOMER' : n.source === 'COACH' ? 'COACH' : 'STORE');
 
-const MessagesTab: React.FC<{ inbox: SellerInbox | null; reload: () => Promise<void>; onTab: (tab: string) => void }> = ({
-  inbox,
-  reload,
-  onTab,
-}) => {
+const MessagesTab: React.FC<{
+  inbox: SellerInbox | null;
+  reload: () => Promise<void>;
+  onTab: (tab: string) => void;
+  // From Help: open the store box (and a new message to the store team)
+  openStore?: { key: number; compose: boolean } | null;
+}> = ({ inbox, reload, onTab, openStore }) => {
   const { showToast } = useStore();
   const [openId, setOpenId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const [box, setBox] = useState<InboxBox | null>(null);
+  useEffect(() => {
+    if (!openStore) return;
+    setBox('STORE');
+    setOpenId(null);
+    setComposing(openStore.compose);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [openStore?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   // "New" marks stay for this visit even after the notices are marked read
   const [seenBefore, setSeenBefore] = useState<string | null>(null);
 

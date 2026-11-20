@@ -4553,11 +4553,61 @@ const marketplace = registerMarketplaceRoutes(app, {
 });
 
 // Messages and notices between sellers and the store
+const SELLER_THREAD_LABELS: Record<string, string> = { ORDER: 'Order', PAYOUT: 'Payout', PRODUCT: 'Product / listing', ACCOUNT: 'Account', OTHER: 'Other' };
 const sellerInbox = registerSellerInboxRoutes(app, {
   adminDb,
   requireSeller: marketplace.requireSeller,
   requireAdmin,
   forgetSeller: marketplace.forgetSeller,
+  // The owner hears at once when a seller writes to the store team
+  onSellerWrote: (t, text, isNew) => {
+    const s = catalogStore.settings() || {};
+    const to = process.env.STORE_OWNER_EMAIL?.trim() || process.env.ADMIN_EMAIL?.trim() || s.supportEmail || s.contactEmail || '';
+    if (!to) return;
+    const adminUrl = STORE_HOST ? `https://admin.${STORE_HOST}/admin` : `${String(process.env.APP_URL || '').replace(/\/+$/, '')}/admin`;
+    sendSellerEngagementEmail(adminDb, {
+      to,
+      ownerName: '',
+      shopName: t.sellerName || 'Seller',
+      subject: `💬 Seller message: ${t.sellerName || 'a seller'} – ${String(t.subject).slice(0, 80)}`,
+      title: isNew ? 'A seller wrote to the store team' : 'A seller replied in a conversation',
+      color: 'amber',
+      paragraphs: [
+        `${t.sellerName || 'A seller'} · ${SELLER_THREAD_LABELS[t.category] || t.category}${t.orderNumber ? ` · order ${t.orderNumber}` : ''}`,
+        `Subject: ${t.subject}`,
+        text.slice(0, 1500),
+        'Sellers are told the store team replies within a day.',
+      ],
+      button: 'Open Admin → Seller Messages',
+      sellerCenterUrl: adminUrl,
+      storeName: s.storeName,
+      supportEmail: s.supportEmail,
+    }).catch((err) => console.warn('[seller message] owner e-mail failed:', err?.message));
+  },
+  // The seller gets the store team's reply by e-mail too
+  onStoreReplied: async (t, text) => {
+    try {
+      const snap = await adminDb.collection('sellers').doc(String(t.sellerId)).get();
+      const seller: any = snap.data() || {};
+      if (!seller.ownerEmail) return;
+      const s = catalogStore.settings() || {};
+      await sendSellerEngagementEmail(adminDb, {
+        to: seller.ownerEmail,
+        ownerName: seller.ownerName || '',
+        shopName: seller.shopName || t.sellerName || '',
+        subject: `The store team replied: ${String(t.subject).slice(0, 80)}`,
+        title: 'Reply from the store team',
+        color: 'emerald',
+        paragraphs: [`About: ${t.subject}`, text.slice(0, 1500), 'You can answer in Seller Center → Help → Message the store team (or Messages → Store / Admin).'],
+        button: 'Open Seller Center',
+        sellerCenterUrl: SELLER_CENTER_URL,
+        storeName: s.storeName,
+        supportEmail: s.supportEmail,
+      });
+    } catch (err: any) {
+      console.warn('[seller message] seller e-mail failed:', err?.message);
+    }
+  },
 });
 
 // Welcome / first listing messages, start-listing e-mails and health alerts, all automatic

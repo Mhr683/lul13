@@ -20,6 +20,10 @@ export interface SellerInboxDeps {
   requireSeller: Handler;
   requireAdmin: Handler;
   forgetSeller: (uid: string) => void;
+  // E-mails: to the owner when a seller writes (new conversation, or a reply in one that was answered),
+  // to the seller when the store team replies
+  onSellerWrote?: (thread: any, text: string, isNew: boolean) => void;
+  onStoreReplied?: (thread: any, text: string) => void;
 }
 
 export const THREAD_CATEGORIES = ['ORDER', 'PAYOUT', 'PRODUCT', 'ACCOUNT', 'OTHER'] as const;
@@ -237,6 +241,7 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
       };
       await threads().doc(id).set(thread);
       forgetThreads(uid);
+      d.onSellerWrote?.(thread, text, true);
       res.json({ success: true, thread });
     } catch (err) {
       console.error('[seller/threads create] failed:', err);
@@ -267,11 +272,14 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
           unreadForAdmin: true,
         };
         tx.update(ref, next);
-        return { ...t, ...next, id: snap.id };
+        return { ...t, ...next, id: snap.id, wasUnreadForAdmin: Boolean(t.unreadForAdmin) };
       });
       if (!updated) return res.status(404).json({ error: 'Conversation not found.' });
       forgetThreads(uid);
-      res.json({ success: true, thread: updated });
+      // (one e-mail per waiting conversation: not again for every extra line before the team reads it)
+      const { wasUnreadForAdmin, ...thread } = updated as any;
+      if (!wasUnreadForAdmin) d.onSellerWrote?.(thread, text, false);
+      res.json({ success: true, thread });
     } catch (err) {
       console.error('[seller/threads reply] failed:', err);
       res.status(503).json({ error: 'Could not send your message. Please try again.' });
@@ -405,6 +413,7 @@ export function registerSellerInboxRoutes(app: express.Express, d: SellerInboxDe
       });
       if (!updated) return res.status(404).json({ error: 'Conversation not found.' });
       forgetThreads(updated.sellerId);
+      if (text) d.onStoreReplied?.(updated, text);
       res.json({ success: true, thread: updated });
     } catch (err) {
       console.error('[admin/seller-threads reply] failed:', err);
