@@ -3,7 +3,7 @@ import { Search, X, ArrowRight, ArrowLeft, Store } from 'lucide-react';
 import { Product } from '../types/store';
 import { ProductImage } from './ProductImage';
 import { formatMoney } from '../services/currency';
-import { readShopCode, shopCode } from '../services/shopCode';
+import { findShops, listShops } from '../services/shopCode';
 
 // Store search box (header). Laptop: a results panel under the box that always stays inside the
 // screen. Phone: a full-screen search page with a Back button. Esc, Back, a tap outside or picking a
@@ -147,29 +147,9 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
     return { results: found.slice(0, SHOW), total: found.length };
   }, [products, q, category]);
 
-  // Shops (from the catalog, no extra download): every shop with live products, found by its name
-  // or its shop ID. Shown above the products, so typing a shop's name opens the shop itself.
-  const shopList = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; code: string; count: number; image: string; category: string }>();
-    for (const p of products) {
-      if (p.status !== 'ACTIVE' || !p.sellerId) continue;
-      const s = map.get(p.sellerId);
-      if (s) s.count++;
-      else map.set(p.sellerId, { id: p.sellerId, name: String((p as any).sellerName || 'Shop'), code: shopCode(p.sellerId), count: 1, image: p.primaryImage || '', category: p.category });
-    }
-    return [...map.values()];
-  }, [products]);
-  const shops = useMemo(() => {
-    if (!q || !onSelectShop) return [];
-    const code = readShopCode(q);
-    const tokens = q.split(/\s+/).filter(Boolean);
-    const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, '');
-    const typed = clean(q);
-    return shopList
-      .filter((s) => (code && s.code === code) || (typed.length >= 2 && (tokens.every((t) => s.name.toLowerCase().includes(t)) || clean(s.name).includes(typed))))
-      .sort((a, b) => Number(!!code && b.code === code) - Number(!!code && a.code === code) || Number(clean(b.name).startsWith(typed)) - Number(clean(a.name).startsWith(typed)) || b.count - a.count)
-      .slice(0, 4);
-  }, [shopList, q, onSelectShop]);
+  // Shops (from the catalog, no extra download), found by name or shop ID, shown above the products
+  const shopList = useMemo(() => listShops(products as any), [products]);
+  const shops = useMemo(() => (q && onSelectShop ? findShops(shopList, q) : []), [shopList, q, onSelectShop]);
   const pickShop = (id: string) => close(() => onSelectShop?.(id));
 
   useEffect(() => setActive(-1), [q, category]);
@@ -182,8 +162,8 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (active >= 0 && results[active]) return pick(results[active]);
-    // A shop ID typed and Enter pressed: the shop opens
-    if (shops.length && readShopCode(q) === shops[0].code) return pickShop(shops[0].id);
+    // A shop's name or ID typed and Enter (Search on the phone) pressed: the shop itself opens
+    if (shops.length && shops[0].strong) return pickShop(shops[0].id);
     if (query.trim()) seeAll();
   };
   const onArrows = (e: React.KeyboardEvent) => {
@@ -283,7 +263,7 @@ export const GlobalHeaderSearch: React.FC<GlobalHeaderSearchProps> = ({ products
                     <span className="flex-1 min-w-0">
                       <span className="block text-[13px] font-bold text-[#141413] truncate">{s.name}</span>
                       <span className="block text-[11px] text-[#8C8A85] truncate mt-0.5">
-                        Shop ID {s.code} · {s.count} product{s.count === 1 ? '' : 's'}
+                        {s.code ? `Shop ID ${s.code} · ` : ''}{s.count} product{s.count === 1 ? '' : 's'}
                       </span>
                     </span>
                     <span className="shrink-0 text-[12px] font-semibold text-[#0E7A43] flex items-center gap-1">

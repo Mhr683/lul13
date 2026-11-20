@@ -1,4 +1,4 @@
-import { shopCode, readShopCode } from './src/services/shopCode';
+import { readShopId } from './src/services/shopCode';
 import express from 'express';
 import http from 'http';
 import { createServer as createViteServer } from 'vite';
@@ -1646,10 +1646,10 @@ ${image ? `<meta name="twitter:image" content="${escAttr(image)}">` : ''}
 // product picture from the catalog copy (no database reads); a person goes on to the shop page.
 app.get('/s/:id', (req, res) => {
   let id = String(req.params.id || '').slice(0, 128);
-  // The shop ID (/s/AS-7K2QX9) works too: the shop is found in the catalog copy
-  const code = readShopCode(id);
+  // The shop ID (/s/AV-PK-00004) works too: the shop is found in the catalog copy
+  const code = readShopId(id);
   if (code && catalogStore.ready) {
-    const hit = catalogStore.publicProducts().find((p: any) => p.sellerId && shopCode(p.sellerId) === code);
+    const hit = catalogStore.publicProducts().find((p: any) => p.sellerId && String(p.vendorId || '').toUpperCase() === code);
     if (hit) id = String((hit as any).sellerId);
   }
   const target = `/#shop/${encodeURIComponent(id)}`;

@@ -40,7 +40,9 @@ import {
   Phone,
   Menu,
   Loader2,
+  Store,
 } from 'lucide-react';
+import { findShops, listShops } from '../services/shopCode';
 import { useStore } from '../context/StoreContext';
 import { auth } from '../lib/firebase';
 import { Product, PaymentMethod, Order } from '../types/store';
@@ -1118,6 +1120,9 @@ export const StorefrontView: React.FC = () => {
         return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
       });
   }, [products, activeCategory, activeSubcategory, activeCollection, activeType, activeBrand, priceCeiling, inStockOnly, searchQuery, sortBy, visitorCountry]);
+  // Shops whose name or shop ID matches the search words (shown above the results)
+  const shopIndex = useMemo(() => listShops(products as any), [products]);
+  const searchShops = useMemo(() => (searchQuery.trim() ? findShops(shopIndex, searchQuery, 3) : []), [shopIndex, searchQuery]);
   // Kinds that have at least one live product (the others get no icon on the store)
   const typesInStore = useMemo(() => {
     const count = new Map<ProductType, number>();
@@ -2476,6 +2481,30 @@ export const StorefrontView: React.FC = () => {
               </div>
             </div>
 
+            {/* Search words that match a shop's name or shop ID: the shop is offered first */}
+            {searchShops.length > 0 && (
+              <div className="mt-6 flex flex-col gap-2">
+                {searchShops.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => openShop(s.id)}
+                    className="w-full flex items-center gap-3 p-3 sm:p-4 bg-[#E8F3EC] border border-[#0E7A43]/25 rounded-xl text-left hover:border-[#0E7A43] cursor-pointer"
+                  >
+                    <span className="w-11 h-11 rounded-full bg-white flex items-center justify-center shrink-0">
+                      <Store className="w-5 h-5 text-[#0E7A43]" />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-bold text-[#141413] truncate">{s.name}</span>
+                      <span className="block text-[11px] text-[#575653] truncate">
+                        {s.code ? `Shop ID ${s.code} · ` : ''}{s.count} product{s.count === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                    <span className="shrink-0 px-3 py-2 rounded-full bg-[#0E7A43] text-white text-xs font-bold">Visit shop</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-8">
               {/* Left Filter Rail */}
               <aside className="lg:col-span-3 space-y-8">

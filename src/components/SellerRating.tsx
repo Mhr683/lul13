@@ -7,6 +7,8 @@ import { Star, Clock3, RotateCcw, Award } from 'lucide-react';
 export type ShopInfo = {
   id: string;
   shopName: string;
+  /** The shop ID (AV-PK-00001), searchable in the store */
+  vendorId?: string;
   logoUrl: string;
   city: string;
   joinedAt: string;

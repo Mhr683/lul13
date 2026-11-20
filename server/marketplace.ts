@@ -2196,6 +2196,8 @@ export function registerMarketplaceRoutes(app: express.Express, d: MarketplaceDe
               ? {
                   id,
                   shopName: s.shopName,
+                  // The shop ID customers can search for (AV-PK-00001)
+                  vendorId: s.vendorId || '',
                   logoUrl: s.logoUrl || '',
                   coverUrl: s.coverUrl || '',
                   city: s.city || '',
