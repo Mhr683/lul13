@@ -1792,6 +1792,38 @@ ${others.length ? `<h2>Other categories</h2>\n<ul>\n${others.map((c) => `<li><a 
 </body></html>`);
 });
 
+// IndexNow (Bing, Yandex, Seznam...): new or changed live products are reported within minutes
+// instead of waiting for the next crawl. The key is fixed per domain and served at /<key>.txt.
+const INDEXNOW_KEY = crypto.createHash('sha256').update(`${STORE_HOST || 'store'}|indexnow`).digest('hex').slice(0, 32);
+app.get(`/${INDEXNOW_KEY}.txt`, (_req, res) => res.type('text/plain').send(INDEXNOW_KEY));
+{
+  let known: Map<string, string> | null = null;
+  const check = async () => {
+    if (!STORE_HOST || !catalogStore.ready) return;
+    const now = new Map<string, string>();
+    for (const p of liveProducts()) now.set(String(p.id), `${priceOf(p)}|${p.name}|${p.updatedAt || ''}`);
+    // First look after a start: only remember what is live (no flood of old products)
+    if (!known) return void (known = now);
+    const changed = [...now.entries()].filter(([id, sig]) => known!.get(id) !== sig).map(([id]) => id);
+    known = now;
+    if (!changed.length) return;
+    const origin = `https://${STORE_HOST}`;
+    const urls = changed.slice(0, 9000).map((id) => `${origin}/p/${encodeURIComponent(id)}`);
+    try {
+      const r = await fetch('https://api.indexnow.org/indexnow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ host: STORE_HOST, key: INDEXNOW_KEY, keyLocation: `${origin}/${INDEXNOW_KEY}.txt`, urlList: urls }),
+      });
+      console.log(`[indexnow] ${urls.length} product page(s) reported: HTTP ${r.status}`);
+    } catch (err: any) {
+      console.warn('[indexnow] failed:', err?.message || err);
+    }
+  };
+  setInterval(check, 30 * 60_000).unref?.();
+  setTimeout(check, 3 * 60_000).unref?.();
+}
+
 // Product feed for Google Merchant Center (free listings in the Shopping tab) and the Facebook /
 // Instagram catalog: every live product with price, stock and pictures, from the catalog copy.
 app.get('/feeds/products.xml', (req, res) => {
