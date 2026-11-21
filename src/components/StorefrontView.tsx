@@ -2246,16 +2246,16 @@ export const StorefrontView: React.FC = () => {
                           <ShipsBadge product={product} className="mt-1 ml-1" />
                         </span>
 
-                        <p className="hidden lg:block text-xs text-black font-medium mt-1.5 line-clamp-2 leading-relaxed">
+                        <p className="hidden lg:[display:-webkit-box] text-xs text-black font-medium mt-1.5 line-clamp-2 leading-4 min-h-8">
                           {product.shortDescription}
                         </p>
                       </div>
                     </div>
 
-                    <div className="px-1.5 pb-1.5 pt-1 lg:px-5 lg:pb-5 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:items-center justify-between gap-1 lg:gap-4">
+                    <div className="px-1.5 pb-1.5 pt-1 lg:px-5 lg:pb-5 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:flex-wrap lg:items-center justify-between gap-1 lg:gap-x-4">
                       <div className="font-mono tabular-nums min-w-0">
                         <div className="flex flex-wrap items-baseline gap-x-1.5 lg:gap-x-2">
-                          <span className="text-[11px] lg:text-base font-extrabold text-black">
+                          <span className="text-[11px] lg:text-base font-extrabold text-black whitespace-nowrap">
                             {formatMoney(product.price)}
                           </span>
                           {/* A Number() check: compareAtPrice 0 would otherwise print a stray "0" */}
@@ -2694,7 +2694,7 @@ export const StorefrontView: React.FC = () => {
                             <span className="hidden lg:inline">
                               <ShipsBadge product={product} className="mt-1 ml-1" />
                             </span>
-                            <p className="hidden lg:block text-xs text-black font-medium mt-1 line-clamp-2">
+                            <p className="hidden lg:[display:-webkit-box] text-xs text-black font-medium mt-1 line-clamp-2 leading-4 min-h-8">
                               {product.shortDescription}
                             </p>
                             {product.sellerId && product.sellerName && (
@@ -2709,9 +2709,9 @@ export const StorefrontView: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="px-1.5 pb-1.5 pt-1 lg:px-4 lg:pb-4 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:items-center justify-between gap-1">
+                        <div className="px-1.5 pb-1.5 pt-1 lg:px-4 lg:pb-4 lg:pt-3 border-t border-black/10 flex flex-col lg:flex-row lg:flex-wrap lg:items-center justify-between gap-1">
                           <div className="font-mono tabular-nums min-w-0">
-                            <span className="text-[11px] lg:text-base font-extrabold text-black block">
+                            <span className="text-[11px] lg:text-base font-extrabold text-black block whitespace-nowrap">
                               {formatMoney(product.price)}
                             </span>
                             <span className="hidden lg:block">
@@ -2952,7 +2952,8 @@ export const StorefrontView: React.FC = () => {
                     </div>
                   )}
 
-                  <p className="text-sm text-[#575653] leading-relaxed">
+                  {/* Summary next to the price: at most 4 lines on every product; the full text is in "Description" below */}
+                  <p className="text-sm text-[#575653] leading-relaxed line-clamp-4" title={selectedProduct.shortDescription || selectedProduct.description}>
                     {selectedProduct.shortDescription || selectedProduct.description}
                   </p>
 

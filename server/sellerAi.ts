@@ -192,7 +192,7 @@ export function registerSellerAiRoutes(app: express.Express, d: SellerAiDeps) {
       contents: `Write product copy for a Pakistani online shop. Product: "${p.name}". Category: ${p.category}. Price: PKR ${p.price}.
 Current description: ${String(p.description || '').slice(0, 1500)}
 Tone: ${tone || 'Professional'}. ${extra}
-Be honest and clear (features, size/specs, what is in the box). Never invent warranties, certifications or delivery times. Do not call the item "original" or "genuine" and do not present it as a famous brand unless the product name already is that brand's own product. English.`,
+Be honest and clear (features, size/specs, what is in the box), using only facts found in the product name and the current description: never invent numbers, sizes, materials, quantities, specs or box contents that are not given there; when they are not known, describe what the product is for and how it is used instead. Never invent warranties, certifications or delivery times. Do not call the item "original" or "genuine" and do not present it as a famous brand unless the product name already is that brand's own product. English.`,
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
