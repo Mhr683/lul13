@@ -1715,7 +1715,11 @@ export const StorefrontView: React.FC = () => {
             >
               Become a seller
             </a>
-            <PWAInstallButton variant="header" />
+            {/* Wide screens only: on smaller laptops the top banner already has "Install App",
+                and this row would push "Track order" over the menu links */}
+            <span className="hidden 2xl:inline-flex">
+              <PWAInstallButton variant="header" />
+            </span>
           </div>
           </div>
         </div>

@@ -65,7 +65,7 @@ export const HeaderNavDropdowns: React.FC<HeaderNavDropdownsProps> = ({
   };
 
   return (
-    <div ref={dropdownRef} className="flex items-center gap-1 sm:gap-4 md:gap-6 lg:gap-7 text-sm font-medium text-neutral-800">
+    <div ref={dropdownRef} className="flex items-center gap-1 sm:gap-4 md:gap-6 lg:gap-4 2xl:gap-7 text-sm font-medium text-neutral-800">
       {/* 1. Home Link */}
       <button
         type="button"
