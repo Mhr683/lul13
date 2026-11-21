@@ -51,7 +51,8 @@ export const metaPixel = {
   viewContent: (productId: string) => fbq('track', 'ViewContent', product(productId)),
   addToCart: (productId: string, qty = 1) => fbq('track', 'AddToCart', product(productId, { num_items: qty })),
   initiateCheckout: () => fbq('track', 'InitiateCheckout'),
-  /** A placed order (not an unpaid card order); eventID lets Meta drop a duplicate server event */
+  /** A placed order (not an unpaid card order). The eventID is the same as the server's Conversions
+   * API Purchase (server/ads.ts: "order-<orderNumber>"), so Meta counts the order once. */
   purchase: (orderNumber: string, value: number, productIds: string[]) =>
-    fbq('track', 'Purchase', { content_ids: productIds, content_type: 'product', currency: 'PKR', value: Math.round(value), num_items: productIds.length }, { eventID: `purchase-${orderNumber}` }),
+    fbq('track', 'Purchase', { content_ids: productIds, content_type: 'product', currency: 'PKR', value: Math.round(value), num_items: productIds.length }, { eventID: `order-${orderNumber}` }),
 };

@@ -339,6 +339,10 @@ export function createAds(d: AdsDeps) {
   /** Funnel steps from the store's tracking batches (anonymous: device id hashed, IP, browser) */
   const onFunnelEvents = (visitor: string, events: { t: string; p?: string; n?: number }[], req: express.Request) => {
     if (!configured.capi()) return;
+    // The store's browser Meta Pixel (src/services/metaPixel.ts) already sends AddToCart and
+    // InitiateCheckout with the same Pixel ID; sending them here too would count each one twice.
+    // Only Purchase goes from the server (matched to the browser's by its event id).
+    if (env('META_PIXEL_ID')) return;
     const now = Math.floor(Date.now() / 1000);
     const out = events
       .filter((e) => e.t === 'cart' || e.t === 'chk')
