@@ -6,6 +6,8 @@
 // out once per visit: Meta / Google / TikTok ads, organic Facebook / Instagram, WhatsApp (and
 // Refer & Earn links), search engines, other sites, or direct. The server adds everything up (server/analytics.ts).
 
+import { metaPixel } from './metaPixel';
+
 type Ev = { t: string; p?: string; n?: number };
 
 const isStore = () => typeof window !== 'undefined' && !/^\/(seller|admin)(\/|$)/i.test(window.location.pathname);
@@ -136,15 +138,28 @@ function start() {
   }).observe(document.body, { childList: true, subtree: true });
 }
 
+// The same steps also go to the Meta Pixel (when the store has one; src/services/metaPixel.ts)
+let screens = 0;
 export const track = {
   /** A new screen of the store (home, catalog, product, checkout...); impressions count again per screen */
   pageView: () => {
     shown.clear();
     push({ t: 'pv' });
+    // the first screen's PageView is sent when the Pixel starts
+    if (screens++ > 0) metaPixel.pageView();
   },
-  productView: (productId: string) => push({ t: 'view', p: productId }),
+  productView: (productId: string) => {
+    push({ t: 'view', p: productId });
+    metaPixel.viewContent(productId);
+  },
   /** A seller's shop page opened (Seller Center → Traffic shows each seller their visits) */
   shopView: (sellerId: string) => push({ t: 'shop', p: sellerId }),
-  addToCart: (productId: string, qty = 1) => push({ t: 'cart', p: productId, n: qty }),
-  checkoutStarted: () => push({ t: 'chk' }),
+  addToCart: (productId: string, qty = 1) => {
+    push({ t: 'cart', p: productId, n: qty });
+    metaPixel.addToCart(productId, qty);
+  },
+  checkoutStarted: () => {
+    push({ t: 'chk' });
+    metaPixel.initiateCheckout();
+  },
 };

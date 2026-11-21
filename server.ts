@@ -2026,6 +2026,8 @@ app.get('/api/catalog/bootstrap', (_req, res) => {
     categories: catalogStore.categories(),
     coupons: catalogStore.coupons(),
     reviews: catalogStore.reviews(),
+    // Meta Pixel for the customer store (src/services/metaPixel.ts); a Pixel ID is public, not a secret
+    metaPixelId: /^\d{6,20}$/.test(String(process.env.META_PIXEL_ID || '')) ? String(process.env.META_PIXEL_ID) : '',
   });
 });
 

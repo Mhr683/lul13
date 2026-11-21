@@ -159,6 +159,7 @@ import { welcomeOf } from '../services/promotions';
 import { stripPaymentSecrets } from '../services/paymentSecrets';
 import { getReferralCode } from '../services/referral';
 import { track, getAttribution } from '../services/analytics';
+import { metaPixel, startMetaPixel } from '../services/metaPixel';
 
 interface StoreContextValue {
   // Auth
@@ -604,6 +605,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (cancelled) return;
         if (data.settings) applySettings(data.settings as StoreSettings);
         if (Array.isArray(data.categories)) applyCategories(data.categories as Category[]);
+        // Meta Pixel (customer store only; the module ignores Seller Center and the admin panel)
+        if (data.metaPixelId) startMetaPixel(data.metaPixelId);
         if (!isAdmin) {
           if (Array.isArray(data.coupons)) setCoupons(data.coupons as Coupon[]);
           if (Array.isArray(data.reviews)) setReviews(data.reviews as Review[]);
@@ -1159,6 +1162,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // Notify user of order submission
     const grandTotal = splitOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+    // Meta Pixel purchase (an unpaid card order is not a purchase yet)
+    if (String((createdOrder as any)?.paymentMethod || '').toUpperCase() !== 'CARD') {
+      metaPixel.purchase(String(createdOrder?.orderNumber || ''), grandTotal, cart.map((i) => i.productId));
+    }
     await pushNotification(
       'NEW_ORDER',
       `Order ${splitOrders.map((o) => o.orderNumber).join(', ')} Recorded`,
