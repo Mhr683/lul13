@@ -1793,6 +1793,96 @@ ${others.length ? `<h2>Other categories</h2>\n<ul>\n${others.map((c) => `<li><a 
 </body></html>`);
 });
 
+// "Sell on Anokha" (/sell): a public page on the main store domain that Google can index, for people
+// searching "sell online in Pakistan" / "online business". Seller Center itself (seller.*) is kept out
+// of search engines. The offers come from the live store settings (same as the Seller Center landing).
+app.get(['/sell', '/sell-online', '/become-a-seller'], (req, res) => {
+  const origin = pageOrigin(req);
+  const sellerUrl = STORE_HOST ? `https://seller.${STORE_HOST}/` : `${origin}/seller`;
+  const s: any = catalogStore.settings() || {};
+  const store = String(s.storeName || 'Anokha Shopping Hub');
+  const freeDays = Number(s.newSellerFreeDays ?? 30);
+  const commission = Number(s.marketplaceCommissionPercent);
+  const hasCommission = Number.isFinite(commission) && commission > 0;
+  const live = liveProducts();
+  const shops = new Set(live.map((p) => p.sellerId).filter(Boolean)).size;
+  const cats = new Set(live.map((p) => p.category).filter(Boolean)).size;
+  const title = `Sell Online in Pakistan – Open Your Free Online Shop | ${store}`;
+  const description = `Start your online business in Pakistan for free. ${freeDays > 0 ? `0% commission for your first ${freeDays} days, ` : ''}Cash on Delivery collected for you, courier booking, AI tools and payouts to your bank or wallet.`;
+  const faq = [
+    ['How much does it cost to sell?', `Joining is free: no sign-up, monthly or listing fee. You pay only a commission${hasCommission ? ` of ${commission}%` : ''} on each sale${freeDays > 0 ? `, and new shops pay 0% for their first ${freeDays} days` : ''}.`],
+    ['When do I get my money?', 'After the order is delivered, your earning becomes ready for payout and is sent to the bank account or mobile wallet you give.'],
+    ['Do I need my own stock?', 'No. You can sell your own stock or products you source from apps like Oshi, YourMart or Markaz. Customers never see where an item comes from.'],
+    ['What do I need to sign up?', 'A mobile number, your CNIC (or business documents) and a bank account or wallet for payouts.'],
+    ['Who delivers the parcel?', 'You hand the parcel to a courier or book one from your orders. Tracking is shared with the customer automatically.'],
+    ['How do customers find my shop?', 'Your products appear in the store, in Google Search and Google Shopping, and on your own shop page and link that you can share on WhatsApp, Facebook and TikTok. Seller Center shows how many people visit your shop every day.'],
+  ];
+  const benefits = [
+    ['Free to join', 'No sign-up, monthly or listing fee. You pay only when you sell.'],
+    ...(freeDays > 0 ? [[`0% commission for ${freeDays} days`, 'Every new shop keeps 100% of its sales in its first days.']] : []),
+    ['Cash on Delivery handled for you', 'The store collects COD from customers and pays you out to your bank or wallet.'],
+    ['Courier booking & tracking', 'Book the parcel, print the label and follow delivery from your orders.'],
+    ['On Google for free', 'Your products get their own pages on Google Search and Google Shopping.'],
+    ['See your traffic', 'Visitors, product views, orders and sales per day, going up or down.'],
+    ['Top Sellers rewards', 'The top 3 shops every month get the home page spot and lower commission.'],
+    ['Your own AI assistant', 'Writes product descriptions and tells you what to improve in your shop.'],
+    ['Hundreds of products at once', 'Upload a CSV from Excel, or add products one by one.'],
+  ];
+  const steps = ['Create your account with Google or email (1 minute).', 'Add your shop name, CNIC and where you want to be paid.', 'Add your products, one by one or many at once.', 'Ship your orders and get paid after delivery.'];
+  const faqLd = { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) };
+  const btn = `<a class="btn" href="${escAttr(sellerUrl)}">Open my free shop</a>`;
+  res.setHeader('Cache-Control', 'public, max-age=600');
+  res.type('html').send(`<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escAttr(title)}</title>
+<meta name="description" content="${escAttr(description)}">
+<link rel="canonical" href="${escAttr(`${origin}/sell`)}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${escAttr(store)}">
+<meta property="og:title" content="${escAttr(title)}">
+<meta property="og:description" content="${escAttr(description)}">
+<meta property="og:url" content="${escAttr(`${origin}/sell`)}">
+${s.logoUrl ? `<meta property="og:image" content="${escAttr(absImage(origin, s.logoUrl))}">` : ''}
+${jsonLd(faqLd)}
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#141413;background:#FBFBF9;line-height:1.55}
+a{color:#0E7A43}.wrap{max-width:960px;margin:0 auto;padding:0 16px}
+header{background:#0E7A43;color:#fff;padding:14px 0}header a{color:#fff;text-decoration:none;font-weight:700}
+.hero{background:linear-gradient(135deg,#0E7A43,#0B5E34);color:#fff;padding:48px 0 56px}
+.hero h1{font-size:clamp(28px,5vw,44px);line-height:1.15;margin:0 0 12px}.hero p{font-size:17px;max-width:640px;opacity:.92;margin:0 0 22px}
+.badge{display:inline-block;background:#FDE68A;color:#713F12;font-weight:700;font-size:13px;padding:5px 12px;border-radius:99px;margin-bottom:14px}
+.btn{display:inline-block;background:#FDE68A;color:#141413;font-weight:800;padding:14px 26px;border-radius:12px;text-decoration:none;font-size:16px}
+.stats{display:flex;flex-wrap:wrap;gap:22px;margin-top:26px;font-size:14px}.stats b{display:block;font-size:24px}
+section{padding:40px 0}h2{font-size:26px;margin:0 0 18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.card{background:#fff;border:1px solid #E7E5DF;border-radius:14px;padding:16px}.card h3{margin:0 0 6px;font-size:16px}.card p{margin:0;color:#55534E;font-size:14px}
+ol{padding-left:20px}ol li{margin:8px 0}details{background:#fff;border:1px solid #E7E5DF;border-radius:12px;padding:12px 16px;margin:10px 0}summary{font-weight:700;cursor:pointer}
+.cta{background:#141413;color:#fff;border-radius:18px;padding:30px;text-align:center}.cta p{opacity:.85}
+footer{padding:26px 0;color:#787774;font-size:13px}
+</style>
+</head><body>
+<header><div class="wrap"><a href="/">${escAttr(store)}</a></div></header>
+<div class="hero"><div class="wrap">
+${freeDays > 0 ? `<span class="badge">0% commission for your first ${freeDays} days</span>` : ''}
+<h1>Sell online in Pakistan with your own free shop</h1>
+<p>Start your online business today. We collect Cash on Delivery for you, help you book couriers and pay you to your bank or wallet. Aaj hi apni online dukaan muft kholein.</p>
+${btn}
+<div class="stats"><div><b>${live.length.toLocaleString('en-PK')}+</b>products live</div>${shops >= 10 ? `<div><b>${shops}</b>shops selling</div>` : ''}<div><b>${cats}</b>categories</div><div><b>COD</b>all over Pakistan</div></div>
+</div></div>
+<section><div class="wrap"><h2>Why sell on ${escAttr(store)}</h2><div class="grid">
+${benefits.map(([t, d]) => `<div class="card"><h3>${escAttr(t)}</h3><p>${escAttr(d)}</p></div>`).join('\n')}
+</div></div></section>
+<section><div class="wrap"><h2>Start in 4 steps</h2><ol>${steps.map((x) => `<li>${escAttr(x)}</li>`).join('')}</ol>${btn}</div></section>
+<section><div class="wrap"><h2>Questions</h2>
+${faq.map(([q, a]) => `<details><summary>${escAttr(q)}</summary><p>${escAttr(a)}</p></details>`).join('\n')}
+</div></section>
+<section><div class="wrap"><div class="cta"><h2>Ready to start your online business?</h2><p>Free to join. Takes about 5 minutes.</p>${btn}</div></div></section>
+<footer><div class="wrap"><a href="/">Shop at ${escAttr(store)}</a> · <a href="/c/${escAttr(catSlug(live[0]?.category))}">Browse products</a></div></footer>
+</body></html>`);
+});
+
 // IndexNow (Bing, Yandex, Seznam...): new or changed live products are reported within minutes
 // instead of waiting for the next crawl. The key is fixed per domain and served at /<key>.txt.
 const INDEXNOW_KEY = crypto.createHash('sha256').update(`${STORE_HOST || 'store'}|indexnow`).digest('hex').slice(0, 32);
@@ -7514,7 +7604,10 @@ async function startServer() {
       const live = liveProducts();
       const shops = new Set<string>();
       const cats = new Set<string>();
-      const rows = [`  <url><loc>${origin}/</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`];
+      const rows = [
+        `  <url><loc>${origin}/</loc><lastmod>${new Date().toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+        `  <url><loc>${origin}/sell</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`,
+      ];
       for (const p of live.slice(0, 40000)) {
         if (p.sellerId) shops.add(String(p.sellerId));
         if (catSlug(p.category)) cats.add(catSlug(p.category));
