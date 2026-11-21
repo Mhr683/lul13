@@ -1681,17 +1681,43 @@ app.get('/p/:id', (req, res) => {
       availability: `https://schema.org/${inStock ? 'InStock' : 'OutOfStock'}`,
       itemCondition: 'https://schema.org/NewCondition',
       seller: { '@type': 'Organization', name: String(p.sellerName || store) },
-      // Store policy (Customer Protection & Returns page): return or replacement within 7 days of delivery.
-      // Delivery fees are left out: they differ by seller, product and city.
+      // Store policy (Customer Protection & Returns page): return or replacement within 7 days of
+      // delivery; the customer pays the return shipping (same as Merchant Center).
       hasMerchantReturnPolicy: {
         '@type': 'MerchantReturnPolicy',
         applicableCountry: 'PK',
         returnPolicyCategory: 'https://schema.org/MerchantReturnFiniteReturnWindow',
         merchantReturnDays: 7,
         returnMethod: 'https://schema.org/ReturnByMail',
+        returnFees: 'https://schema.org/ReturnFeesCustomerResponsibility',
       },
     },
   };
+  // Delivery charge for one piece to Pakistan, worked out the same way as checkout (seller's own
+  // rate or the store's rate)
+  try {
+    const fee = ShippingCalculationService.calculateBySeller({
+      destinationCountryIso: 'PK',
+      items: [{ productId: p.id, quantity: 1, price } as any],
+      catalogProducts: [p as any],
+      settings: catalogStore.settings() || (DEFAULT_SETTINGS as any),
+    });
+    if (!fee.requiresManualQuote && !fee.unshippableItems?.length && Number.isFinite(fee.finalShippingFee)) {
+      const handling = Math.max(1, Number((p as any).shipping?.handlingDays) || 1);
+      productLd.offers.shippingDetails = {
+        '@type': 'OfferShippingDetails',
+        shippingRate: { '@type': 'MonetaryAmount', value: Math.round(fee.finalShippingFee), currency: 'PKR' },
+        shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'PK' },
+        deliveryTime: {
+          '@type': 'ShippingDeliveryTime',
+          handlingTime: { '@type': 'QuantitativeValue', minValue: handling, maxValue: Math.max(handling, 3), unitCode: 'DAY' },
+          transitTime: { '@type': 'QuantitativeValue', minValue: 2, maxValue: 6, unitCode: 'DAY' },
+        },
+      };
+    }
+  } catch {
+    /* no delivery details: still a valid product page */
+  }
   if (reviews > 0 && Number(p.rating) > 0)
     productLd.aggregateRating = { '@type': 'AggregateRating', ratingValue: Number(p.rating).toFixed(1), reviewCount: reviews };
   const shopLink = p.sellerId ? `<p>Sold by <a href="/s/${escAttr(encodeURIComponent(p.sellerId))}">${escAttr(p.sellerName || 'this shop')}</a></p>` : '';
