@@ -720,3 +720,56 @@ export function pickMime() {
   return '';
 }
 
+/**
+ * Plays the video on the canvas in real time and records it with its sound. Used by the seller's
+ * video maker (AiVideoMaker.tsx) and the store's daily social video (video-render.html).
+ * `left` is true when the page was hidden part-way (the phone stops drawing: the video would jump).
+ */
+export async function recordVideo(opts: {
+  canvas: HTMLCanvasElement;
+  frame: Frame;
+  seconds: number;
+  music?: boolean;
+  voice?: AudioBuffer | null;
+  onProgress?: (percent: number) => void;
+  shouldStop?: () => boolean;
+}): Promise<{ blob: Blob; left: boolean; stopped: boolean }> {
+  const { canvas, frame, seconds } = opts;
+  const ctx = canvas.getContext('2d')!;
+  drawFrame(ctx, frame, 0);
+  const stream: MediaStream = (canvas as any).captureStream(FPS);
+  const audio = startMusic(frame.plan, seconds, { music: opts.music, voice: opts.voice });
+  if (audio?.track) stream.addTrack(audio.track);
+  const mime = pickMime();
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
+  const chunks: Blob[] = [];
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  const finished = new Promise<void>((resolve) => (rec.onstop = () => resolve()));
+  rec.start(500);
+  const began = performance.now();
+  let left = false;
+  let stopped = false;
+  const onHide = () => {
+    if (document.hidden) left = true;
+  };
+  document.addEventListener('visibilitychange', onHide);
+  await new Promise<void>((resolve) => {
+    const tick = () => {
+      const t = (performance.now() - began) / 1000;
+      if (opts.shouldStop?.()) stopped = true;
+      if (stopped || left || t >= seconds) return resolve();
+      drawFrame(ctx, frame, t);
+      opts.onProgress?.(Math.round((t / seconds) * 100));
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  drawFrame(ctx, frame, seconds);
+  rec.stop();
+  await finished;
+  audio?.ac.close().catch(() => {});
+  stream.getTracks().forEach((tr) => tr.stop());
+  document.removeEventListener('visibilitychange', onHide);
+  return { blob: new Blob(chunks, { type: mime.split(';')[0] }), left, stopped };
+}
+

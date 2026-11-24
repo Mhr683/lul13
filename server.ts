@@ -55,6 +55,7 @@ import { checkShippingAddress, addressOneLine } from './src/services/intlAddress
 import { ALL_WORLD_COUNTRIES } from './src/services/addressAndPaymentVerification';
 import { registerPolicyRoutes } from './server/policy';
 import { registerSellerAiRoutes } from './server/sellerAi';
+import { registerDailyVideo } from './server/dailyVideo';
 import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
 import { createAnalytics } from './server/analytics';
 import { createAds } from './server/ads';
@@ -5176,7 +5177,7 @@ registerGrowthRoutes(app, {
 });
 
 // Each seller's own AI assistant (works only on that seller's shop)
-registerSellerAiRoutes(app, {
+const sellerAi = registerSellerAiRoutes(app, {
   requireSeller: marketplace.requireSeller,
   getAI: getGenAIClient,
   takeAi: takeSellerAi,
@@ -5187,6 +5188,38 @@ registerSellerAiRoutes(app, {
   localOrigin: `http://127.0.0.1:${Number(process.env.PORT) || 3000}`,
   sellerData: marketplace.sellerData,
   setCoachViewedHook: marketplace.setCoachViewedHook,
+});
+
+// The store's daily social video: made at 3 pm, sent to the owner, posted at 5 pm on a "Yes"
+registerDailyVideo(app, {
+  requireAdmin,
+  liveProducts,
+  priceOf,
+  settings: () => catalogStore.settings(),
+  planVideo: sellerAi.planVideo,
+  picturesOf: sellerAi.picturesOf,
+  storeMedia,
+  mediaDir: MEDIA_DIR,
+  publicOrigin: () => (STORE_HOST ? `https://${STORE_HOST}` : String(process.env.APP_URL || '').replace(/\/+$/, '')),
+  localOrigin: `http://127.0.0.1:${Number(process.env.PORT) || 3000}`,
+  emailOwner: async (subject, paragraphs, button, url) => {
+    const s = catalogStore.settings() || {};
+    const to = process.env.STORE_OWNER_EMAIL?.trim() || process.env.ADMIN_EMAIL?.trim() || s.supportEmail || s.contactEmail || '';
+    if (!to) return;
+    await sendSellerEngagementEmail(adminDb, {
+      to,
+      ownerName: '',
+      shopName: s.storeName || 'Anokha Shopping Hub',
+      subject,
+      title: subject,
+      color: 'emerald',
+      paragraphs,
+      button,
+      sellerCenterUrl: url,
+      storeName: s.storeName,
+      supportEmail: s.supportEmail,
+    });
+  },
 });
 
 // Courier accounts (PostEx, Leopards, Trax): booking, labels and automatic delivery tracking

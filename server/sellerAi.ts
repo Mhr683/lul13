@@ -874,33 +874,25 @@ Be the seller's coach and partner: when they ask about performance, details or a
     };
   };
 
-  app.post('/api/seller/coach/video-plan', d.requireSeller, async (req, res) => {
-    const uid = (req as any).user.uid as string;
-    const seller = (req as any).seller;
-    if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
+  /**
+   * The plan of one product video (words, picture order, colours, motion, voice script). Used by the
+   * seller's "Make my video" (below) and the store's daily social video (server/dailyVideo.ts).
+   * `useAi` false: the ready-made plan. `uid` empty: the store's own AI keys.
+   */
+  const planVideo = async (
+    p: any,
+    o: { uid?: string; shopName: string; wish?: string; thumb?: string; voice?: 'FEMALE' | 'MALE' | 'NONE'; lang?: 'UR' | 'EN'; useAi: boolean }
+  ) => {
+    const pictures = picturesOf(p);
+    const wish = o.wish || '';
+    const thumb = o.thumb || '';
+    const wantsVoice = o.voice === 'FEMALE' || o.voice === 'MALE';
+    const lang: 'UR' | 'EN' = o.lang === 'EN' ? 'EN' : 'UR';
+    let plan = plainPlan(p, pictures.length, wish);
+    if (wantsVoice) plan.voiceScript = plainVoice(p, lang);
+    if (!o.useAi || !pictures.length) return { plan, usedAi: false };
     try {
-      const p = await ownProduct(uid, str(req.body?.productId, 128));
-      if (!p) return res.status(404).json({ error: 'Product not found.' });
-      const pictures = picturesOf(p);
-      if (!pictures.length) return res.status(400).json({ error: 'Add at least one picture to this product first: the video is made from its pictures.' });
-      const wish = str(req.body?.prompt, 600);
-      let plan = plainPlan(p, pictures.length, wish);
-      let usedAi = false;
-      // A small copy of the main picture (sent by the browser) lets the AI see the product: which
-      // way a car faces, what kind of movement suits it
-      const thumb = typeof req.body?.thumb === 'string' && /^[A-Za-z0-9+/=]{100,280000}$/.test(req.body.thumb) ? req.body.thumb : '';
-      // Voice-over: a woman's or man's voice tells the product's features (Urdu or English)
-      const wantsVoice = req.body?.voice === 'FEMALE' || req.body?.voice === 'MALE';
-      const lang: 'UR' | 'EN' = req.body?.lang === 'EN' ? 'EN' : 'UR';
-      if (wantsVoice) plan.voiceScript = plainVoice(p, lang);
-      // Without the seller's own key and with today's free uses finished, the video still gets made
-      // with the ready-made plan, and the app asks for the key
-      const gate = d.takeAi(uid);
-      if (!gate.granted) {
-        return res.json({ success: true, usedAi: false, aiKeyNeeded: true, plan, product: { id: p.id, name: p.name, pictures, shopName: seller?.shopName || '' } });
-      }
-      try {
-        const r = await d.getAI(uid).models.generateContent({
+        const r = await d.getAI(o.uid).models.generateContent({
           model: FALLBACK_MODEL, // the light model: a short plan does not need more, and it has the biggest free limit
           contents: [
             {
@@ -911,10 +903,10 @@ Be the seller's coach and partner: when they ask about performance, details or a
                   text: `You are an ad director for a Pakistani online shop. Plan a 12-15 second product video ad made ONLY from the product's own ${pictures.length} picture(s) (numbered 0 to ${pictures.length - 1}), with animated words on screen.${thumb ? ' The attached image is picture 0.' : ''}
 Motion: the app cuts the product out of its picture and animates it. Choose "motion": ROAD if it is a vehicle (car, bike, cycle, toy car) or the seller wants it driving / on a road; SKY for things that fly (drone, plane, kite) or if the seller wants it flying; FLOAT for light items (cosmetics, perfume, jewellery, small gadgets); TURNTABLE for most other products (turning on a lit stand); NONE only if no movement fits. The seller's wish about movement wins. "facing": which way the front of the product points in picture 0 (LEFT or RIGHT; RIGHT if unclear).${
                     wantsVoice
-                      ? `\nVoice-over: also write "voiceScript", what a ${req.body.voice === 'FEMALE' ? 'woman' : 'man'} says over the video: 22 to 32 words, warm and exciting like a TV advert, telling the product's real features from the details below, ending with the price (PKR ${p.price}) and "order today, cash on delivery". ${lang === 'UR' ? 'Write it in Urdu script (اردو), natural spoken Pakistani Urdu; English product words may stay in English.' : 'Write it in simple English.'} Same honesty rules as below.`
+                      ? `\nVoice-over: also write "voiceScript", what a ${o.voice === 'FEMALE' ? 'woman' : 'man'} says over the video: 22 to 32 words, warm and exciting like a TV advert, telling the product's real features from the details below, ending with the price (PKR ${p.price}) and "order today, cash on delivery". ${lang === 'UR' ? 'Write it in Urdu script (اردو), natural spoken Pakistani Urdu; English product words may stay in English.' : 'Write it in simple English.'} Same honesty rules as below.`
                       : ''
                   }
-Product: "${String(p.name).slice(0, 190)}". Category: ${p.category}. Price: PKR ${p.price}. Shop: ${String(seller?.shopName || '').slice(0, 60)}.
+Product: "${String(p.name).slice(0, 190)}". Category: ${p.category}. Price: PKR ${p.price}. Shop: ${String(o.shopName || '').slice(0, 60)}.
 About it: ${String(p.shortDescription || p.description || '').slice(0, 900)}
 What the seller wants: ${wish || 'a beautiful, eye-catching ad that makes customers want to buy'}
 Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a short punchy caption (max 5 words) and an optional sub line (max 8 words). headline max 6 words. Write in the language the seller used (English, Urdu in Roman letters, or Urdu script); if unclear, English. Be honest: never invent features, warranties, certificates, delivery times, prices or discounts that are not in the details above. Do not call it "original" or "genuine" or use a famous brand's name unless the product name already is that brand. Pick colours (hex) that suit the product and the wish, with strong contrast between text and background.`,
@@ -956,9 +948,41 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
         plan = cleanPlan(j, p, pictures.length, wish);
         if (wantsVoice && !plan.voiceScript) plan.voiceScript = plainVoice(p, lang);
         if (!wantsVoice) plan.voiceScript = '';
-        usedAi = true;
-      } catch (err: any) {
-        console.warn('[video-plan] AI not available, using the ready-made plan:', err?.message);
+        return { plan, usedAi: true };
+    } catch (err: any) {
+      console.warn('[video-plan] AI not available, using the ready-made plan:', err?.message);
+      return { plan, usedAi: false };
+    }
+  };
+
+  app.post('/api/seller/coach/video-plan', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    const seller = (req as any).seller;
+    if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
+    try {
+      const p = await ownProduct(uid, str(req.body?.productId, 128));
+      if (!p) return res.status(404).json({ error: 'Product not found.' });
+      const pictures = picturesOf(p);
+      if (!pictures.length) return res.status(400).json({ error: 'Add at least one picture to this product first: the video is made from its pictures.' });
+      // A small copy of the main picture (sent by the browser) lets the AI see the product: which
+      // way a car faces, what kind of movement suits it
+      const thumb = typeof req.body?.thumb === 'string' && /^[A-Za-z0-9+/=]{100,280000}$/.test(req.body.thumb) ? req.body.thumb : '';
+      // Voice-over: a woman's or man's voice tells the product's features (Urdu or English)
+      const voice = req.body?.voice === 'FEMALE' || req.body?.voice === 'MALE' ? req.body.voice : 'NONE';
+      // Without the seller's own key and with today's free uses finished, the video still gets made
+      // with the ready-made plan, and the app asks for the key
+      const gate = d.takeAi(uid);
+      const { plan, usedAi } = await planVideo(p, {
+        uid,
+        shopName: seller?.shopName || '',
+        wish: str(req.body?.prompt, 600),
+        thumb,
+        voice,
+        lang: req.body?.lang === 'EN' ? 'EN' : 'UR',
+        useAi: gate.granted > 0,
+      });
+      if (!gate.granted) {
+        return res.json({ success: true, usedAi: false, aiKeyNeeded: true, plan, product: { id: p.id, name: p.name, pictures, shopName: seller?.shopName || '' } });
       }
       res.json({
         success: true,
@@ -1334,4 +1358,7 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
       autoRunning.delete(uid);
     }
   });
+
+  // Shared with the store's daily social video (server/dailyVideo.ts)
+  return { planVideo, picturesOf };
 }

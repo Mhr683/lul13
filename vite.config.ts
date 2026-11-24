@@ -121,9 +121,10 @@ export default defineConfig(() => {
           // seller./admin. subdomain), and phones then would not install the Seller / Admin app.
           // Share links /p/<product> and /s/<shop> also come from the server (it sends them on to the
           // product / shop page); the cached store page opened the home page instead.
-          navigateFallbackDenylist: [/^\/api\//, /^\/(seller|admin|vendor)(\/|$)/i, /^\/(p|s|c)\//i, /^\/feeds\//i, /^\/(sell|sell-online|become-a-seller)\/?$/i],
+          navigateFallbackDenylist: [/^\/api\//, /^\/(seller|admin|vendor)(\/|$)/i, /^\/(p|s|c)\//i, /^\/feeds\//i, /^\/daily-video\//i, /^\/video-render\.html/i,/^\/(sell|sell-online|become-a-seller)\/?$/i],
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff,woff2}'],
+          globIgnores: ['video-render.html'],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -167,6 +168,13 @@ export default defineConfig(() => {
     build: {
       target: ['es2019', 'chrome70', 'firefox68', 'safari12', 'edge79'],
       cssTarget: ['chrome70', 'firefox68', 'safari12', 'edge79'],
+      rollupOptions: {
+        input: {
+          main: path.resolve(__dirname, 'index.html'),
+          // hidden recording window of the store's daily social video (server/dailyVideo.ts)
+          videoRender: path.resolve(__dirname, 'video-render.html'),
+        },
+      },
     },
     resolve: {
       alias: {

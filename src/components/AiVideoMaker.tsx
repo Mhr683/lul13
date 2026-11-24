@@ -9,7 +9,7 @@ import { askForAiKey } from './AiKeyNudge';
 // 12-15 second ad with music, records it (canvas + MediaRecorder) and adds it to the listing.
 // No paid video AI: the only AI cost is one short text call.
 
-import { FPS, SIZE, VOICE_START, cutOut, decodeVoice, drawFrame, pickMime, startMusic, totalSeconds, type Frame, type Plan } from '../services/videoRender';
+import { SIZE, VOICE_START, cutOut, decodeVoice, pickMime, recordVideo, totalSeconds, type Frame, type Plan } from '../services/videoRender';
 import { ProVideoPanel } from './ProVideoPanel';
 
 /** A small JPEG of the main picture (base64, no prefix) for the AI to look at */
@@ -141,49 +141,23 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
       }
       // scenes may only point at the pictures that exist
       const plan: Plan = { ...r.plan, scenes: r.plan.scenes.map((s) => ({ ...s, image: Math.min(s.image, pics.length - 1) })) };
-      const canvas = canvasRef.current!;
-      const ctx = canvas.getContext('2d')!;
       // the video lasts at least as long as the voice
       const seconds = Math.max(totalSeconds(plan), voiceBuf ? VOICE_START + voiceBuf.duration + 1.2 : 0);
       const frame: Frame = { pics, plan, shopName: r.product.shopName, cuts };
-      drawFrame(ctx, frame, 0);
 
       setStatus(r.usedAi ? 'Making your video... keep this screen open' : 'Making your video (ready-made style, the AI is busy)... keep this screen open');
-      const stream: MediaStream = (canvas as any).captureStream(FPS);
-      const audio = startMusic(plan, seconds, { music, voice: voiceBuf });
-      if (audio?.track) stream.addTrack(audio.track);
-      const mime = pickMime();
-      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
-      const chunks: Blob[] = [];
-      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-      const finished = new Promise<void>((resolve) => (rec.onstop = () => resolve()));
-      rec.start(500);
-      const began = performance.now();
       // the phone stops drawing when the screen is left: the video would jump, so it is made again
-      let left = false;
-      const onHide = () => {
-        if (document.hidden) left = true;
-      };
-      document.addEventListener('visibilitychange', onHide);
-      await new Promise<void>((resolve) => {
-        const tick = () => {
-          const t = (performance.now() - began) / 1000;
-          if (stopRef.current || left || t >= seconds) return resolve();
-          drawFrame(ctx, frame, t);
-          setProgress(Math.round((t / seconds) * 100));
-          requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
+      const { blob, left } = await recordVideo({
+        canvas: canvasRef.current!,
+        frame,
+        seconds,
+        music,
+        voice: voiceBuf,
+        onProgress: setProgress,
+        shouldStop: () => stopRef.current,
       });
-      drawFrame(ctx, frame, seconds);
-      rec.stop();
-      await finished;
-      audio?.ac.close().catch(() => {});
-      stream.getTracks().forEach((tr) => tr.stop());
-      document.removeEventListener('visibilitychange', onHide);
       if (stopRef.current) return;
       if (left) throw new Error('The screen was left while the video was being made. Press "Make my video" again and keep this screen open for about 20 seconds.');
-      const blob = new Blob(chunks, { type: mime.split(';')[0] });
       if (blob.size < 20_000) throw new Error('The video did not record properly. Keep this screen open while it is being made and try again.');
       setVideo({ blob, url: URL.createObjectURL(blob) });
       setProgress(100);
