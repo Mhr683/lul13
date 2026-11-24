@@ -5,9 +5,10 @@
 // A product that already has its own video uses that video. Nothing is posted without the owner's yes.
 //
 // Settings (.env, all optional; without them the part is skipped):
-//   META_PAGE_ID, META_PAGE_TOKEN   Facebook Page and its long-lived Page token (posting the video)
+//   META_PAGE_ID, META_PAGE_TOKEN   Facebook Page and a Page token or a system-user token (posting the video)
 //   META_IG_USER_ID                 Instagram professional account linked to the Page (posting a Reel)
 //   WA_PHONE_ID, WA_TOKEN, OWNER_WHATSAPP   WhatsApp Cloud API number and the owner's number (approval)
+//   WA_TEMPLATE, WA_TEMPLATE_LANG   approved template that starts the chat ({{1}} product, {{2}} link)
 // State is kept in .cache/daily-video.json (git-ignored).
 import express from 'express';
 import crypto from 'crypto';
@@ -269,6 +270,10 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
     const waPhone = env('WA_PHONE_ID');
     const waToken = env('WA_TOKEN');
     const owner = env('OWNER_WHATSAPP').replace(/\D/g, '');
+    // The e-mail always goes too, so the owner is reached even when WhatsApp refuses the message
+    const mail = d
+      .emailOwner(`🎬 Aaj ki video: ${j.productName.slice(0, 60)}`, [text.split('\n\n')[0], 'Video dekh kar Yes ya No dabayein. Yes par aaj shaam 5 baje Facebook aur Instagram par post hogi.'], 'Video dekhein', link)
+      .catch((e) => console.warn('[daily-video] e-mail failed:', e?.message));
     if (waPhone && waToken && owner) {
       const send = (body: any) =>
         fetch(`${GRAPH}/${waPhone}/messages`, {
@@ -278,12 +283,23 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
         }).then(async (r) => {
           if (!r.ok) throw new Error(`WhatsApp ${r.status}: ${(await r.text()).slice(0, 200)}`);
         });
-      // the video itself, then the link with Yes / No
+      // WhatsApp lets a business start a chat only with an approved template; plain messages work only
+      // within 24 hours of the owner's last message. WA_TEMPLATE (body with {{1}} product, {{2}} link)
+      // is sent first when set; the video and the text follow and arrive whenever the chat is open.
+      const template = env('WA_TEMPLATE');
+      if (template)
+        await send({
+          type: 'template',
+          template: {
+            name: template,
+            language: { code: env('WA_TEMPLATE_LANG') || 'en' },
+            components: [{ type: 'body', parameters: [{ type: 'text', text: j.productName.slice(0, 60) }, { type: 'text', text: link }] }],
+          },
+        }).catch((e) => console.warn('[daily-video] WhatsApp template failed:', e?.message));
       await send({ type: 'video', video: { link: `${d.publicOrigin()}${j.videoUrl}`, caption: j.productName.slice(0, 900) } }).catch(() => {});
-      await send({ type: 'text', text: { body: text, preview_url: false } });
-      return;
+      await send({ type: 'text', text: { body: text, preview_url: false } }).catch((e) => console.warn('[daily-video] WhatsApp text failed:', e?.message));
     }
-    await d.emailOwner(`🎬 Aaj ki video: ${j.productName.slice(0, 60)}`, [text.split('\n\n')[0], 'Video dekh kar Yes ya No dabayein. Yes par aaj shaam 5 baje Facebook aur Instagram par post hogi.'], 'Video dekhein', link);
+    await mail;
   };
 
   // ------------------------------------------------------------------ posting
@@ -296,8 +312,17 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
   };
   const post = async (j: Job) => {
     const pageId = env('META_PAGE_ID');
-    const token = env('META_PAGE_TOKEN');
+    let token = env('META_PAGE_TOKEN');
     const igUser = env('META_IG_USER_ID');
+    // A system-user token (Business Settings) is turned into the Page's own token, which posting needs
+    if (pageId && token) {
+      try {
+        const pt = (await graph(pageId, { fields: 'access_token', access_token: token }, 'GET')).access_token;
+        if (pt) token = pt;
+      } catch {
+        /* already a Page token */
+      }
+    }
     const videoUrl = `${d.publicOrigin()}${j.videoUrl}`;
     const out: Job['posted'] = { errors: [] };
     if (!pageId || !token) out.errors!.push('Facebook Page is not connected yet (META_PAGE_ID / META_PAGE_TOKEN).');
