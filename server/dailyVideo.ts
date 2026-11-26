@@ -30,6 +30,8 @@ type Job = {
   createdAt: string;
   decidedAt?: string;
   postedAt?: string;
+  /** posting attempts (a failed one is tried again later the same day, up to 3 in all) */
+  tries?: number;
   posted?: { facebook?: string; instagram?: string; errors?: string[] };
 };
 type State = { jobs: Job[]; postedProducts: Record<string, string> };
@@ -351,6 +353,7 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
       }
     }
     j.posted = out;
+    j.tries = (j.tries || 0) + 1;
     j.postedAt = new Date().toISOString();
     j.status = out.facebook || out.instagram ? 'POSTED' : 'APPROVED';
     if (out.facebook || out.instagram) state.postedProducts[j.productId] = j.postedAt;
@@ -368,7 +371,10 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
     const failed = today.filter((j) => j.status === 'FAILED').length;
     if (hour >= MAKE_HOUR_PK && hour < 22 && today.length === failed && failed < 3) await makeVideo(failed > 0);
     if (hour >= POST_HOUR_PK && !posting) {
-      const ready = today.find((j) => j.status === 'APPROVED' && !j.postedAt);
+      // a failed post (e.g. Meta blocked the key for a while) is tried again every 30 minutes, 3 tries in all
+      const ready = today.find(
+        (j) => j.status === 'APPROVED' && (!j.postedAt || ((j.tries || 1) < 3 && Date.now() - Date.parse(j.postedAt) >= 30 * 60_000)),
+      );
       if (ready) {
         posting = true;
         await post(ready).finally(() => (posting = false));
@@ -421,7 +427,9 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
              <button name="do" value="other" class="other">🔄 Koi aur product</button>
            </form>`
         : j.status === 'APPROVED'
-          ? `<p class="ok">✅ Approve ho gayi. ${pkHour() >= POST_HOUR_PK ? 'Abhi post ho rahi hai.' : `Aaj shaam ${POST_HOUR_PK - 12} baje post hogi.`}</p>`
+          ? j.postedAt
+            ? `<p class="no-t">Post nahi ho saki.${(j.tries || 1) < 3 ? ' Store 30 minute baad khud dobara koshish karega.' : ' 3 koshishen ho chuki hain.'}</p>`
+            : `<p class="ok">✅ Approve ho gayi. ${pkHour() >= POST_HOUR_PK ? 'Abhi post ho rahi hai.' : `Aaj shaam ${POST_HOUR_PK - 12} baje post hogi.`}</p>`
           : j.status === 'POSTED'
             ? `<p class="ok">✅ Post ho gayi.${j.posted?.facebook ? ' Facebook ✔' : ''}${j.posted?.instagram ? ' Instagram ✔' : ''}</p>`
             : j.status === 'REJECTED'
