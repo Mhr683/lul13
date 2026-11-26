@@ -428,16 +428,49 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
               ? '<p class="no-t">❌ Aaj ki video post nahi hogi.</p>'
               : `<p class="no-t">${esc(j.status)} ${esc(j.error || '')}</p>`;
     const errs = j.posted?.errors?.length ? `<p class="no-t">${j.posted.errors.map(esc).join('<br>')}</p>` : '';
+    // WhatsApp Channel, TikTok and X have no posting API for us: after "Yes" the owner shares the video
+    // by hand. On a phone the share sheet gets the video file + caption (the caption is also copied,
+    // since TikTok drops it); on a computer the video is downloaded and the site opens.
+    const js = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c');
+    const share =
+      (j.status === 'APPROVED' || j.status === 'POSTED') && j.videoUrl
+        ? `<div class="share"><p style="font-size:13px;color:#575653;margin:16px 0 6px">Khud share karein (caption khud copy ho jati hai):</p>
+<div class="sbtns"><button type="button" class="wa" onclick="shareTo('WhatsApp')">WhatsApp / Channel</button>
+<button type="button" class="tt" onclick="shareTo('TikTok')">TikTok</button>
+<button type="button" class="xx" onclick="shareTo('X')">X (Twitter)</button></div><p id="sh-msg" class="ok" style="font-size:13px"></p></div>
+<script>
+var CAP=${js(j.caption || '')},VID=${js(j.videoUrl)};
+function shareTo(app){
+  var msg=document.getElementById('sh-msg');
+  try{navigator.clipboard.writeText(CAP).catch(function(){})}catch(e){}
+  msg.textContent='Video tayyar ho rahi hai...';
+  fetch(VID).then(function(r){return r.blob()}).then(function(b){
+    var mp4=(b.type||'').indexOf('mp4')>=0;
+    var file=new File([b],'anokha-video.'+(mp4?'mp4':'webm'),{type:b.type||'video/mp4'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      return navigator.share({files:[file],text:CAP}).then(function(){
+        msg.textContent='✅ Caption copy ho chuki hai. '+app+' mein likhai na aaye to likhne ki jagah dabba kar Paste karein.';
+      },function(e){msg.textContent=(e&&e.name==='AbortError')?'':'Share nahi ho saka: '+e.message;});
+    }
+    var a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();
+    var urls={WhatsApp:'https://web.whatsapp.com/',TikTok:'https://www.tiktok.com/upload',X:'https://x.com/intent/post?text='+encodeURIComponent(CAP)};
+    window.open(urls[app],'_blank');
+    msg.textContent='✅ Video download ho gayi aur caption copy ho gayi. '+app+' mein video upload karein aur caption Paste karein.';
+  }).catch(function(e){msg.textContent='Video nahi mil saki: '+e.message;});
+}
+</script>`
+        : '';
     return `<!doctype html><html lang="ur"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Aaj ki video</title><style>
 body{margin:0;font-family:system-ui,sans-serif;background:#FBFBF9;color:#141413}main{max-width:520px;margin:0 auto;padding:16px}
 video{width:100%;border-radius:12px;background:#000}pre{white-space:pre-wrap;background:#fff;border:1px solid #E7E5DF;border-radius:10px;padding:10px;font:13px/1.45 system-ui}
 .btns{display:grid;gap:8px;margin-top:12px}button{font:600 16px system-ui;padding:14px;border-radius:10px;border:0;cursor:pointer}
 .yes{background:#0E7A43;color:#fff}.no{background:#fff;border:1px solid #DCD9D2}.other{background:#F1F0EC}.ok{color:#0E7A43;font-weight:700}.no-t{color:#9F1239}
+.sbtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}.sbtns button{font-size:14px;padding:12px 6px;color:#fff}.wa{background:#1FA855}.tt{background:#141413}.xx{background:#3A3A38}
 </style></head><body><main><h1 style="font-size:18px">🎬 Aaj ki video</h1><p>${esc(j.productName)}</p>
 ${note ? `<p class="ok">${esc(note)}</p>` : ''}
 <video src="${esc(j.videoUrl || '')}" controls playsinline autoplay muted loop></video>
-<p style="font-size:13px;color:#575653">Post ke saath yeh likha jayega:</p><pre>${esc(j.caption || '')}</pre>${state}${errs}</main></body></html>`;
+<p style="font-size:13px;color:#575653">Post ke saath yeh likha jayega:</p><pre>${esc(j.caption || '')}</pre>${state}${errs}${share}</main></body></html>`;
   };
   app.get('/daily-video/:id', (req, res) => {
     const j = job(String(req.params.id));
