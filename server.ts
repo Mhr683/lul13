@@ -5296,6 +5296,33 @@ registerDailyVideo(app, {
   settings: () => catalogStore.settings(),
   planVideo: sellerAi.planVideo,
   speak: (script, voice) => sellerAi.speakVoiceover(script, voice),
+  // The light AI looks at small copies of up to 4 product pictures for another brand's name or logo
+  showsBrand: async (pictures) => {
+    const sharp = (await import('sharp')).default;
+    const parts: any[] = [];
+    for (const u of pictures.slice(0, 4)) {
+      const b64 = String(u).split(',')[1];
+      if (!b64) continue;
+      const small = await sharp(Buffer.from(b64, 'base64')).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 70 }).toBuffer();
+      parts.push({ inlineData: { mimeType: 'image/jpeg', data: small.toString('base64') } });
+    }
+    if (!parts.length) return false;
+    const r = await getGenAIClient().models.generateContent({
+      model: 'gemini-3.1-flash-lite',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            ...parts,
+            {
+              text: 'Do any of these product pictures show the name or logo of a well-known brand or designer label (for example Junaid Jamshed, Khaadi, Nike, Apple, Gucci)? Ignore ordinary words such as feature names, "Cash on Delivery" or "Anokha Shopping Hub". Answer only YES or NO.',
+            },
+          ],
+        },
+      ],
+    });
+    return /^\s*yes/i.test(r.text || '');
+  },
   picturesOf: sellerAi.picturesOf,
   storeMedia,
   mediaDir: MEDIA_DIR,

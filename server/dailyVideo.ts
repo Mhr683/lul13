@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
+import { famousBrandIn } from '../src/services/brandRules';
 
 type Plan = any;
 type Job = {
@@ -34,7 +35,7 @@ type Job = {
   tries?: number;
   posted?: { facebook?: string; instagram?: string; errors?: string[] };
 };
-type State = { jobs: Job[]; postedProducts: Record<string, string> };
+type State = { jobs: Job[]; postedProducts: Record<string, string>; brandedProducts?: Record<string, string> };
 
 export type DailyVideoDeps = {
   requireAdmin: express.RequestHandler;
@@ -42,6 +43,8 @@ export type DailyVideoDeps = {
   priceOf: (p: any) => number;
   settings: () => any;
   planVideo: (p: any, o: { shopName: string; useAi: boolean; voice?: 'FEMALE' | 'MALE' | 'NONE'; lang?: 'UR' | 'EN' }) => Promise<{ plan: Plan; usedAi: boolean }>;
+  /** AI look at product pictures (data: URLs): true when one shows a well-known brand's name or logo */
+  showsBrand?: (pictures: string[]) => Promise<boolean>;
   /** The voice-over (base64 audio) of a script, or null */
   speak: (script: string, voice: 'FEMALE' | 'MALE') => Promise<{ audio: string; mime: string } | null>;
   picturesOf: (p: any) => string[];
@@ -64,6 +67,10 @@ const GRAPH = 'https://graph.facebook.com/v23.0';
 // medicines and health claims, weapons, tobacco, copies of brands). Never chosen for the daily video.
 const BLOCKED =
   /\b(sex|sexual|timing|delay\s*(cream|spray|oil|tablet)|condom|lubricant|viagra|cialis|enlarge\w*|libido|erotic|adult|lingerie|bra\b|panty|panties|vibrator|massager\s*for\s*(men|women)|weight\s*loss|slimming|fat\s*burn\w*|diet\s*pill|medicine|tablet\s*for|capsule|herbal|ayurved\w*|hakeem|cure|whitening\s*(cream|injection)|fairness|steroid|cbd|hemp|vape|e-?cig\w*|cigarette|tobacco|hookah|shisha|gun|pistol|airsoft|weapon|knife|dagger|sword|taser|stun|pepper\s*spray|replica|first\s*copy|master\s*copy|aaa\s*quality)\b/i;
+
+// Pakistani brands (the shared list in src/services/brandRules.ts has the international ones)
+const LOCAL_BRANDS =
+  /\b(junaid\s*jamshed|j\.\s*junaid|khaadi|gul\s*ahmed|sana\s*safinaz|maria\.?\s*b|alkaram|sapphire|nishat|bonanza|limelight|outfitters|bata|servis|ndure|almirah|edenrobe|beechtree|zeen|asim\s*jofa|agha\s*noor|baroque|charcoal|diners)\b/i;
 
 const pkDate = (d = new Date()) => new Date(d.getTime() + 5 * 3600_000).toISOString().slice(0, 10);
 const pkHour = (d = new Date()) => new Date(d.getTime() + 5 * 3600_000).getUTCHours();
@@ -112,6 +119,9 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
       if (!d.picturesOf(p).length || d.priceOf(p) <= 0) return false;
       if (Number(p.stock) - Number(p.reservedStock || 0) <= 0) return false;
       if (BLOCKED.test(`${p.name} ${p.category} ${p.subcategory || ''} ${p.shortDescription || ''}`)) return false;
+      // Another company's brand on the Page is reported as a copy: products named after one, or whose
+      // pictures showed a brand's name or logo, are never chosen
+      if (state.brandedProducts?.[p.id] || famousBrandIn(`${p.name} ${p.shortDescription || ''}`) || LOCAL_BRANDS.test(`${p.name} ${p.shortDescription || ''}`)) return false;
       const last = state.postedProducts[p.id];
       return !last || Date.parse(last) < cutoff;
     });
@@ -227,7 +237,24 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
     busy = true;
     const day = pkDate();
     const skip = new Set<string>(skipToday ? state.jobs.filter((j) => j.day === day).map((j) => j.productId) : []);
-    const p = pickProduct(skip);
+    // The AI looks at the chosen product's pictures; one with a brand's logo is passed over (and
+    // remembered), up to 5 tries
+    let p: any = null;
+    for (let tries = 0; tries < 5 && !p; tries++) {
+      const c = pickProduct(skip);
+      if (!c) break;
+      if (d.showsBrand) {
+        const pics = (await Promise.all(d.picturesOf(c).slice(0, 4).map(pictureData))).filter(Boolean) as string[];
+        if (await d.showsBrand(pics).catch(() => false)) {
+          skip.add(c.id);
+          state.brandedProducts = { ...(state.brandedProducts || {}), [c.id]: new Date().toISOString() };
+          save();
+          console.log(`[daily-video] skipped (brand name or logo in the pictures): ${String(c.name).slice(0, 60)}`);
+          continue;
+        }
+      }
+      p = c;
+    }
     if (!p) {
       busy = false;
       console.warn('[daily-video] no product can be used today');
