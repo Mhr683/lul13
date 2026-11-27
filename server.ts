@@ -5285,6 +5285,7 @@ const sellerAi = registerSellerAiRoutes(app, {
   localOrigin: `http://127.0.0.1:${Number(process.env.PORT) || 3000}`,
   sellerData: marketplace.sellerData,
   setCoachViewedHook: marketplace.setCoachViewedHook,
+  liveProducts,
 });
 
 // The store's daily social video: made at 3 pm, sent to the owner, posted at 5 pm on a "Yes"

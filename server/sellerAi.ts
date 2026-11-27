@@ -37,7 +37,10 @@ export interface SellerAiDeps {
     setSellerFields: (uid: string, fields: Record<string, any>) => Promise<void>;
     notify: (uid: string, shopName: string, title: string, body: string) => Promise<void>;
     forgetCoach: (uid: string) => void;
+    sellerOf: (uid: string) => Promise<any>;
   };
+  /** Every live product of the store (the server's catalog copy, no database reads) */
+  liveProducts: () => any[];
   /** Lets the coach route start the daily auto-fix when a seller opens it */
   setCoachViewedHook: (fn: (uid: string, seller: any) => void) => void;
 }
@@ -189,10 +192,16 @@ export function registerSellerAiRoutes(app: express.Express, d: SellerAiDeps) {
   const writeCopy = async (p: any, tone = '', extra = ''): Promise<Record<string, string> | null> => {
     const r = await d.getAI(String(p.sellerId || p.ownerUid || '') || undefined).models.generateContent({
       model: MODEL,
-      contents: `Write product copy for a Pakistani online shop. Product: "${p.name}". Category: ${p.category}. Price: PKR ${p.price}.
+      contents: `Write professional, search-friendly product copy for a Pakistani online shop (customers find it on Google). Product: "${p.name}". Category: ${p.category}${p.subcategory ? ` > ${p.subcategory}` : ''}. Price: PKR ${p.price}.
+Current short description: ${String(p.shortDescription || '').slice(0, 400)}
 Current description: ${String(p.description || '').slice(0, 1500)}
 Tone: ${tone || 'Professional'}. ${extra}
-Be honest and clear (features, size/specs, what is in the box), using only facts found in the product name and the current description: never invent numbers, sizes, materials, quantities, specs or box contents that are not given there; when they are not known, describe what the product is for and how it is used instead. Never invent warranties, certifications or delivery times. Do not call the item "original" or "genuine" and do not present it as a famous brand unless the product name already is that brand's own product. English.`,
+- "description": 150 to 250 words, plain text (no ** or #). An opening paragraph saying what it is and who it is for; then "Key features:" with 4 to 6 lines starting with "• "; then a short paragraph on where and how it is used; end with one line: order online in Pakistan with Cash on Delivery.
+- "shortDescription": 1 or 2 sentences, at most 250 characters, the main benefit first.
+- "seoTitle": at most 60 characters, the product's plain name and its main feature (no price, no shop name).
+- "seoDescription": at most 155 characters, mentions the price in PKR and Cash on Delivery in Pakistan.
+- "seoKeywords": 8 to 12 comma-separated phrases Pakistani shoppers really type, e.g. "<product> price in Pakistan", "buy <product> online", the common Roman Urdu word for it (e.g. "joote", "ghari", "bartan") where there is one, and its uses.
+Use the words people search for naturally in the text; never stuff keywords. Be honest and clear (features, size/specs, what is in the box), using only facts found in the product name and the current descriptions: never invent numbers, sizes, materials, quantities, specs or box contents that are not given there; when they are not known, describe what the product is for and how it is used instead. Never invent warranties, certifications or delivery times. Do not call the item "original" or "genuine" and do not present it as a famous brand unless the product name already is that brand's own product. No phone numbers or links. English.`,
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
@@ -720,6 +729,45 @@ Be the seller's coach and partner: when they ask about performance, details or a
       res.status(503).json({ error: String(err?.message || '').includes('GEMINI_API_KEY') ? 'The AI is not switched on yet.' : 'Could not start. Please try again.' });
     }
   });
+
+  // ---------------------------------------------------------------- every shop, by itself
+  // Google leaves product pages with only a line or two of text out of its search results. The store
+  // writes full descriptions and search words for every shop's live products whose description is
+  // still short: soon after the server starts and then every 3 hours until none are left. Each shop
+  // uses its own AI key first (then the store's), shops one after another, one product every few
+  // seconds (runRewriteAll). Shops that switched auto-fix off are left alone.
+  const SEO_SHORT = 300;
+  let storeRewriting = false;
+  const rewriteEveryShop = async () => {
+    if (storeRewriting) return;
+    storeRewriting = true;
+    try {
+      const short = new Map<string, number>();
+      for (const p of d.liveProducts()) {
+        if (p.sellerId && String(p.description || '').length < SEO_SHORT) short.set(p.sellerId, (short.get(p.sellerId) || 0) + 1);
+      }
+      for (const uid of short.keys()) {
+        if (jobs.get(uid)?.running) continue;
+        const seller = await d.sellerData.sellerOf(uid).catch(() => null);
+        if (!seller || seller.autoFix === false) continue;
+        const list = (await d.sellerData.productsOf(uid)).filter(
+          (p) => p.status === 'ACTIVE' && !p.adminHidden && String(p.description || '').length < SEO_SHORT
+        );
+        if (!list.length) continue;
+        console.log(`[seo-copy] ${seller.shopName || uid}: writing ${list.length} description(s)`);
+        const job: Job = { total: list.length, done: 0, failed: 0, running: true, startedAt: new Date().toISOString() };
+        jobs.set(uid, job);
+        await runRewriteAll(uid, seller, job, list);
+        console.log(`[seo-copy] ${seller.shopName || uid}: ${job.done} written, ${job.failed} failed${job.error ? ` (${job.error})` : ''}`);
+      }
+    } catch (err: any) {
+      console.warn('[seo-copy] failed:', err?.message);
+    } finally {
+      storeRewriting = false;
+    }
+  };
+  setTimeout(() => rewriteEveryShop(), 3 * 60_000).unref?.();
+  setInterval(() => rewriteEveryShop(), 3 * 3600_000).unref?.();
 
   // ---------------------------------------------------------------- brand names (Shop Coach "Self fix it")
   // Listings that present themselves as a famous brand without being a proven branded item: the brand

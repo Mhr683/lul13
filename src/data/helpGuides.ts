@@ -302,7 +302,10 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       '"Let AI write..." wala button dabayein.',
       'Description aur key features khud bhar jate hain. Parh kar zaroorat ho to theek karein.',
     ],
-    tips: ['AI busy ho to ek saada description khud ban jata hai; usay behtar kar lein.'],
+    tips: [
+      'AI busy ho to ek saada description khud ban jata hai; usay behtar kar lein.',
+      'Jin live products ki description chhoti hai (300 haroof se kam), store khud har 3 ghante baad un ki poori description (150-250 words, key features), SEO title aur search keywords likh deta hai, pehle aap ki apni AI key se. Har baar Messages mein bataya jata hai. Na chahein to Dashboard par auto-fix band kar dein.',
+    ],
   },
   'seller.product.description': {
     title: 'Description aur Key features',
