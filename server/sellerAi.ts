@@ -838,7 +838,8 @@ Be the seller's coach and partner: when they ask about performance, details or a
   /** A plain voice-over when the AI could not write one */
   const plainVoice = (p: any, lang: 'UR' | 'EN') => {
     const price = Math.round(Number(p.price) || 0).toLocaleString('en-PK');
-    const name = String(p.name).slice(0, 70);
+    // the short name only: "Data Cable Storage Box | 60W Fast Charging | ..." -> "Data Cable Storage Box"
+    const name = String(p.name).split(/\s[|–—-]\s|\(|,/)[0].replace(/^new\s+/i, '').trim().slice(0, 50) || String(p.name).slice(0, 50);
     return lang === 'UR'
       ? `${name}۔ بہترین کوالٹی، شاندار انداز۔ صرف ${price} روپے میں۔ آج ہی آرڈر کریں، کیش آن ڈیلیوری کے ساتھ۔`
       : `${name}. Great quality, great style. Just ${price} rupees. Order today with cash on delivery.`;
@@ -903,7 +904,11 @@ Be the seller's coach and partner: when they ask about performance, details or a
                   text: `You are an ad director for a Pakistani online shop. Plan a 12-15 second product video ad made ONLY from the product's own ${pictures.length} picture(s) (numbered 0 to ${pictures.length - 1}), with animated words on screen.${thumb ? ' The attached image is picture 0.' : ''}
 Motion: the app cuts the product out of its picture and animates it. Choose "motion": ROAD if it is a vehicle (car, bike, cycle, toy car) or the seller wants it driving / on a road; SKY for things that fly (drone, plane, kite) or if the seller wants it flying; FLOAT for light items (cosmetics, perfume, jewellery, small gadgets); TURNTABLE for most other products (turning on a lit stand); NONE only if no movement fits. The seller's wish about movement wins. "facing": which way the front of the product points in picture 0 (LEFT or RIGHT; RIGHT if unclear).${
                     wantsVoice
-                      ? `\nVoice-over: also write "voiceScript", what a ${o.voice === 'FEMALE' ? 'woman' : 'man'} says over the video: 22 to 32 words, warm and exciting like a TV advert, telling the product's real features from the details below, ending with the price (PKR ${p.price}) and "order today, cash on delivery". ${lang === 'UR' ? 'Write it in Urdu script (اردو), natural spoken Pakistani Urdu; English product words may stay in English.' : 'Write it in simple English.'} Same honesty rules as below.`
+                      ? `\nVoice-over: also write "voiceScript", what a ${o.voice === 'FEMALE' ? 'woman' : 'man'} says over the video: 22 to 32 words, warm and exciting like a TV advert, telling the product's real features from the details below, ${
+                        lang === 'UR'
+                          ? `ending with the price ("صرف ${p.price} روپے میں") and "آج ہی آرڈر کریں، کیش آن ڈیلیوری". Write ALL of it in Urdu script (اردو), natural spoken Pakistani Urdu, one language from start to end: no English sentences and no Roman Urdu. Everyday product words Pakistanis say in English (cable, charging, mobile) are written in Urdu letters (کیبل، چارجنگ، موبائل). Say the product by a short, simple name, not the full listing title with sizes and codes.`
+                          : 'ending with the price (PKR ' + p.price + ') and "order today, cash on delivery". Write it all in simple English.'
+                      } Same honesty rules as below.`
                       : ''
                   }
 Product: "${String(p.name).slice(0, 190)}". Category: ${p.category}. Price: PKR ${p.price}. Shop: ${String(o.shopName || '').slice(0, 60)}.
@@ -946,6 +951,11 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
         });
         const j = JSON.parse(r.text || '{}');
         plan = cleanPlan(j, p, pictures.length, wish);
+        // An Urdu voice must be in Urdu letters: a script in English or Roman Urdu was read by the voice
+        // half in English, half in Urdu, so the ready-made Urdu script is used instead
+        const urduLetters = (plan.voiceScript.match(/[؀-ۿ]/g) || []).length;
+        const latinLetters = (plan.voiceScript.match(/[A-Za-z]/g) || []).length;
+        if (wantsVoice && lang === 'UR' && urduLetters < latinLetters * 3) plan.voiceScript = '';
         if (wantsVoice && !plan.voiceScript) plan.voiceScript = plainVoice(p, lang);
         if (!wantsVoice) plan.voiceScript = '';
         return { plan, usedAi: true };
@@ -1278,7 +1288,9 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
               presenter === 'PHOTO'
                 ? 'The presenter is exactly the person in the second picture: keep their face, hair, skin tone and clothes the same.'
                 : `The presenter is a friendly, well-dressed Pakistani ${presenter === 'AI_WOMAN' ? 'woman' : 'man'} in their late 20s.`
-            } They hold or stand next to the product, look into the camera and speak to the viewer in ${lang}, naturally and warmly like a TV advert: real lip movement matching every word, natural blinking and eye contact, relaxed hand gestures and small body movements. What they say (about ${Math.max(10, seconds * 2)} words): the product's best real features from these details: "${facts}", then the price PKR ${p.price} and "order today, cash on delivery". Never claim anything that is not in these details. Clear voice, light background music.`;
+            } They hold or stand next to the product, look into the camera and speak to the viewer in ${lang}, naturally and warmly like a TV advert: real lip movement matching every word, natural blinking and eye contact, relaxed hand gestures and small body movements. What they say (about ${Math.max(10, seconds * 2)} words): the product's best real features from these details: "${facts}", then the price PKR ${p.price} and ${
+              req.body?.lang === 'EN' ? '"order today, cash on delivery"' : '"aaj hi order karein, cash on delivery" (said in Urdu)'
+            }. Everything they say is in ${lang} only, from start to end, never switching language. Never claim anything that is not in these details. Clear voice, light background music.`;
       const prompt = `A short, realistic, cinematic product advert video. The product is exactly the one in the first picture: "${String(p.name).slice(0, 150)}". Keep its shape, colours and details exactly as in the picture. What should happen: ${wish}. ${talk} Smooth professional camera movement, good lighting, the product is clearly shown. No text, no captions, no logos and no brand names on screen.`;
       proToday.set(uid, { day: today, n: n + 1 });
       const jobId = crypto.randomBytes(9).toString('hex');
