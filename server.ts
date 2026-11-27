@@ -5296,6 +5296,9 @@ registerDailyVideo(app, {
   settings: () => catalogStore.settings(),
   planVideo: sellerAi.planVideo,
   speak: (script, voice) => sellerAi.speakVoiceover(script, voice),
+  setProductVideo: async (productId, videoUrl) => {
+    await adminDb.collection('products').doc(productId).update({ videoUrl, updatedAt: new Date().toISOString() });
+  },
   // The light AI looks at small copies of up to 4 product pictures for another brand's name or logo
   showsBrand: async (pictures) => {
     const sharp = (await import('sharp')).default;

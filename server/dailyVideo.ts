@@ -43,6 +43,8 @@ export type DailyVideoDeps = {
   priceOf: (p: any) => number;
   settings: () => any;
   planVideo: (p: any, o: { shopName: string; useAi: boolean; voice?: 'FEMALE' | 'MALE' | 'NONE'; lang?: 'UR' | 'EN' }) => Promise<{ plan: Plan; usedAi: boolean }>;
+  /** Puts the video on the product's own listing (replaces an older video) */
+  setProductVideo?: (productId: string, videoUrl: string) => Promise<void>;
   /** AI look at product pictures (data: URLs): true when one shows a well-known brand's name or logo */
   showsBrand?: (pictures: string[]) => Promise<boolean>;
   /** The voice-over (base64 audio) of a script, or null */
@@ -412,6 +414,13 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
     if (out.facebook || out.instagram) state.postedProducts[j.productId] = j.postedAt;
     save();
     console.log(`[daily-video] posted ${j.productName}: fb=${out.facebook || '-'} ig=${out.instagram || '-'} ${out.errors?.join(' | ') || ''}`);
+    // The posted video also goes on the product's own page (customers see it in the gallery)
+    if ((out.facebook || out.instagram) && j.videoUrl && d.setProductVideo) {
+      await d
+        .setProductVideo(j.productId, j.videoUrl)
+        .then(() => console.log(`[daily-video] video added to the product page: ${j.productName}`))
+        .catch((e) => console.warn('[daily-video] could not add the video to the product:', e?.message));
+    }
   };
 
   // ------------------------------------------------------------------ the daily clock
