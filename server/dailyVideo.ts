@@ -60,7 +60,6 @@ export type DailyVideoDeps = {
 
 const POST_HOUR_PK = 17; // 5 pm Pakistan time: posting
 const MAKE_HOUR_PK = 15; // 3 pm: the video is made and sent to the owner to approve
-const REPOST_AFTER_DAYS = 60;
 const GRAPH = 'https://graph.facebook.com/v23.0';
 
 // Products Facebook / Instagram do not allow to be advertised or that put the Page at risk (adult,
@@ -112,18 +111,26 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
   const env = (k: string) => String(process.env[k] || '').trim();
 
   // ------------------------------------------------------------------ choosing the product
+  // Owner's rule: a product gets a video only once its 9 pictures are complete, and it is never posted
+  // twice. Products already posted, approved or turned down ("No") are never chosen again; one whose
+  // video was only made (no answer) or failed may be tried again another day.
+  const FULL_PICTURES = 9;
+  const usedBefore = () => {
+    const used = new Set(Object.keys(state.postedProducts));
+    for (const j of state.jobs) if (['APPROVED', 'POSTED', 'REJECTED'].includes(j.status)) used.add(j.productId);
+    return used;
+  };
+  const pictureCount = (p: any) => new Set([p.primaryImage, ...(Array.isArray(p.images) ? p.images : [])].filter(Boolean)).size;
   const pickProduct = (skip: Set<string>) => {
-    const cutoff = Date.now() - REPOST_AFTER_DAYS * 86400_000;
+    const used = usedBefore();
     const ok = d.liveProducts().filter((p) => {
-      if (skip.has(p.id)) return false;
-      if (!d.picturesOf(p).length || d.priceOf(p) <= 0) return false;
+      if (skip.has(p.id) || used.has(p.id)) return false;
+      if (pictureCount(p) < FULL_PICTURES || d.priceOf(p) <= 0) return false;
       if (Number(p.stock) - Number(p.reservedStock || 0) <= 0) return false;
       if (BLOCKED.test(`${p.name} ${p.category} ${p.subcategory || ''} ${p.shortDescription || ''}`)) return false;
       // Another company's brand on the Page is reported as a copy: products named after one, or whose
       // pictures showed a brand's name or logo, are never chosen
-      if (state.brandedProducts?.[p.id] || famousBrandIn(`${p.name} ${p.shortDescription || ''}`) || LOCAL_BRANDS.test(`${p.name} ${p.shortDescription || ''}`)) return false;
-      const last = state.postedProducts[p.id];
-      return !last || Date.parse(last) < cutoff;
+      return !(state.brandedProducts?.[p.id] || famousBrandIn(`${p.name} ${p.shortDescription || ''}`) || LOCAL_BRANDS.test(`${p.name} ${p.shortDescription || ''}`));
     });
     if (!ok.length) return null;
     // a product with its own video first, then sale items, then the newest
@@ -231,6 +238,7 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
   const jobInput = new Map<string, { plan: Plan; shopName: string; pictures: string[]; voice?: string; voiceMime?: string }>();
 
   let busy = false;
+  let noneToldDay = '';
   /** Makes today's video (or a new one when the owner asks for another product) and sends it for approval */
   const makeVideo = async (skipToday = false, alwaysNew = false): Promise<Job | null> => {
     if (busy) return null;
@@ -257,7 +265,21 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
     }
     if (!p) {
       busy = false;
-      console.warn('[daily-video] no product can be used today');
+      // the owner hears it once a day (the check runs again every few minutes, cheaply)
+      if (noneToldDay !== day) {
+        noneToldDay = day;
+        console.warn('[daily-video] no product can be used today');
+        d.emailOwner(
+          'Aaj ki video nahi bani',
+          [
+            'Aaj Facebook video ke liye koi naya product nahi mila.',
+            'Video sirf un products ki banti hai jin ki 9 tasveerein poori hon, jo pehle post na hue hon, aur jin par kisi brand ka naam ya logo na ho.',
+            'ChatGPT se mazeed products ki 9 tasveerein poori karwayein; agla product milte hi video khud ban jayegi.',
+          ],
+          'Seller Center kholein',
+          `${d.publicOrigin().replace('://', '://seller.')}/`
+        ).catch(() => {});
+      }
       return null;
     }
     const j: Job = { id: crypto.randomBytes(8).toString('hex'), day, productId: p.id, productName: String(p.name), status: 'MAKING', createdAt: new Date().toISOString() };
