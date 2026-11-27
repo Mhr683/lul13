@@ -80,7 +80,7 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
   // FREE: made here from the pictures; PRO: Google's video AI on the seller's own (paid) key
   const [mode, setMode] = useState<'FREE' | 'PRO'>('FREE');
   // voice-over: a woman's or man's voice telling the product's features
-  const [voice, setVoice] = useState<'NONE' | 'FEMALE' | 'MALE'>('FEMALE');
+  const [voice, setVoice] = useState<'NONE' | 'FEMALE' | 'MALE'>('MALE');
   const [lang, setLang] = useState<'UR' | 'EN'>('UR');
   const [voiceNote, setVoiceNote] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -274,8 +274,8 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
                   <label className="space-y-1">
                     <span className="font-semibold">Voice telling the features</span>
                     <select value={voice} onChange={(e) => setVoice(e.target.value as any)} className="w-full px-2 py-1.5 rounded-lg border border-[#DCD9D2] rounded bg-white">
-                      <option value="FEMALE">Woman's voice</option>
                       <option value="MALE">Man's voice</option>
+                      <option value="FEMALE">Woman's voice</option>
                       <option value="NONE">No voice</option>
                     </select>
                   </label>

@@ -5294,6 +5294,7 @@ registerDailyVideo(app, {
   priceOf,
   settings: () => catalogStore.settings(),
   planVideo: sellerAi.planVideo,
+  speak: (script, voice) => sellerAi.speakVoiceover(script, voice),
   picturesOf: sellerAi.picturesOf,
   storeMedia,
   mediaDir: MEDIA_DIR,

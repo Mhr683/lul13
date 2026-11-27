@@ -1013,14 +1013,10 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
   // The voice-over for the free video: Google's speech AI reads the script in a woman's or man's voice
   // and sends back a short WAV, which the browser mixes into the video with the music. One AI use.
   const TTS_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'];
-  const VOICES = { FEMALE: 'Kore', MALE: 'Puck' } as const;
-  app.post('/api/seller/coach/voiceover', d.requireSeller, async (req, res) => {
-    const uid = (req as any).user.uid as string;
-    if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
-    const script = str(req.body?.script, 400);
-    const voice = req.body?.voice === 'MALE' ? 'MALE' : 'FEMALE';
-    if (script.length < 5) return res.status(400).json({ error: 'Nothing to say.' });
-    if (!d.takeAi(uid).granted) return res.json({ success: true, audio: '', aiKeyNeeded: true });
+  // Algenib: the clearest, most natural Pakistani Urdu of 8 men's voices tried (Nov 2026)
+  const VOICES = { FEMALE: 'Kore', MALE: 'Algenib' } as const;
+  /** The voice-over as base64 audio, or null. Also used by the store's daily video (uid empty: store keys) */
+  const speakVoiceover = async (script: string, voice: 'FEMALE' | 'MALE', uid?: string): Promise<{ audio: string; mime: string } | null> => {
     let lastErr = '';
     for (const model of TTS_MODELS) {
       try {
@@ -1031,13 +1027,24 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
           config: { responseModalities: ['AUDIO'] as any, speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICES[voice] } } } },
         });
         const part = (r.candidates?.[0]?.content?.parts || []).find((x: any) => x.inlineData?.data);
-        if (part) return res.json({ success: true, audio: part.inlineData.data, mime: part.inlineData.mimeType || 'audio/wav' });
+        if (part) return { audio: part.inlineData.data, mime: part.inlineData.mimeType || 'audio/wav' };
         lastErr = 'no audio';
       } catch (err: any) {
         lastErr = String(err?.message || '');
       }
     }
     console.warn('[voiceover] failed:', lastErr.slice(0, 200));
+    return null;
+  };
+  app.post('/api/seller/coach/voiceover', d.requireSeller, async (req, res) => {
+    const uid = (req as any).user.uid as string;
+    if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
+    const script = str(req.body?.script, 400);
+    const voice = req.body?.voice === 'FEMALE' ? 'FEMALE' : 'MALE';
+    if (script.length < 5) return res.status(400).json({ error: 'Nothing to say.' });
+    if (!d.takeAi(uid).granted) return res.json({ success: true, audio: '', aiKeyNeeded: true });
+    const v = await speakVoiceover(script, voice, uid);
+    if (v) return res.json({ success: true, ...v });
     res.json({ success: true, audio: '', error: 'The voice could not be made right now; the video is made with music only.' });
   });
 
@@ -1372,5 +1379,5 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
   });
 
   // Shared with the store's daily social video (server/dailyVideo.ts)
-  return { planVideo, picturesOf };
+  return { planVideo, picturesOf, speakVoiceover };
 }

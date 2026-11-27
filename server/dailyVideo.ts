@@ -41,7 +41,9 @@ export type DailyVideoDeps = {
   liveProducts: () => any[];
   priceOf: (p: any) => number;
   settings: () => any;
-  planVideo: (p: any, o: { shopName: string; useAi: boolean }) => Promise<{ plan: Plan; usedAi: boolean }>;
+  planVideo: (p: any, o: { shopName: string; useAi: boolean; voice?: 'FEMALE' | 'MALE' | 'NONE'; lang?: 'UR' | 'EN' }) => Promise<{ plan: Plan; usedAi: boolean }>;
+  /** The voice-over (base64 audio) of a script, or null */
+  speak: (script: string, voice: 'FEMALE' | 'MALE') => Promise<{ audio: string; mime: string } | null>;
   picturesOf: (p: any) => string[];
   storeMedia: (buffer: Buffer, ext: string, contentType: string) => Promise<string>;
   mediaDir: string;
@@ -216,7 +218,7 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
       return null;
     }
   };
-  const jobInput = new Map<string, { plan: Plan; shopName: string; pictures: string[] }>();
+  const jobInput = new Map<string, { plan: Plan; shopName: string; pictures: string[]; voice?: string; voiceMime?: string }>();
 
   let busy = false;
   /** Makes today's video (or a new one when the owner asks for another product) and sends it for approval */
@@ -239,11 +241,13 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
         j.videoUrl = p.videoUrl;
       } else {
         const shopName = String(d.settings()?.storeName || 'Anokha Shopping Hub');
-        const { plan } = await d.planVideo(p, { shopName, useAi: true });
+        // A man's voice tells the product's features in Urdu (music only if the voice cannot be made)
+        const { plan } = await d.planVideo(p, { shopName, useAi: true, voice: 'MALE', lang: 'UR' });
         const pictures = (await Promise.all(d.picturesOf(p).map(pictureData))).filter(Boolean) as string[];
         if (!pictures.length) throw new Error('The product pictures could not be opened.');
         plan.scenes = plan.scenes.map((s: any) => ({ ...s, image: Math.min(s.image, pictures.length - 1) }));
-        jobInput.set(j.id, { plan, shopName, pictures });
+        const v = plan.voiceScript ? await d.speak(plan.voiceScript, 'MALE').catch(() => null) : null;
+        jobInput.set(j.id, { plan, shopName, pictures, ...(v ? { voice: v.audio, voiceMime: v.mime } : {}) });
         j.videoUrl = await recordInBrowser(j.id);
       }
       j.caption = captionFor(p);
