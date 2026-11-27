@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Play, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { smallImage, smallImageSet } from '../services/imageUrl';
 
 // Product page gallery: the big picture (zooms where the mouse points, tap opens full screen),
 // a row of thumbnails for every picture, and the product video (YouTube, Vimeo or MP4) when the
@@ -60,6 +61,7 @@ export const ProductGallery: React.FC<{
   const [zoom, setZoom] = useState<{ x: number; y: number } | null>(null);
   const [full, setFull] = useState(false);
   const [broken, setBroken] = useState<Record<string, boolean>>({});
+  const [plain, setPlain] = useState<Record<string, boolean>>({});
 
   useEffect(() => setIndex(0), [slides]);
   useEffect(() => {
@@ -86,15 +88,24 @@ export const ProductGallery: React.FC<{
   const video = (s: Extract<Slide, { kind: 'video' }>, _big = false) => <VideoEmbed url={s.src} title={`${alt} video`} />;
 
   const step = (dir: 1 | -1) => setIndex((i) => (i + dir + slides.length) % slides.length);
+  // small WebP copies for the big picture and the thumbnails (full screen keeps the original)
+  const mainSet = current.kind === 'image' && !plain[current.src] ? smallImageSet(current.src, [480, 800, 1200]) : undefined;
 
   return (
     <div className="space-y-3">
       <div className="relative aspect-[4/3] w-full bg-[#F7F6F2] border border-black/[0.07] overflow-hidden">
         {current.kind === 'image' ? (
           <img
-            src={current.src}
+            key={`${current.src}|${plain[current.src] ? 1 : 0}`}
+            src={mainSet ? smallImage(current.src, 800) : current.src}
+            srcSet={mainSet}
+            sizes={mainSet ? '(min-width: 1024px) 50vw, 100vw' : undefined}
+            fetchPriority="high"
             alt={alt}
-            onError={() => setBroken((b) => ({ ...b, [current.src]: true }))}
+            onError={() =>
+              // the small copy failed: the original picture is tried before giving up
+              mainSet ? setPlain((p) => ({ ...p, [current.src]: true })) : setBroken((b) => ({ ...b, [current.src]: true }))
+            }
             onMouseMove={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
               setZoom({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 });
@@ -151,7 +162,16 @@ export const ProductGallery: React.FC<{
               }`}
             >
               {s.kind === 'image' ? (
-                <img src={s.src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <img
+                  src={plain[s.src] ? s.src : smallImage(s.src, 160)}
+                  onError={(e) => {
+                    if (e.currentTarget.src.indexOf('/img/') >= 0) setPlain((p) => ({ ...p, [s.src]: true }));
+                  }}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <>
                   {s.youTube ? (

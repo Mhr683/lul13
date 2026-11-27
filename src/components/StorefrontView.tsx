@@ -2059,7 +2059,9 @@ export const StorefrontView: React.FC = () => {
                 setSubView('CATALOG');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              renderImage={(src, alt, className) => <ProductImage src={src} alt={alt} className={className} />}
+              renderImage={(src, alt, className, eager) => (
+                <ProductImage src={src} alt={alt} className={className} eager={eager} sizes="100vw" widths={[480, 800, 1200]} />
+              )}
             />
             {/* Store promises, one short line */}
             <div className="bg-[#0E7A43] text-white text-[11px] sm:text-xs font-semibold">
@@ -2109,7 +2111,7 @@ export const StorefrontView: React.FC = () => {
             <BecomeSellerBanner settings={settings} />
             {/* Last month's Top Sellers (server/topSellers.ts) */}
             <TopSellersStrip onOpenShop={openShop} />
-            <TrendingTicker products={products} onOpen={handleSelectProduct} renderImage={(src, alt, className) => <ProductImage src={src} alt={alt} className={className} />} />
+            <TrendingTicker products={products} onOpen={handleSelectProduct} renderImage={(src, alt, className) => <ProductImage src={src} alt={alt} className={className} sizes="36px" widths={[160]} />} />
             <DailyDeals
               products={products}
               onSelect={handleSelectProduct}
@@ -2826,6 +2828,9 @@ export const StorefrontView: React.FC = () => {
                         src={selectedProduct.primaryImage}
                         alt={selectedProduct.name}
                         category={selectedProduct.category}
+                        eager
+                        sizes="(min-width: 1024px) 50vw, 100vw"
+                        widths={[480, 800, 1200]}
                         className="w-full h-full object-cover"
                       />
                     }

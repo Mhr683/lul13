@@ -58,11 +58,22 @@ const Countdown: React.FC<{ endsAt: string }> = ({ endsAt }) => {
   );
 };
 
+// Videos start by themselves only on bigger screens without data saver. On phones a product video
+// (often 3 MB or more) made the home page very slow on mobile data: there the picture shows with a
+// play button, and the video loads only when the visitor taps it.
+const AUTO_VIDEO =
+  typeof window !== 'undefined' &&
+  !!window.matchMedia &&
+  window.matchMedia('(min-width: 768px)').matches &&
+  !(navigator as any).connection?.saveData;
+
 // The slide's video. Some phones (battery saver, data saver, older Android) do not start a video by
 // themselves: then it is started from code, and if the phone still refuses, a big play button shows
 // so one tap starts it (the tap plays the video instead of opening the product).
-const HeroVideo: React.FC<{ src: string; poster?: string; fill?: boolean }> = ({ src, poster, fill }) => {
+const HeroVideo: React.FC<{ src: string; poster?: string; fill?: boolean; onStart?: () => void }> = ({ src, poster, fill, onStart }) => {
   const ref = useRef<HTMLVideoElement>(null);
+  // phones: no video at all until the play button is tapped
+  const [wanted, setWanted] = useState(AUTO_VIDEO);
   const [blocked, setBlocked] = useState(false);
   // (a full-size video shows only once it really plays; until then the picture under it shows)
   const [playing, setPlaying] = useState(false);
@@ -74,6 +85,7 @@ const HeroVideo: React.FC<{ src: string; poster?: string; fill?: boolean }> = ({
     if (p && typeof p.then === 'function') p.then(() => setBlocked(false)).catch(() => setBlocked(true));
   };
   useEffect(() => {
+    if (!wanted) return;
     start();
     // Still not playing after 2.5 s (no error either): offer the button
     const t = setTimeout(() => {
@@ -81,7 +93,24 @@ const HeroVideo: React.FC<{ src: string; poster?: string; fill?: boolean }> = ({
       if (v && v.paused) setBlocked(true);
     }, 2500);
     return () => clearTimeout(t);
-  }, [src]);
+  }, [src, wanted]);
+  if (!wanted) {
+    return (
+      <button
+        type="button"
+        aria-label="Play video"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onStart?.();
+          setWanted(true);
+        }}
+        className="absolute inset-0 flex items-center justify-center cursor-pointer"
+      >
+        <PlayCircle className="w-16 h-16 text-white drop-shadow-lg" />
+      </button>
+    );
+  }
   return (
     <>
       <video
@@ -261,15 +290,18 @@ export const HeroSlider: React.FC<{
   // Moves on by itself; waits while the visitor holds or hovers it, or the tab is hidden (then it
   // tries again a little later instead of stopping for good)
   const [retry, setRetry] = useState(0);
+  // a video the visitor started by tapping keeps its slide until they swipe on
+  const [hold, setHold] = useState(false);
+  useEffect(() => setHold(false), [active]);
   useEffect(() => {
-    if (paused || count < 2) return;
-    const ms = slides[active]?.kind === 'VIDEO' ? VIDEO_MS : AUTO_MS;
+    if (paused || hold || count < 2) return;
+    const ms = slides[active]?.kind === 'VIDEO' && AUTO_VIDEO ? VIDEO_MS : AUTO_MS;
     const t = setTimeout(() => {
       if (document.visibilityState === 'visible') go(active + 1);
       else setRetry((n) => n + 1);
     }, ms);
     return () => clearTimeout(t);
-  }, [active, paused, count, go, slides[active]?.kind, retry]);
+  }, [active, paused, hold, count, go, slides[active]?.kind, retry]);
 
   // Swipe with a finger (or drag with the mouse)
   // The distance lives in the ref too: a quick swipe can end before React has re-rendered
@@ -365,7 +397,7 @@ export const HeroSlider: React.FC<{
                         {/* the picture under the video: shows while the video loads or if the phone does not play it */}
                         {s.image && <div className="absolute inset-0">{renderImage(s.image, s.title, 'h-full w-full object-cover', near(i))}</div>}
                         <div className="absolute inset-0 hs-fly">
-                          <HeroVideo src={s.video} poster={s.image} fill />
+                          <HeroVideo src={s.video} poster={s.image} fill onStart={() => setHold(true)} />
                         </div>
                       </>
                     ) : s.image ? (
@@ -514,7 +546,7 @@ export const HeroSlider: React.FC<{
                   <span
                     key={`${active}-${paused}`}
                     className="block h-full bg-white"
-                    style={{ animation: paused ? 'none' : `hs-bar ${s.kind === 'VIDEO' ? VIDEO_MS : AUTO_MS}ms linear forwards`, width: paused ? '100%' : undefined }}
+                    style={{ animation: paused || hold ? 'none' : `hs-bar ${s.kind === 'VIDEO' && AUTO_VIDEO ? VIDEO_MS : AUTO_MS}ms linear forwards`, width: paused || hold ? '100%' : undefined }}
                   />
                 )}
               </button>

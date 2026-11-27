@@ -34,10 +34,17 @@ export function startMetaPixel(pixelId: unknown) {
     f.push = f;
     w.fbq = f;
     if (!w._fbq) w._fbq = f;
-    const s = document.createElement('script');
-    s.async = true;
-    s.src = 'https://connect.facebook.net/en_US/fbevents.js';
-    document.head.appendChild(s);
+    // Facebook's file (~200 KB) loads only after the page has shown, so it does not compete with the
+    // store's own pictures on slow mobile data; events wait in the queue above until then
+    const load = () => {
+      const s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://connect.facebook.net/en_US/fbevents.js';
+      document.head.appendChild(s);
+    };
+    const later = () => setTimeout(load, 3000);
+    if (document.readyState === 'complete') later();
+    else window.addEventListener('load', later, { once: true });
   }
   w.fbq('init', id);
   w.fbq('track', 'PageView');

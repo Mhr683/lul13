@@ -639,7 +639,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!SELLER_PORTAL) {
       // The catalog was usually just loaded at startup; admins need theirs (with drafts) right away
       if (isAdmin || Date.now() - lastCatalogLoad > 60_000) loadProducts();
-      timers.push(setInterval(loadProducts, isAdmin ? 60_000 : 120_000));
+      // customers: every 10 minutes (the whole catalog is ~170 KB, a lot on mobile data every 2 minutes;
+      // the server checks prices and stock again at checkout)
+      timers.push(setInterval(loadProducts, isAdmin ? 60_000 : 600_000));
     }
     loadBootstrap();
     timers.push(setInterval(loadBootstrap, 5 * 60_000));

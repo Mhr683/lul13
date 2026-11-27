@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useOptionalSettings } from '../context/StoreContext';
+import { smallImage } from '../services/imageUrl';
 
 // Anokha Shopping Hub brand: the green "AS" ribbon monogram (public/brand-mark.svg, vectorised from
 // the approved logo) and the wordmark. The first word of the store name is set in green Montserrat
@@ -12,10 +13,15 @@ const MARK_RATIO = 250.65 / 179.34;
 
 export const BrandMark: React.FC<{ size?: number; className?: string }> = ({ size = 36, className = '' }) => {
   const settings = useOptionalSettings();
+  // the uploaded logo was a 432 KB picture shown ~40 px tall: a small WebP copy is used, and the
+  // original only if the copy cannot load
+  const [plainLogo, setPlainLogo] = useState(false);
   if (settings?.logoUrl) {
+    const small = smallImage(settings.logoUrl, 320);
     return (
       <img
-        src={settings.logoUrl}
+        src={plainLogo ? settings.logoUrl : small}
+        onError={() => small !== settings.logoUrl && setPlainLogo(true)}
         alt=""
         aria-hidden="true"
         height={size}

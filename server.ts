@@ -4900,6 +4900,103 @@ async function storeMedia(buffer: Buffer, ext: string, contentType: string): Pro
 }
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true, fallthrough: false }));
 
+// Small WebP copies of product pictures for phones: /img/w480/<source address in base64url>.webp
+// (src/services/imageUrl.ts). Most pictures are big originals on the supplier's site (often 0.2-1.4 MB
+// each, 20-30 KB is enough for a product card). A copy is made once, kept in .cache/img and then
+// served from Cloudflare's cache. Only this store's own /media files and pictures used by the
+// catalog are copied; anything else, or any failure, goes to the original picture.
+const IMG_DIR = path.join(process.cwd(), '.cache', 'img');
+const IMG_WIDTHS = [160, 320, 480, 640, 800, 1200];
+let imgAllowed = { at: 0, set: new Set<string>() };
+function imageInCatalog(u: string): boolean {
+  if (imgAllowed.set.has(u)) return true;
+  // rebuilt at most every 30 s (a picture of a product added just now is then found too)
+  if (Date.now() - imgAllowed.at < 30_000 || !catalogStore.ready) return false;
+  const set = new Set<string>();
+  for (const p of catalogStore.allProducts() as any[]) {
+    if (p?.primaryImage) set.add(String(p.primaryImage));
+    if (Array.isArray(p?.images)) for (const s of p.images) set.add(String(s));
+  }
+  const s: any = catalogStore.settings() || {};
+  if (s.heroImageUrl) set.add(String(s.heroImageUrl));
+  if (s.logoUrl) set.add(String(s.logoUrl));
+  imgAllowed = { at: Date.now(), set };
+  return set.has(u);
+}
+// one copy is made at a time per few requests, so a burst of visitors does not stall the laptop
+let imgRunning = 0;
+const imgQueue: (() => void)[] = [];
+const imgJobs = new Map<string, Promise<Buffer | null>>();
+async function makeSmallImage(src: string, width: number, local: boolean, file: string): Promise<Buffer | null> {
+  if (imgRunning >= 2) await new Promise<void>((r) => imgQueue.push(r));
+  imgRunning++;
+  try {
+    let input: Buffer;
+    if (local) {
+      input = await fs.promises.readFile(path.join(MEDIA_DIR, path.basename(src)));
+    } else {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 20_000);
+      try {
+        const r = await fetch(src, { signal: ctl.signal, redirect: 'follow' });
+        if (!r.ok || !/^image\//i.test(r.headers.get('content-type') || '')) return null;
+        if (Number(r.headers.get('content-length') || 0) > 20e6) return null;
+        input = Buffer.from(await r.arrayBuffer());
+        if (input.length > 20e6) return null;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    const sharp = (await import('sharp')).default;
+    const out = await sharp(input, { failOn: 'none', limitInputPixels: 60e6 })
+      .rotate()
+      .resize({ width, withoutEnlargement: true })
+      .webp({ quality: 72 })
+      .toBuffer();
+    await fs.promises.mkdir(IMG_DIR, { recursive: true });
+    await fs.promises.writeFile(file, out);
+    return out;
+  } catch (err: any) {
+    console.warn('[img] could not make a small copy:', src.slice(0, 120), err?.message);
+    return null;
+  } finally {
+    imgRunning--;
+    imgQueue.shift()?.();
+  }
+}
+app.get(/^\/img\/w(\d+)\/([A-Za-z0-9_-]{4,3000})\.webp$/, async (req, res) => {
+  const width = Number((req.params as any)[0]);
+  let src = '';
+  try {
+    src = Buffer.from(String((req.params as any)[1]), 'base64url').toString('utf8');
+  } catch {}
+  const local = /^\/media\/[\w.-]+\.(jpe?g|png|webp)$/i.test(src);
+  const known = local || (/^https:\/\//i.test(src) && imageInCatalog(src));
+  // a failed copy sends the visitor to the original picture; addresses that are not this store's
+  // pictures get a 404 (never a redirect to another site), and the page then shows the original itself
+  const original = () => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (known) return res.redirect(302, src);
+    res.status(404).end();
+  };
+  if (!IMG_WIDTHS.includes(width) || !known) return original();
+  const key = crypto.createHash('sha1').update(`${width}|${src}`).digest('hex');
+  const file = path.join(IMG_DIR, `${key}.webp`);
+  let buf: Buffer | null = await fs.promises.readFile(file).catch(() => null);
+  if (!buf) {
+    let job = imgJobs.get(key);
+    if (!job) {
+      job = makeSmallImage(src, width, local, file).finally(() => imgJobs.delete(key));
+      imgJobs.set(key, job);
+    }
+    buf = await job;
+  }
+  if (!buf) return original();
+  res.setHeader('Content-Type', 'image/webp');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.end(buf);
+});
+
 // Private files (sellers' ID cards and business documents). Kept in .private/ on this server's
 // disk, which is never served: only the admin routes in server/marketplace.ts read them back.
 const PRIVATE_DIR = path.join(process.cwd(), '.private');

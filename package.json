@@ -26,6 +26,7 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "resend": "^6.33.0",
+    "sharp": "^0.33.5",
     "vite": "^8.3.0"
   },
   "devDependencies": {
