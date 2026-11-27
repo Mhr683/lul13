@@ -72,7 +72,7 @@ import { AdminTrafficPanel } from './AdminTrafficPanel';
 import { AdminPaymentKeysPanel } from './AdminPaymentKeysPanel';
 import { AdminShippingZonesEditor } from './AdminShippingZonesEditor';
 import { ADMIN_TABS, ROLE_LABELS, tabsForRole, type AdminTab } from '../services/adminRoles';
-import { useTabHistory } from '../hooks/useTabHistory';
+import { useBackCloses, useTabHistory } from '../hooks/useTabHistory';
 import {
   Product,
   Order,
@@ -276,6 +276,8 @@ export const AdminDashboardView: React.FC<{
 
   // Product Editor & AI Studio Image Generator State
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
+  // Phone back button while the product form is open: closes the form and stays on the same tab
+  useBackCloses(!!editingProduct, () => setEditingProduct(null));
   const [productSearch, setProductSearch] = useState('');
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const selectedProductIdSet = useMemo(() => new Set(selectedProductIds), [selectedProductIds]);

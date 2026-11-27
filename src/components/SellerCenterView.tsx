@@ -11,7 +11,7 @@ import {
   soundOn,
   unlockSoundOnFirstTap,
 } from '../services/sellerAlerts';
-import { useTabHistory } from '../hooks/useTabHistory';
+import { useBackCloses, useTabHistory } from '../hooks/useTabHistory';
 import { CourierBookBox } from './CourierBookBox';
 import { courierApi } from '../services/courierClient';
 import { shrinkToSquareJpeg } from '../services/imageShrink';
@@ -2649,6 +2649,8 @@ const ProductsTab: React.FC<{ uid: string; categoryNames: string[]; shipsFrom: s
   const [products, setProducts] = useState<ListProduct[] | null>(() => readCache<ListProduct[]>(PRODUCTS_CACHE_KEY, uid));
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState<typeof emptyProduct | null>(null);
+  // Phone back button while the product form is open: closes the form and stays on Products
+  useBackCloses(!!editing, () => setEditing(null));
   // The AI video maker window for the product being edited
   const [videoFor, setVideoFor] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
