@@ -196,7 +196,7 @@ export function registerSellerAiRoutes(app: express.Express, d: SellerAiDeps) {
 Current short description: ${String(p.shortDescription || '').slice(0, 400)}
 Current description: ${String(p.description || '').slice(0, 1500)}
 Tone: ${tone || 'Professional'}. ${extra}
-- "description": 150 to 250 words, plain text (no ** or #). An opening paragraph saying what it is and who it is for; then "Key features:" with 4 to 6 lines starting with "• "; then a short paragraph on where and how it is used; end with one line: order online in Pakistan with Cash on Delivery.
+- "description": at least 170 and at most 250 words, plain text (no ** or #), with line breaks ("\\n"). An opening paragraph (3 to 4 sentences) saying what it is, who it is for and why it is useful; then a line "Key features:" and 5 or 6 lines, each starting with "• "; then a paragraph (2 to 3 sentences) on where and how it is used and who it makes a good gift for; end with its own line: "Order online in Pakistan with Cash on Delivery."
 - "shortDescription": 1 or 2 sentences, at most 250 characters, the main benefit first.
 - "seoTitle": at most 60 characters, the product's plain name and its main feature (no price, no shop name).
 - "seoDescription": at most 155 characters, mentions the price in PKR and Cash on Delivery in Pakistan.
@@ -213,14 +213,31 @@ Use the words people search for naturally in the text; never stuff keywords. Be 
             seoDescription: { type: Type.STRING },
             seoKeywords: { type: Type.STRING },
           },
-          required: ['shortDescription', 'description'],
+          required: ['shortDescription', 'description', 'seoTitle', 'seoDescription', 'seoKeywords'],
         },
         temperature: 0.5,
       },
     });
     try {
       const j = JSON.parse(r.text || '{}');
-      return j.description ? j : null;
+      if (!j.description) return null;
+      // Each feature on its own line (the product page shows lines as a list); the AI sometimes
+      // wrote them all in one paragraph
+      j.description = String(j.description)
+        .replace(/\s*(Key features:)\s*/i, '\n\n$1\n')
+        .replace(/\s+•\s*/g, '\n• ')
+        .replace(/([.!])\s+(Order (?:it )?online in Pakistan)/i, '$1\n\n$2')
+        .replace(/(\n• [^\n]*?[.!])[ \t]+(?=[A-Z][^•\n]{40,}$)/m, '$1\n\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      // Search fields of the right size only; a run-on title or a list without real search phrases is dropped
+      const keywords = String(j.seoKeywords || '').split(',').map((k) => k.trim()).filter((k) => k.length > 2);
+      // a run-on title: the product's short name instead ("Air 39 Earbuds | Bluetooth 5.3" -> "Air 39 Earbuds")
+      if (String(j.seoTitle || '').length > 70) j.seoTitle = String(p.name).split(/\s[|–—-]\s/)[0].trim().slice(0, 60);
+      if (String(j.seoDescription || '').length > 170) j.seoDescription = String(j.seoDescription).slice(0, 160).replace(/\s+\S*$/, '');
+      if (keywords.length < 5) delete j.seoKeywords;
+      else j.seoKeywords = keywords.slice(0, 12).join(', ');
+      return j;
     } catch {
       return null;
     }
@@ -737,6 +754,14 @@ Be the seller's coach and partner: when they ask about performance, details or a
   // uses its own AI key first (then the store's), shops one after another, one product every few
   // seconds (runRewriteAll). Shops that switched auto-fix off are left alone.
   const SEO_SHORT = 300;
+  // A short description, or one this job wrote on Nov 27 before its fix (too short, all on one line,
+  // or without proper search words); descriptions sellers wrote themselves are never touched
+  const needsSeoCopy = (p: any) => {
+    const text = String(p.description || '');
+    if (text.length < SEO_SHORT) return true;
+    if (!/Order online in Pakistan with Cash on Delivery\.?\s*$/.test(text)) return false;
+    return !text.includes('\n');
+  };
   let storeRewriting = false;
   const rewriteEveryShop = async () => {
     if (storeRewriting) return;
@@ -744,14 +769,14 @@ Be the seller's coach and partner: when they ask about performance, details or a
     try {
       const short = new Map<string, number>();
       for (const p of d.liveProducts()) {
-        if (p.sellerId && String(p.description || '').length < SEO_SHORT) short.set(p.sellerId, (short.get(p.sellerId) || 0) + 1);
+        if (p.sellerId && needsSeoCopy(p)) short.set(p.sellerId, (short.get(p.sellerId) || 0) + 1);
       }
       for (const uid of short.keys()) {
         if (jobs.get(uid)?.running) continue;
         const seller = await d.sellerData.sellerOf(uid).catch(() => null);
         if (!seller || seller.autoFix === false) continue;
         const list = (await d.sellerData.productsOf(uid)).filter(
-          (p) => p.status === 'ACTIVE' && !p.adminHidden && String(p.description || '').length < SEO_SHORT
+          (p) => p.status === 'ACTIVE' && !p.adminHidden && needsSeoCopy(p)
         );
         if (!list.length) continue;
         console.log(`[seo-copy] ${seller.shopName || uid}: writing ${list.length} description(s)`);
