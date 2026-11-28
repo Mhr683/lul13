@@ -18,10 +18,11 @@ export type AdminTab =
   | 'RETURNS'
   | 'GROWTH'
   | 'TRAFFIC'
+  | 'SOCIAL'
   | 'QUESTIONS';
 
 export const ADMIN_TABS: AdminTab[] = [
-  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'GROWTH', 'TRAFFIC', 'COUPONS', 'REVIEWS', 'QUESTIONS',
+  'DASHBOARD', 'CATALOG', 'ORDERS', 'RETURNS', 'GROWTH', 'TRAFFIC', 'SOCIAL', 'COUPONS', 'REVIEWS', 'QUESTIONS',
   'AI_COMMAND_CENTER', 'AI_TASKS', 'AUDIT_LOGS', 'NOTIFICATIONS', 'SETTINGS', 'SELLERS', 'SELLER_INBOX',
 ];
 
@@ -59,6 +60,7 @@ const API_AREAS: Array<[RegExp, AdminTab]> = [
   [/^\/api\/admin\/(seller-threads|seller-notices)(\/|$)/, 'SELLER_INBOX'],
   [/^\/api\/admin\/(ads|analytics)(\/|$)/, 'TRAFFIC'],
   [/^\/api\/admin\/(carts|flash-deal)(\/|$)/, 'GROWTH'],
+  [/^\/api\/admin\/(social|daily-video)(\/|$)/, 'SOCIAL'],
   [/^\/api\/admin\/returns(\/|$)/, 'RETURNS'],
   [/^\/api\/admin\/questions(\/|$)/, 'QUESTIONS'],
   [/^\/api\/admin\/feedback(\/|$)/, 'REVIEWS'],

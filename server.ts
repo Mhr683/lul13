@@ -56,6 +56,7 @@ import { ALL_WORLD_COUNTRIES } from './src/services/addressAndPaymentVerificatio
 import { registerPolicyRoutes } from './server/policy';
 import { registerSellerAiRoutes } from './server/sellerAi';
 import { registerDailyVideo } from './server/dailyVideo';
+import { registerSocialManager } from './server/socialManager';
 import { registerGrowthRoutes, referralCreditOf, phoneKey } from './server/growth';
 import { createAnalytics } from './server/analytics';
 import { createAds } from './server/ads';
@@ -5300,6 +5301,28 @@ const sellerAi = registerSellerAiRoutes(app, {
   liveProducts,
 });
 
+/** Public address of the store (https://anokhashopinghub.shop) */
+const storePublicOrigin = () => (STORE_HOST ? `https://${STORE_HOST}` : String(process.env.APP_URL || '').replace(/\/+$/, ''));
+/** E-mail to the store owner (daily video, social posts) */
+const emailStoreOwner = async (subject: string, paragraphs: string[], button: string, url: string) => {
+  const s = catalogStore.settings() || {};
+  const to = process.env.STORE_OWNER_EMAIL?.trim() || process.env.ADMIN_EMAIL?.trim() || s.supportEmail || s.contactEmail || '';
+  if (!to) return;
+  await sendSellerEngagementEmail(adminDb, {
+    to,
+    ownerName: '',
+    shopName: s.storeName || 'Anokha Shopping Hub',
+    subject,
+    title: subject,
+    color: 'emerald',
+    paragraphs,
+    button,
+    sellerCenterUrl: url,
+    storeName: s.storeName,
+    supportEmail: s.supportEmail,
+  });
+};
+
 // The store's daily social video: made at 3 pm, sent to the owner, posted at 5 pm on a "Yes"
 registerDailyVideo(app, {
   requireAdmin,
@@ -5341,26 +5364,24 @@ registerDailyVideo(app, {
   picturesOf: sellerAi.picturesOf,
   storeMedia,
   mediaDir: MEDIA_DIR,
-  publicOrigin: () => (STORE_HOST ? `https://${STORE_HOST}` : String(process.env.APP_URL || '').replace(/\/+$/, '')),
+  publicOrigin: storePublicOrigin,
   localOrigin: `http://127.0.0.1:${Number(process.env.PORT) || 3000}`,
-  emailOwner: async (subject, paragraphs, button, url) => {
-    const s = catalogStore.settings() || {};
-    const to = process.env.STORE_OWNER_EMAIL?.trim() || process.env.ADMIN_EMAIL?.trim() || s.supportEmail || s.contactEmail || '';
-    if (!to) return;
-    await sendSellerEngagementEmail(adminDb, {
-      to,
-      ownerName: '',
-      shopName: s.storeName || 'Anokha Shopping Hub',
-      subject,
-      title: subject,
-      color: 'emerald',
-      paragraphs,
-      button,
-      sellerCenterUrl: url,
-      storeName: s.storeName,
-      supportEmail: s.supportEmail,
-    });
-  },
+  emailOwner: emailStoreOwner,
+});
+
+// AI Social Manager: the AI's picture posts for the store's Facebook Page / Instagram, posted on the owner's approval
+registerSocialManager(app, {
+  requireAdmin,
+  liveProducts,
+  priceOf,
+  settings: () => catalogStore.settings(),
+  getAI: () => getGenAIClient(),
+  picturesOf: sellerAi.picturesOf,
+  storeMedia,
+  mediaDir: MEDIA_DIR,
+  publicOrigin: storePublicOrigin,
+  localOrigin: `http://127.0.0.1:${Number(process.env.PORT) || 3000}`,
+  emailOwner: emailStoreOwner,
 });
 
 // Courier accounts (PostEx, Leopards, Trax): booking, labels and automatic delivery tracking

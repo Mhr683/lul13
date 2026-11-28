@@ -612,6 +612,25 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
       '"Excel" ya "PDF" se report download karein.',
     ],
   },
+  'admin.tab.SOCIAL': {
+    title: 'AI Social Manager',
+    what: 'AI aap ke Facebook Page aur Instagram ke liye posts tayyar karta hai. Aap dekh kar Approve karte hain; aap ki manzoori ke baghair kuch post nahi hota.',
+    steps: [
+      '"Jure hue accounts" mein dekhein Facebook aur Instagram par ✔ hai. Accounts Facebook ke apne token se jurte hain, password kabhi kisi ko na dein.',
+      '"AI roz ek tasveer wali post tayyar kare" on rakhein: subah 11 baje naye product ki post (4 tasveerein + Roman Urdu likhai) ban kar aap ko e-mail aati hai.',
+      'Apni post: idea likhein (jaise "Sardiyon ki sale"), chahein to products dhoond kar chunein, phir "AI se post banao".',
+      'Post ki likhai khud badal sakte hain, ya "AI dobara likhe" dabayein.',
+      '"Approve" = chune hue waqt par post (jaise 8 baje raat). "Abhi post karein" = foran. "Nahi" = nahi jayegi.',
+      'TikTok, WhatsApp Channel, X, YouTube: "Copy likhai" aur "Tasveer" se khud lagayein.',
+      '"Rozana videos" mein 3 baje wali video ka Yes/No aur share link hai.',
+      '"Pichle 7 din ki report": likes, comments aur shares.',
+    ],
+    tips: [
+      'Qeemat, link aur delivery ki line hamesha listing se aati hai; AI apni taraf se offer ya dawai jaise daway nahi likhta.',
+      'Jo products Facebook mana karta hai (dawaiyan, adult, hathiyar, brands ki copy) woh kabhi post nahi hote.',
+      'Ek product dobara post nahi hota, aur rozana video wale product se bhi alag hota hai.',
+    ],
+  },
   'admin.tab.COUPONS': {
     title: 'Promotions & Coupons',
     steps: [

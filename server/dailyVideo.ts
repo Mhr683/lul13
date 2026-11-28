@@ -16,6 +16,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { famousBrandIn } from '../src/services/brandRules';
+import { BLOCKED, GRAPH, LOCAL_BRANDS, graph, loadPicture, pageAccess, pkDate, pkHour } from './socialShared';
 
 type Plan = any;
 type Job = {
@@ -62,19 +63,7 @@ export type DailyVideoDeps = {
 
 const POST_HOUR_PK = 17; // 5 pm Pakistan time: posting
 const MAKE_HOUR_PK = 15; // 3 pm: the video is made and sent to the owner to approve
-const GRAPH = 'https://graph.facebook.com/v23.0';
-
-// Products Facebook / Instagram do not allow to be advertised or that put the Page at risk (adult,
-// medicines and health claims, weapons, tobacco, copies of brands). Never chosen for the daily video.
-const BLOCKED =
-  /\b(sex|sexual|timing|delay\s*(cream|spray|oil|tablet)|condom|lubricant|viagra|cialis|enlarge\w*|libido|erotic|adult|lingerie|bra\b|panty|panties|vibrator|massager\s*for\s*(men|women)|weight\s*loss|slimming|fat\s*burn\w*|diet\s*pill|medicine|tablet\s*for|capsule|herbal|ayurved\w*|hakeem|cure|whitening\s*(cream|injection)|fairness|steroid|cbd|hemp|vape|e-?cig\w*|cigarette|tobacco|hookah|shisha|gun|pistol|airsoft|weapon|knife|dagger|sword|taser|stun|pepper\s*spray|replica|first\s*copy|master\s*copy|aaa\s*quality)\b/i;
-
-// Pakistani brands (the shared list in src/services/brandRules.ts has the international ones)
-const LOCAL_BRANDS =
-  /\b(junaid\s*jamshed|j\.\s*junaid|khaadi|gul\s*ahmed|sana\s*safinaz|maria\.?\s*b|alkaram|sapphire|nishat|bonanza|limelight|outfitters|bata|servis|ndure|almirah|edenrobe|beechtree|zeen|asim\s*jofa|agha\s*noor|baroque|charcoal|diners)\b/i;
-
-const pkDate = (d = new Date()) => new Date(d.getTime() + 5 * 3600_000).toISOString().slice(0, 10);
-const pkHour = (d = new Date()) => new Date(d.getTime() + 5 * 3600_000).getUTCHours();
+// (BLOCKED products and LOCAL_BRANDS are never chosen: server/socialShared.ts)
 
 export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
   const stateFile = path.join(process.cwd(), '.cache', 'daily-video.json');
@@ -214,27 +203,17 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
 
   /** Picture as a data: URL so the recording window can draw it (pictures on other websites cannot be recorded) */
   const pictureData = async (u: string): Promise<string | null> => {
+    const pic = await loadPicture(u, d.mediaDir, d.localOrigin);
+    return pic ? `data:${pic.type};base64,${pic.buf.toString('base64')}` : null;
+  };
+  /** A small JPEG of a picture for the AI to look at (fewer AI tokens than the full picture) */
+  const smallForAi = async (dataUrl: string): Promise<string> => {
     try {
-      let buf: Buffer;
-      let type = 'image/jpeg';
-      if (u.startsWith('/media/')) {
-        const name = path.basename(u);
-        buf = await fs.promises.readFile(path.join(d.mediaDir, name));
-        if (/\.png$/i.test(name)) type = 'image/png';
-        else if (/\.webp$/i.test(name)) type = 'image/webp';
-      } else {
-        const abs = u.startsWith('/') ? `${d.localOrigin}${u}` : u;
-        if (!/^https?:\/\//.test(abs)) return null;
-        const r = await fetch(abs, { signal: AbortSignal.timeout(20_000) });
-        if (!r.ok) return null;
-        type = r.headers.get('content-type')?.split(';')[0] || type;
-        if (!type.startsWith('image/')) return null;
-        buf = Buffer.from(await r.arrayBuffer());
-      }
-      if (buf.length > 8 * 1024 * 1024) return null;
-      return `data:${type};base64,${buf.toString('base64')}`;
+      const sharp = (await import('sharp')).default;
+      const small = await sharp(Buffer.from(dataUrl.split(',')[1] || '', 'base64')).resize(384, 384, { fit: 'inside' }).jpeg({ quality: 72 }).toBuffer();
+      return small.toString('base64');
     } catch {
-      return null;
+      return '';
     }
   };
   const jobInput = new Map<string, { plan: Plan; shopName: string; pictures: string[]; voice?: string; voiceMime?: string }>();
@@ -296,7 +275,8 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
         const pictures = (await Promise.all(d.picturesOf(p).map(pictureData))).filter(Boolean) as string[];
         if (!pictures.length) throw new Error('The product pictures could not be opened.');
         // the AI sees every picture, so each scene's words and the voice match what that picture shows
-        const { plan } = await d.planVideo(p, { shopName, useAi: true, voice: 'MALE', lang: 'UR', thumbs: pictures });
+        const thumbs = await Promise.all(pictures.map(smallForAi));
+        const { plan } = await d.planVideo(p, { shopName, useAi: true, voice: 'MALE', lang: 'UR', thumbs: thumbs.every(Boolean) ? thumbs : [] });
         plan.scenes = plan.scenes.map((s: any) => ({ ...s, image: Math.min(s.image, pictures.length - 1) }));
         const v = plan.voiceScript ? await d.speak(plan.voiceScript, 'MALE').catch(() => null) : null;
         jobInput.set(j.id, { plan, shopName, pictures, ...(v ? { voice: v.audio, voiceMime: v.mime } : {}) });
@@ -361,26 +341,8 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
   };
 
   // ------------------------------------------------------------------ posting
-  const graph = async (pathname: string, params: Record<string, string>, method = 'POST') => {
-    const body = new URLSearchParams(params);
-    const r = await fetch(`${GRAPH}/${pathname}${method === 'GET' ? `?${body}` : ''}`, method === 'GET' ? {} : { method, body });
-    const j: any = await r.json().catch(() => ({}));
-    if (!r.ok || j.error) throw new Error(j.error?.message || `HTTP ${r.status}`);
-    return j;
-  };
   const post = async (j: Job) => {
-    const pageId = env('META_PAGE_ID');
-    let token = env('META_PAGE_TOKEN');
-    const igUser = env('META_IG_USER_ID');
-    // A system-user token (Business Settings) is turned into the Page's own token, which posting needs
-    if (pageId && token) {
-      try {
-        const pt = (await graph(pageId, { fields: 'access_token', access_token: token }, 'GET')).access_token;
-        if (pt) token = pt;
-      } catch {
-        /* already a Page token */
-      }
-    }
+    const { pageId, token, igUser } = await pageAccess();
     const videoUrl = `${d.publicOrigin()}${j.videoUrl}`;
     const out: Job['posted'] = { errors: [] };
     if (!pageId || !token) out.errors!.push('Facebook Page is not connected yet (META_PAGE_ID / META_PAGE_TOKEN).');

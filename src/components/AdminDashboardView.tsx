@@ -47,6 +47,7 @@ import {
   Store,
   RotateCcw,
   Rocket,
+  Megaphone,
   MessageCircleQuestion,
   Activity,
 } from 'lucide-react';
@@ -69,6 +70,7 @@ import { AdminReturnsPanel } from './AdminReturnsPanel';
 import { AdminGrowthPanel } from './AdminGrowthPanel';
 import { QuestionsInbox } from './QuestionsInbox';
 import { AdminTrafficPanel } from './AdminTrafficPanel';
+import { AdminSocialPanel } from './AdminSocialPanel';
 import { AdminPaymentKeysPanel } from './AdminPaymentKeysPanel';
 import { AdminShippingZonesEditor } from './AdminShippingZonesEditor';
 import { ADMIN_TABS, ROLE_LABELS, tabsForRole, type AdminTab } from '../services/adminRoles';
@@ -2576,6 +2578,7 @@ export const AdminDashboardView: React.FC<{
                 { id: 'RETURNS', label: 'Returns & Complaints', icon: RotateCcw },
                 { id: 'GROWTH', label: 'Marketing & Growth', icon: Rocket },
                 { id: 'TRAFFIC', label: 'Traffic & Conversion', icon: Activity },
+                { id: 'SOCIAL', label: 'AI Social Manager', icon: Megaphone },
                 { id: 'COUPONS', label: 'Promotions & Coupons', icon: Tag },
                 { id: 'REVIEWS', label: 'Client Reviews', icon: MessageSquare },
                 { id: 'QUESTIONS', label: 'Product Questions', icon: MessageCircleQuestion },
@@ -4077,6 +4080,7 @@ export const AdminDashboardView: React.FC<{
           {activeTab === 'GROWTH' && <AdminGrowthPanel />}
           {activeTab === 'QUESTIONS' && <QuestionsInbox mode="admin" />}
           {activeTab === 'TRAFFIC' && <AdminTrafficPanel />}
+          {activeTab === 'SOCIAL' && <AdminSocialPanel />}
           {activeTab === 'SELLER_INBOX' && <AdminSellerInbox onUnreadChange={setSellerUnread} />}
 
           {activeTab === 'SETTINGS' && (
