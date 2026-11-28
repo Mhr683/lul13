@@ -1944,8 +1944,17 @@ app.get(`/${INDEXNOW_KEY}.txt`, (_req, res) => res.type('text/plain').send(INDEX
 
 // Product feed for Google Merchant Center (free listings in the Shopping tab) and the Facebook /
 // Instagram catalog: every live product with price, stock and pictures, from the catalog copy.
+// Kinds of product Facebook / Instagram commerce rejects (adult and "sexual timing" items, health and
+// medical claims such as pain relief, body-shaping creams, supplements, weapons, tobacco). Many
+// rejections can get the Meta shop restricted, so they are left out of the feed Meta reads; they stay
+// in the store. Adult items are left out of Google's copy too.
+const ADULT_ITEM = /\b(breast|bust (?:cream|enlarg)|enlarg\w*|penis|sexual|libido|duration cream|timing (?:cream|spray|oil)|delay spray|condoms?|lubricant|vibrators?|sex toys?)\b/i;
+const META_REJECTS = /\b(pain relief|knee (?:support|brace|cap)|massage guns?|massagers?|posture correct\w*|medical|surgical|thermometers?|blood pressure|glucose|nebuli[sz]ers?|oximeters?|brace|orthop\w*|supplements?|slimming|weight loss|fat burn\w*|whitening cream|fairness cream|hair (?:growth|loss)|height growth|tasers?|stun guns?|pepper spray|airsoft|vapes?|e-?cig\w*|tobacco|hookah|shisha)\b/i;
+const isMetaReader = (req: any) => String(req.query?.for || '').toLowerCase() === 'meta' || /facebook|meta-externalagent/i.test(String(req.headers['user-agent'] || ''));
+
 app.get('/feeds/products.xml', (req, res) => {
   const origin = pageOrigin(req);
+  const forMeta = isMetaReader(req);
   const store = String(catalogStore.settings()?.storeName || 'Anokha Shopping Hub');
   const x = (s: unknown) =>
     String(s ?? '')
@@ -1955,6 +1964,8 @@ app.get('/feeds/products.xml', (req, res) => {
       .replace(/>/g, '&gt;');
   const rows = liveProducts()
     .map((p) => {
+      const said = `${p.name || ''} ${p.category || ''} ${p.subcategory || ''}`;
+      if (ADULT_ITEM.test(said) || (forMeta && META_REJECTS.test(said))) return '';
       const price = priceOf(p);
       const image = absImage(origin, p.primaryImage || (Array.isArray(p.images) ? p.images[0] : ''));
       if (!price || !image) return '';
@@ -1982,6 +1993,7 @@ app.get('/feeds/products.xml', (req, res) => {
     })
     .filter(Boolean);
   res.type('application/xml').setHeader('Cache-Control', 'public, max-age=1800');
+  res.setHeader('Vary', 'User-Agent');
   res.send(
     `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel>` +
       `<title>${x(store)}</title><link>${x(origin)}/</link><description>${x(store)} products</description>\n${rows.join('\n')}\n</channel></rss>\n`
