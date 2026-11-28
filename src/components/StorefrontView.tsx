@@ -512,6 +512,8 @@ export const StorefrontView: React.FC = () => {
   const [activeBrand, setActiveBrand] = useState<string>('ALL');
   const [priceCeiling, setPriceCeiling] = useState<number>(500000);
   const [inStockOnly, setInStockOnly] = useState<boolean>(false);
+  // Phones: the category / brand / price filters stay folded behind a button, so products show first
+  const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState<'RELEVANCE' | 'NEWEST' | 'PRICE_ASC' | 'PRICE_DESC' | 'RATING'>('RELEVANCE');
 
   // Product Detail state
@@ -2525,9 +2527,26 @@ export const StorefrontView: React.FC = () => {
                 ))}
               </div>
             )}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-10 pt-4 lg:pt-8">
+              {/* Phones: one button opens the filters; the products come right after it */}
+              <button
+                type="button"
+                onClick={() => setShowFilters((v) => !v)}
+                className="lg:hidden w-full flex items-center justify-between px-3.5 py-2.5 bg-white border border-black/15 text-xs font-semibold text-[#141413] cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  Filters: Category, Brand, Price
+                  {(activeCategory !== 'ALL' || activeBrand !== 'ALL' || inStockOnly || priceCeiling < 500000) && (
+                    <span className="w-2 h-2 rounded-full bg-[#0E7A43]" />
+                  )}
+                </span>
+                <span className="text-[#575653]">
+                  {searchQuery.trim() ? `${filteredProducts.length} found · ` : ''}{showFilters ? 'Hide ▲' : 'Show ▼'}
+                </span>
+              </button>
               {/* Left Filter Rail */}
-              <aside className="lg:col-span-3 space-y-8">
+              <aside className={`${showFilters ? '' : 'hidden'} lg:block lg:col-span-3 space-y-8`}>
                 <div>
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-[#141413] mb-3 flex items-center justify-between">
                     <span className="flex items-center gap-2">
