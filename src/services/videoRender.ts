@@ -17,6 +17,8 @@ export type Plan = {
   facing?: 'LEFT' | 'RIGHT';
   /** What the voice-over says (empty: no voice) */
   voiceScript?: string;
+  /** A random number from the server: picks this video's mix of picture-to-picture transitions */
+  fx?: number;
 };
 
 export const SIZE = 720;
@@ -480,6 +482,123 @@ function drawMotion(ctx: CanvasRenderingContext2D, f: Frame, image: number, time
   return true;
 }
 
+// ------------------------------------------------------------------ picture-to-picture transitions
+const SWAP = 0.55;
+const TRANSITIONS = ['SLIDE_LEFT', 'SLIDE_UP', 'ZOOM', 'CIRCLE', 'WIPE', 'SPIN', 'SLIDE_RIGHT', 'BLINDS', 'PUSH_DOWN'] as const;
+type Transition = (typeof TRANSITIONS)[number];
+
+/** Each video gets its own mix: the server's random number shuffles the order and the step */
+function transitionOf(plan: Plan, i: number): Transition {
+  const seed = Number.isFinite(plan.fx) ? Math.abs(Math.floor(plan.fx!)) : [...plan.headline].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0;
+  const step = [1, 2, 4, 5, 7, 8][seed % 6]; // never shares a factor with 9, so every style comes up
+  return TRANSITIONS[(seed + i * step) % TRANSITIONS.length];
+}
+
+/** Draws the old picture going out and the new one coming in; k runs 0 -> 1 */
+function swapPictures(ctx: CanvasRenderingContext2D, kind: Transition, k: number, drawOld: () => void, drawNew: () => void) {
+  const clipBox = (x: number, y: number, w: number, h: number) => {
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+  };
+  const shifted = (draw: () => void, dx: number, dy: number) => {
+    ctx.save();
+    ctx.translate(dx, dy);
+    clipBox(0, 0, SIZE, SIZE); // a picture's blurred background stays on its own side
+    draw();
+    ctx.restore();
+  };
+  switch (kind) {
+    case 'SLIDE_LEFT':
+      shifted(drawOld, -SIZE * k, 0);
+      shifted(drawNew, SIZE * (1 - k), 0);
+      break;
+    case 'SLIDE_RIGHT':
+      shifted(drawOld, SIZE * k, 0);
+      shifted(drawNew, -SIZE * (1 - k), 0);
+      break;
+    case 'SLIDE_UP':
+      shifted(drawOld, 0, -SIZE * k);
+      shifted(drawNew, 0, SIZE * (1 - k));
+      break;
+    case 'PUSH_DOWN':
+      // the new picture drops in over the old one, which sinks back a little
+      shifted(drawOld, 0, SIZE * 0.25 * k);
+      shifted(drawNew, 0, -SIZE * (1 - k));
+      break;
+    case 'ZOOM': {
+      // the old picture grows and fades, the new one comes up from small
+      ctx.save();
+      ctx.translate(SIZE / 2, SIZE / 2);
+      ctx.scale(1 + 0.5 * k, 1 + 0.5 * k);
+      ctx.translate(-SIZE / 2, -SIZE / 2);
+      drawOld();
+      ctx.restore();
+      ctx.save();
+      const s = 0.2 + 0.8 * k;
+      ctx.translate(SIZE / 2, SIZE / 2);
+      ctx.scale(s, s);
+      ctx.translate(-SIZE / 2, -SIZE / 2);
+      clipBox(0, 0, SIZE, SIZE);
+      drawNew();
+      ctx.restore();
+      break;
+    }
+    case 'CIRCLE':
+      drawOld();
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(SIZE / 2, SIZE / 2, Math.max(1, SIZE * 0.75 * k), 0, Math.PI * 2);
+      ctx.clip();
+      drawNew();
+      ctx.restore();
+      break;
+    case 'WIPE':
+      // a slanted edge sweeps across from left to right
+      drawOld();
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(-SIZE * 0.4, 0);
+      ctx.lineTo(-SIZE * 0.4 + SIZE * 1.8 * k, 0);
+      ctx.lineTo(-SIZE * 0.8 + SIZE * 1.8 * k, SIZE);
+      ctx.lineTo(-SIZE * 0.8, SIZE);
+      ctx.closePath();
+      ctx.clip();
+      drawNew();
+      ctx.restore();
+      break;
+    case 'BLINDS': {
+      // six strips open one after another
+      drawOld();
+      ctx.save();
+      ctx.beginPath();
+      const strip = SIZE / 6;
+      for (let j = 0; j < 6; j++) {
+        const kk = clamp01(k * 1.6 - j * 0.12);
+        ctx.rect(0, j * strip, SIZE, strip * kk);
+      }
+      ctx.clip();
+      drawNew();
+      ctx.restore();
+      break;
+    }
+    case 'SPIN': {
+      // the new picture is underneath; the old one turns away, shrinks and fades off it
+      drawNew();
+      ctx.save();
+      ctx.globalAlpha = 1 - k;
+      ctx.translate(SIZE / 2, SIZE / 2);
+      ctx.rotate(-0.5 * k);
+      ctx.scale(1 - 0.7 * k, 1 - 0.7 * k);
+      ctx.translate(-SIZE / 2, -SIZE / 2);
+      clipBox(0, 0, SIZE, SIZE);
+      drawOld();
+      ctx.restore();
+      break;
+    }
+  }
+}
+
 export function totalSeconds(plan: Plan) {
   return INTRO + plan.scenes.length * SCENE + PRICE + OUTRO;
 }
@@ -586,13 +705,18 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame, time: number)
       },
     },
   ];
-  // find the segment and draw it; the first moments of each one fade over the end of the one before
+  // find the segment and draw it. Picture to picture: the new one slides in from the right and pushes
+  // the old one out to the left; into the price and the ending: a soft fade
+  const lastScene = plan.scenes.length; // segs[1..lastScene] are the pictures
   let start = 0;
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     if (time < start + s.len || i === segs.length - 1) {
       const local = time - start;
-      if (i > 0 && local < FADE) {
+      if (i > 0 && i <= lastScene && local < SWAP) {
+        const prev = segs[i - 1];
+        swapPictures(ctx, transitionOf(plan, i), ease(local / SWAP), () => prev.draw(1, prev.len), () => s.draw(clamp01(local / s.len), local));
+      } else if (i > 0 && local < FADE) {
         const prev = segs[i - 1];
         prev.draw(1, prev.len);
         ctx.save();

@@ -42,7 +42,7 @@ export type DailyVideoDeps = {
   liveProducts: () => any[];
   priceOf: (p: any) => number;
   settings: () => any;
-  planVideo: (p: any, o: { shopName: string; useAi: boolean; voice?: 'FEMALE' | 'MALE' | 'NONE'; lang?: 'UR' | 'EN' }) => Promise<{ plan: Plan; usedAi: boolean }>;
+  planVideo: (p: any, o: { shopName: string; useAi: boolean; voice?: 'FEMALE' | 'MALE' | 'NONE'; lang?: 'UR' | 'EN'; thumbs?: string[] }) => Promise<{ plan: Plan; usedAi: boolean }>;
   /** Puts the video on the product's own listing (replaces an older video) */
   setProductVideo?: (productId: string, videoUrl: string) => Promise<void>;
   /** AI look at product pictures (data: URLs): true when one shows a well-known brand's name or logo */
@@ -293,9 +293,10 @@ export function registerDailyVideo(app: express.Express, d: DailyVideoDeps) {
       } else {
         const shopName = String(d.settings()?.storeName || 'Anokha Shopping Hub');
         // A man's voice tells the product's features in Urdu (music only if the voice cannot be made)
-        const { plan } = await d.planVideo(p, { shopName, useAi: true, voice: 'MALE', lang: 'UR' });
         const pictures = (await Promise.all(d.picturesOf(p).map(pictureData))).filter(Boolean) as string[];
         if (!pictures.length) throw new Error('The product pictures could not be opened.');
+        // the AI sees every picture, so each scene's words and the voice match what that picture shows
+        const { plan } = await d.planVideo(p, { shopName, useAi: true, voice: 'MALE', lang: 'UR', thumbs: pictures });
         plan.scenes = plan.scenes.map((s: any) => ({ ...s, image: Math.min(s.image, pictures.length - 1) }));
         const v = plan.voiceScript ? await d.speak(plan.voiceScript, 'MALE').catch(() => null) : null;
         jobInput.set(j.id, { plan, shopName, pictures, ...(v ? { voice: v.audio, voiceMime: v.mime } : {}) });

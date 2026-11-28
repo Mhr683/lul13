@@ -215,16 +215,17 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
   },
   'seller.product.video': {
     title: 'AI se product ki video banayein',
-    what: 'Jis product ki video nahi, us ki tasveeron se AI ek 15 second ki ad jaisi video banata hai: chalti tasveerein, likhe hue alfaaz, qeemat aur music. Muft hai, koi paid video service nahi lagti.',
+    what: 'Jis product ki video nahi, us ki tasveeron se AI ek ad jaisi video banata hai: chalti tasveerein, likhe hue alfaaz, qeemat aur music. Muft hai, koi paid video service nahi lagti.',
     steps: [
       'Dashboard par Shop Coach mein "✨ Self fix" dabayein, ya product form mein "Photos & video" ke neeche "✨ No video? Make one with AI".',
       'Box mein likhein kaisi video chahiye (kisi bhi zabaan mein), jaise "Eid sale, sunehra rang, naram aur aaraam deh dikhao". Neeche ke buttons se idea bhi jod sakte hain.',
-      '"Make my video" dabayein aur screen khuli rakhein. Takreeban 20 second mein video ban jati hai.',
+      '"Make my video" dabayein aur screen khuli rakhein. Video jitni lambi hai utni hi der mein banti hai (takreeban 20-35 second).',
       'Video dekh lein. Pasand ho to "Add to my listing" dabayein, customers ko foran nazar aayegi. Pasand na ho to "Change and make again".',
       '"Save to phone" se video WhatsApp / Facebook par lagane ke liye bhi rakh sakte hain.',
     ],
     tips: [
       'Video product ki apni save ki hui tasveeron se banti hai: pehle achi aur zyada tasveerein daal kar product save karein.',
+      'Har tasveer (zyada se zyada 9) apni baari par aati hai, alag alag andaaz mein (slide, zoom, gol daira, parday, ghoomna waghera), aur har video ka mix alag hota hai. Screen par likhe alfaaz Roman Urdu mein hote hain (English chunein to English). Is ke ilawa AI har tasveer dekh kar us par likhta hai ke us mein kya dikh raha hai, aur awaz bhi usi tarteeb se har tasveer ke baare mein batati hai. Jitni tasveerein, utni lambi video (9 tasveerein = takreeban 28 second).',
       'Qeemat aur discount hamesha listing se aate hain; AI apni taraf se koi feature ya offer nahi likhta.',
       'Behtareen nateeja Google Chrome mein aata hai.',
       'Apni AI key ke baghair roz 3 muft AI kaam hain. Woh khatam hon to video phir bhi banti hai, magar tayyar design se; apni key lagayein to AI har video aap ke alfaaz se design karta hai.',

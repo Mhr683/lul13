@@ -885,7 +885,7 @@ Be the seller's coach and partner: when they ask about performance, details or a
   const pkrText = (n: number) => `PKR ${Math.round(Number(n) || 0).toLocaleString('en-PK')}`;
   const ownProduct = async (uid: string, id: string) => (await d.sellerData.productsOf(uid)).find((p) => p.id === id && p.status !== 'ARCHIVED');
   const picturesOf = (p: any): string[] =>
-    (Array.isArray(p.images) && p.images.length ? p.images : p.primaryImage ? [p.primaryImage] : []).filter((u: unknown) => typeof u === 'string' && u).slice(0, 8);
+    (Array.isArray(p.images) && p.images.length ? p.images : p.primaryImage ? [p.primaryImage] : []).filter((u: unknown) => typeof u === 'string' && u).slice(0, 9);
   const plainPlan = (p: any, pictures: number, wish = '') => {
     const words = String(p.shortDescription || p.description || '')
       .split(/[.\n•\-|]+/)
@@ -898,7 +898,8 @@ Be the seller's coach and partner: when they ask about performance, details or a
       style: compare ? 'BOLD_SALE' : 'PREMIUM',
       headline: String(p.name).slice(0, 42),
       tagline: 'Now at Anokha Shopping Hub',
-      scenes: Array.from({ length: Math.min(5, Math.max(1, pictures)) }, (_, i) => ({ image: i, caption: lines[i % lines.length], sub: '' })),
+      // every picture gets its own scene, in order (they slide in one after another)
+      scenes: Array.from({ length: Math.min(9, Math.max(1, pictures)) }, (_, i) => ({ image: i, caption: lines[i % lines.length], sub: '' })),
       priceLine: compare ? `${pkrText(p.price)}  (was ${pkrText(compare)})` : pkrText(p.price),
       badge: compare ? `${Math.round((1 - Number(p.price) / compare) * 100)}% OFF` : '',
       cta: 'Order now · Cash on Delivery',
@@ -906,6 +907,8 @@ Be the seller's coach and partner: when they ask about performance, details or a
       motion: guessMotion(p, wish),
       facing: 'RIGHT' as 'LEFT' | 'RIGHT',
       voiceScript: '',
+      // picks this video's own mix of picture-to-picture transitions (src/services/videoRender.ts)
+      fx: Math.floor(Math.random() * 100000),
     };
   };
   /** A plain voice-over when the AI could not write one */
@@ -920,19 +923,17 @@ Be the seller's coach and partner: when they ask about performance, details or a
   const cleanPlan = (raw: any, p: any, pictures: number, wish = '') => {
     const base = plainPlan(p, pictures, wish);
     const hex = (v: unknown, fb: string) => (/^#[0-9a-f]{6}$/i.test(String(v)) ? String(v) : fb);
-    const scenes = (Array.isArray(raw?.scenes) ? raw.scenes : [])
-      .slice(0, 6)
-      .map((s: any, i: number) => ({
-        image: Math.max(0, Math.min(pictures - 1, Math.floor(Number(s?.image)) || 0)),
-        caption: str(s?.caption, 46) || base.scenes[i % base.scenes.length].caption,
-        sub: str(s?.sub, 60),
-      }))
-      .filter((s: any) => s.caption);
+    // One scene per picture, in order: the AI's words for that picture (by its number, else by position)
+    const said = (Array.isArray(raw?.scenes) ? raw.scenes : []).slice(0, 12);
+    const scenes = base.scenes.map((b, i) => {
+      const s = said.find((x: any) => Math.floor(Number(x?.image)) === i) || said[i] || {};
+      return { image: i, caption: str(s?.caption, 46) || b.caption, sub: str(s?.sub, 60) };
+    });
     return {
       style: VIDEO_STYLES.includes(raw?.style) ? raw.style : base.style,
       headline: str(raw?.headline, 46) || base.headline,
       tagline: str(raw?.tagline, 60) || base.tagline,
-      scenes: scenes.length ? scenes : base.scenes,
+      scenes,
       // price and discount always come from the listing itself, never from the AI
       priceLine: base.priceLine,
       badge: base.badge || str(raw?.badge, 16),
@@ -944,7 +945,8 @@ Be the seller's coach and partner: when they ask about performance, details or a
       },
       motion: VIDEO_MOTIONS.includes(raw?.motion) ? (raw.motion as (typeof VIDEO_MOTIONS)[number]) : base.motion,
       facing: (raw?.facing === 'LEFT' ? 'LEFT' : 'RIGHT') as 'LEFT' | 'RIGHT',
-      voiceScript: str(raw?.voiceScript, 400),
+      voiceScript: str(raw?.voiceScript, 900),
+      fx: base.fx,
     };
   };
 
@@ -955,11 +957,20 @@ Be the seller's coach and partner: when they ask about performance, details or a
    */
   const planVideo = async (
     p: any,
-    o: { uid?: string; shopName: string; wish?: string; thumb?: string; voice?: 'FEMALE' | 'MALE' | 'NONE'; lang?: 'UR' | 'EN'; useAi: boolean }
+    o: { uid?: string; shopName: string; wish?: string; thumb?: string; thumbs?: string[]; voice?: 'FEMALE' | 'MALE' | 'NONE'; lang?: 'UR' | 'EN'; useAi: boolean }
   ) => {
     const pictures = picturesOf(p);
     const wish = o.wish || '';
-    const thumb = o.thumb || '';
+    // small copies of the pictures, in order (picture 0 first), so the AI can say what each one shows
+    let thumbs = (o.thumbs?.length ? o.thumbs : o.thumb ? [o.thumb] : []).slice(0, pictures.length);
+    // all or none (the numbers must match the pictures): only kinds the AI reads, and not too big in total
+    const aiReads = (t: string) => !t.startsWith('data:') || /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(t);
+    if (!thumbs.every(aiReads) || thumbs.reduce((n, t) => n + t.length, 0) > 14_000_000) thumbs = [];
+    const thumb = thumbs[0] || '';
+    const n = Math.min(9, pictures.length);
+    // the voice tells about every picture: about 2.4 seconds of video per picture
+    const wordsMin = Math.max(22, n * 5);
+    const wordsMax = Math.max(32, n * 7 + 8);
     const wantsVoice = o.voice === 'FEMALE' || o.voice === 'MALE';
     const lang: 'UR' | 'EN' = o.lang === 'EN' ? 'EN' : 'UR';
     let plan = plainPlan(p, pictures.length, wish);
@@ -972,12 +983,22 @@ Be the seller's coach and partner: when they ask about performance, details or a
             {
               role: 'user',
               parts: [
-                ...(thumb ? [{ inlineData: { mimeType: 'image/jpeg', data: thumb } }] : []),
+                // plain base64 JPEGs from the browser, or data: URLs (the daily video)
+                ...thumbs.map((t) => {
+                  const m = /^data:([^;,]+);base64,(.*)$/s.exec(t);
+                  return { inlineData: { mimeType: m ? m[1] : 'image/jpeg', data: m ? m[2] : t } };
+                }),
                 {
-                  text: `You are an ad director for a Pakistani online shop. Plan a 12-15 second product video ad made ONLY from the product's own ${pictures.length} picture(s) (numbered 0 to ${pictures.length - 1}), with animated words on screen.${thumb ? ' The attached image is picture 0.' : ''}
+                  text: `You are an ad director for a Pakistani online shop. Plan a product video ad made ONLY from the product's own ${n} picture(s) (numbered 0 to ${n - 1}), with animated words on screen. The pictures slide in one after another: scene 0 shows picture 0, scene 1 shows picture 1, and so on, so write EXACTLY ${n} scenes in that order ("image" = the scene's number).${
+                    thumbs.length > 1
+                      ? ` The ${thumbs.length} attached images are pictures 0 to ${thumbs.length - 1}, in order. Look at each one: its caption tells what THAT picture shows (a feature, a part, how it is used, its size, colours or what comes in the box).`
+                      : thumb
+                        ? ' The attached image is picture 0.'
+                        : ''
+                  }
 Motion: the app cuts the product out of its picture and animates it. Choose "motion": ROAD if it is a vehicle (car, bike, cycle, toy car) or the seller wants it driving / on a road; SKY for things that fly (drone, plane, kite) or if the seller wants it flying; FLOAT for light items (cosmetics, perfume, jewellery, small gadgets); TURNTABLE for most other products (turning on a lit stand); NONE only if no movement fits. The seller's wish about movement wins. "facing": which way the front of the product points in picture 0 (LEFT or RIGHT; RIGHT if unclear).${
                     wantsVoice
-                      ? `\nVoice-over: also write "voiceScript", what a ${o.voice === 'FEMALE' ? 'woman' : 'man'} says over the video: 22 to 32 words, warm and exciting like a TV advert, telling the product's real features from the details below, ${
+                      ? `\nVoice-over: also write "voiceScript", what a ${o.voice === 'FEMALE' ? 'woman' : 'man'} says over the video: ${wordsMin} to ${wordsMax} words, warm and exciting like a TV advert, telling the product's real features from the details below, going through the pictures in the same order as the scenes (a sentence or two about what each picture shows), ${
                         lang === 'UR'
                           ? `ending with the price ("صرف ${p.price} روپے میں") and "آج ہی آرڈر کریں، کیش آن ڈیلیوری". Write ALL of it in Urdu script (اردو), natural spoken Pakistani Urdu, one language from start to end: no English sentences and no Roman Urdu. Everyday product words Pakistanis say in English (cable, charging, mobile) are written in Urdu letters (کیبل، چارجنگ، موبائل). Say the product by a short, simple name, not the full listing title with sizes and codes.`
                           : 'ending with the price (PKR ' + p.price + ') and "order today, cash on delivery". Write it all in simple English.'
@@ -987,7 +1008,11 @@ Motion: the app cuts the product out of its picture and animates it. Choose "mot
 Product: "${String(p.name).slice(0, 190)}". Category: ${p.category}. Price: PKR ${p.price}. Shop: ${String(o.shopName || '').slice(0, 60)}.
 About it: ${String(p.shortDescription || p.description || '').slice(0, 900)}
 What the seller wants: ${wish || 'a beautiful, eye-catching ad that makes customers want to buy'}
-Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a short punchy caption (max 5 words) and an optional sub line (max 8 words). headline max 6 words. Write in the language the seller used (English, Urdu in Roman letters, or Urdu script); if unclear, English. Be honest: never invent features, warranties, certificates, delivery times, prices or discounts that are not in the details above. Do not call it "original" or "genuine" or use a famous brand's name unless the product name already is that brand. Pick colours (hex) that suit the product and the wish, with strong contrast between text and background.`,
+Rules: exactly ${n} scenes, one per picture in order, each with a short punchy caption (max 5 words) and an optional sub line (max 8 words). headline max 6 words. ${
+                    lang === 'UR'
+                      ? 'All words shown on screen (headline, tagline, captions, sub lines, cta) are in Roman Urdu: Urdu written in English letters, the way Pakistanis text (e.g. "Mazboot aur halka", "Har jagah asaan istemal", "Abhi order karein"), never Urdu script on screen. Everyday English product words stay as they are (charging, cable, waterproof).'
+                      : 'All words shown on screen are in simple English.'
+                  } Be honest: never invent features, warranties, certificates, delivery times, prices or discounts that are not in the details above. Do not call it "original" or "genuine" or use a famous brand's name unless the product name already is that brand. Pick colours (hex) that suit the product and the wish, with strong contrast between text and background.`,
                 },
               ],
             },
@@ -1024,6 +1049,13 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
         });
         const j = JSON.parse(r.text || '{}');
         plan = cleanPlan(j, p, pictures.length, wish);
+        // on-screen words are Roman Urdu / English: a line in Urdu script falls back to the ready-made words
+        const base = plainPlan(p, pictures.length, wish);
+        const urduScript = (s: string) => /[؀-ۿ]/.test(s);
+        plan.scenes = plan.scenes.map((s, i) => (urduScript(s.caption + s.sub) ? { ...s, caption: base.scenes[i]?.caption || s.caption, sub: '' } : s));
+        if (urduScript(plan.headline)) plan.headline = base.headline;
+        if (urduScript(plan.tagline)) plan.tagline = base.tagline;
+        if (urduScript(plan.cta)) plan.cta = base.cta;
         // An Urdu voice must be in Urdu letters: a script in English or Roman Urdu was read by the voice
         // half in English, half in Urdu, so the ready-made Urdu script is used instead
         const urduLetters = (plan.voiceScript.match(/[؀-ۿ]/g) || []).length;
@@ -1049,7 +1081,10 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
       if (!pictures.length) return res.status(400).json({ error: 'Add at least one picture to this product first: the video is made from its pictures.' });
       // A small copy of the main picture (sent by the browser) lets the AI see the product: which
       // way a car faces, what kind of movement suits it
-      const thumb = typeof req.body?.thumb === 'string' && /^[A-Za-z0-9+/=]{100,280000}$/.test(req.body.thumb) ? req.body.thumb : '';
+      const okThumb = (v: unknown) => typeof v === 'string' && /^[A-Za-z0-9+/=]{100,280000}$/.test(v);
+      const thumb = okThumb(req.body?.thumb) ? req.body.thumb : '';
+      // small copies of all the pictures (in order), so each scene's words match its picture
+      const thumbs = Array.isArray(req.body?.thumbs) && req.body.thumbs.every(okThumb) ? (req.body.thumbs as string[]).slice(0, 9) : [];
       // Voice-over: a woman's or man's voice tells the product's features (Urdu or English)
       const voice = req.body?.voice === 'FEMALE' || req.body?.voice === 'MALE' ? req.body.voice : 'NONE';
       // Without the seller's own key and with today's free uses finished, the video still gets made
@@ -1060,6 +1095,7 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
         shopName: seller?.shopName || '',
         wish: str(req.body?.prompt, 600),
         thumb,
+        thumbs,
         voice,
         lang: req.body?.lang === 'EN' ? 'EN' : 'UR',
         useAi: gate.granted > 0,
@@ -1112,7 +1148,7 @@ Rules: 3 to 5 scenes, each shows one picture (you may reuse pictures) with a sho
   app.post('/api/seller/coach/voiceover', d.requireSeller, async (req, res) => {
     const uid = (req as any).user.uid as string;
     if (!allow(uid)) return res.status(429).json({ error: `Limit reached (${PER_MINUTE} per minute, ${PER_DAY} per day). Please wait a little.` });
-    const script = str(req.body?.script, 400);
+    const script = str(req.body?.script, 900);
     const voice = req.body?.voice === 'FEMALE' ? 'FEMALE' : 'MALE';
     if (script.length < 5) return res.status(400).json({ error: 'Nothing to say.' });
     if (!d.takeAi(uid).granted) return res.json({ success: true, audio: '', aiKeyNeeded: true });

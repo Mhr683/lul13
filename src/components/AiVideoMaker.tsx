@@ -13,11 +13,11 @@ import { SIZE, VOICE_START, cutOut, decodeVoice, pickMime, recordVideo, totalSec
 import { ProVideoPanel } from './ProVideoPanel';
 
 /** A small JPEG of the main picture (base64, no prefix) for the AI to look at */
-function thumbOf(pic: HTMLImageElement | ImageBitmap): string {
+function thumbOf(pic: HTMLImageElement | ImageBitmap, side = 384): string {
   try {
     const iw = (pic as any).width as number;
     const ih = (pic as any).height as number;
-    const k = Math.min(1, 384 / Math.max(iw, ih));
+    const k = Math.min(1, side / Math.max(iw, ih));
     const c = document.createElement('canvas');
     c.width = Math.round(iw * k);
     c.height = Math.round(ih * k);
@@ -105,17 +105,18 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
       // 1. the product's saved pictures, and the product cut out of each (plain backgrounds only)
       setStatus('Getting the pictures ready...');
       const saved = await apiJson<{ product: { images?: string[]; primaryImage?: string } }>(`/api/seller/products/${encodeURIComponent(product.id)}`);
-      const urls = (saved.product.images?.length ? saved.product.images : saved.product.primaryImage ? [saved.product.primaryImage] : []).slice(0, 8);
+      const urls = (saved.product.images?.length ? saved.product.images : saved.product.primaryImage ? [saved.product.primaryImage] : []).slice(0, 9);
       const loaded = await Promise.all(urls.map((u, i) => loadPicture(product.id, u, i)));
       if (!loaded[0]) throw new Error('The main product picture could not be opened. Check that it still shows on the product page.');
       // pictures that failed to open are replaced by the main one, so the numbers still match
       const pics = loaded.map((p) => p || loaded[0]!) as (HTMLImageElement | ImageBitmap)[];
       const cuts = pics.map((p) => cutOut(p));
-      // 2. the AI sees a small copy of the main picture and plans the words, colours and movement
+      // 2. the AI sees small copies of all the pictures and plans the words for each one, colours and movement
       setStatus('The AI is planning your video...');
+      const thumbs = pics.map((p) => thumbOf(p, 256));
       const r = await apiJson<{ plan: Plan; usedAi: boolean; aiKeyNeeded?: boolean; product: { shopName: string } }>('/api/seller/coach/video-plan', {
         method: 'POST',
-        body: JSON.stringify({ productId: product.id, prompt, thumb: thumbOf(pics[0]), voice, lang }),
+        body: JSON.stringify({ productId: product.id, prompt, thumb: thumbOf(pics[0]), thumbs: thumbs.every(Boolean) ? thumbs : [], voice, lang }),
       });
       setKeyNote(Boolean(r.aiKeyNeeded));
       // 3. the voice-over (a woman's or man's voice telling the features), if asked for
@@ -157,7 +158,7 @@ export const VideoMakerModal: React.FC<{ product: VideoProduct; onClose: (added:
         shouldStop: () => stopRef.current,
       });
       if (stopRef.current) return;
-      if (left) throw new Error('The screen was left while the video was being made. Press "Make my video" again and keep this screen open for about 20 seconds.');
+      if (left) throw new Error('The screen was left while the video was being made. Press "Make my video" again and keep this screen open until it is ready (about half a minute).');
       if (blob.size < 20_000) throw new Error('The video did not record properly. Keep this screen open while it is being made and try again.');
       setVideo({ blob, url: URL.createObjectURL(blob) });
       setProgress(100);
