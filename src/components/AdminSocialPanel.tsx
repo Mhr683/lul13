@@ -11,6 +11,7 @@ import { HelpDot } from './HelpDot';
 type Post = {
   id: string;
   kind: 'DAILY' | 'IDEA';
+  video?: string;
   day: string;
   idea?: string;
   productNames: string[];
@@ -89,6 +90,7 @@ const PostCard: React.FC<{ post: Post; onChange: (p: Post) => void }> = ({ post,
         <Badge s={post.status} />
       </div>
       <div className="flex gap-2 overflow-x-auto pb-2">
+        {post.video && <video src={post.video} controls playsInline className="h-40 rounded border border-black/10 bg-black shrink-0" />}
         {post.images.map((u) => (
           <a key={u} href={u} target="_blank" rel="noreferrer" title="Tasveer kholein / save karein">
             <img src={u} alt="" className="w-24 h-24 object-cover rounded border border-black/10 shrink-0" loading="lazy" />
@@ -143,9 +145,9 @@ const PostCard: React.FC<{ post: Post; onChange: (p: Post) => void }> = ({ post,
         <button className={`${btn} bg-white border border-black/15`} onClick={copy} title="TikTok, WhatsApp Channel, X par khud lagane ke liye">
           <Copy className="w-3.5 h-3.5" /> Copy likhai
         </button>
-        {post.images[0] && (
-          <a className={`${btn} bg-white border border-black/15`} href={post.images[0]} download target="_blank" rel="noreferrer">
-            <Download className="w-3.5 h-3.5" /> Tasveer
+        {(post.video || post.images[0]) && (
+          <a className={`${btn} bg-white border border-black/15`} href={post.video || post.images[0]} download target="_blank" rel="noreferrer">
+            <Download className="w-3.5 h-3.5" /> {post.video ? 'Video' : 'Tasveer'}
           </a>
         )}
       </div>
@@ -157,7 +159,11 @@ export const AdminSocialPanel: React.FC = () => {
   const { showToast } = useStore();
   const [posts, setPosts] = useState<Post[]>([]);
   const [conn, setConn] = useState<Conn>(null);
-  const [settings, setSettings] = useState({ autoDaily: true, postHourPk: 20 });
+  const [settings, setSettings] = useState({ autoDaily: true, postHourPk: 20, rules: '' });
+  const [rules, setRules] = useState('');
+  // the owner's own photos / video for the next post (already uploaded)
+  const [media, setMedia] = useState<{ kind: 'photo' | 'video'; url: string }[]>([]);
+  const [uploading, setUploading] = useState(0);
   const [videos, setVideos] = useState<VideoJob[]>([]);
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
@@ -174,6 +180,7 @@ export const AdminSocialPanel: React.FC = () => {
       setPosts(s.posts || []);
       setConn(s.connections);
       setSettings(s.settings);
+      setRules(s.settings?.rules || '');
       setVideos((v.jobs || []).slice(0, 8));
     } catch (e: any) {
       showToast(e.message);
@@ -206,13 +213,40 @@ export const AdminSocialPanel: React.FC = () => {
       showToast(e.message);
     }
   };
+  const upload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const list = Array.from(files);
+    if (list.some((f) => f.size > 95 * 1024 * 1024)) return showToast('File bohat bari hai (100 MB se kam honi chahiye). Video chhoti kar ke dobara lagayein.');
+    setUploading((n) => n + list.length);
+    await auth.authStateReady();
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    for (const f of list) {
+      try {
+        const res = await fetch('/api/admin/social/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': f.type || 'application/octet-stream' }, body: f });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || 'Upload nahi ho saka.');
+        setMedia((m) => {
+          // one video per post, or up to 4 photos
+          if (data.kind === 'video') return [{ kind: 'video', url: data.url }];
+          return [...m.filter((x) => x.kind === 'photo'), { kind: 'photo' as const, url: data.url }].slice(-4);
+        });
+      } catch (e: any) {
+        showToast(`${f.name}: ${e.message}`);
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  };
   const makeDraft = async () => {
     setMaking(true);
     try {
-      const r = await api<{ post: Post }>('/api/admin/social/draft', { idea, productIds: picked.map((p) => p.id) });
+      const video = media.find((m) => m.kind === 'video')?.url;
+      const photos = media.filter((m) => m.kind === 'photo').map((m) => m.url);
+      const r = await api<{ post: Post }>('/api/admin/social/draft', { idea, productIds: picked.map((p) => p.id), photos, ...(video ? { video } : {}) });
       setPosts((list) => [r.post, ...list]);
       setIdea('');
       setPicked([]);
+      setMedia([]);
       setQ('');
       showToast('Post tayyar hai. Neeche dekh kar Approve karein.');
     } catch (e: any) {
@@ -287,6 +321,21 @@ export const AdminSocialPanel: React.FC = () => {
               ))}
             </select>
           </label>
+          <div className="mt-3">
+            <div className="text-sm font-bold">Hamesha ki hidayat (har post par)</div>
+            <textarea
+              value={rules}
+              onChange={(e) => setRules(e.target.value)}
+              rows={3}
+              placeholder='Jaise: "Emoji kam lagao", "Har post ke aakhir mein likho: WhatsApp 0306-5690358", "Chhoti posts likho"'
+              className="w-full text-[13px] border border-black/15 rounded-md p-2 mt-1"
+            />
+            {rules !== settings.rules && (
+              <button className={`${btn} bg-[#C5A059] text-black mt-1`} onClick={() => saveSettings({ rules })}>
+                Hidayat save karein
+              </button>
+            )}
+          </div>
           <p className="text-[12px] text-[#575653] mt-3">🎬 Rozana video alag se 3 baje banti hai aur 5 baje jati hai (neeche list).</p>
         </div>
       </div>
@@ -299,10 +348,43 @@ export const AdminSocialPanel: React.FC = () => {
         <textarea
           value={idea}
           onChange={(e) => setIdea(e.target.value)}
-          rows={2}
-          placeholder='Idea likhein (khaali chhor dein to AI khud product chunega). Jaise: "Sardiyon ki sale, garam kapre" ya "Naye ladies bags aa gaye"'
+          rows={3}
+          placeholder='Apni hidayat likhein, AI wahi karega. Jaise: "Sardiyon ki sale, har cheez par 10% off code WINTER10, chhoti post likho" ya "Naye ladies bags aa gaye, Urdu mein likho". Sab khaali chhor dein to AI khud product chunega.'
           className="w-full text-sm border border-black/15 rounded-md p-2"
         />
+        <div className="mt-2">
+          <label className={`${btn} bg-white border border-black/15`}>
+            📷 Apni photo / video lagayein
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                upload(e.target.files);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          <span className="text-[11px] text-[#575653] ml-2">Mobile ya PC se: 4 photos tak, ya 1 video (MP4, 100 MB se kam)</span>
+          {uploading > 0 && <span className="text-[11px] text-blue-700 ml-2">Upload ho raha hai...</span>}
+          {media.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {media.map((m) => (
+                <span key={m.url} className="relative">
+                  {m.kind === 'video' ? <video src={m.url} className="h-20 rounded border border-black/10 bg-black" muted /> : <img src={m.url} alt="" className="w-20 h-20 object-cover rounded border border-black/10" />}
+                  <button
+                    className="absolute -top-1.5 -right-1.5 bg-white border border-black/20 rounded-full p-0.5 cursor-pointer"
+                    onClick={() => setMedia(media.filter((x) => x.url !== m.url))}
+                    aria-label="Hatayein"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="relative mt-2">
           <Search className="w-4 h-4 absolute left-2 top-2.5 text-[#575653]" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Products dhoondein (zyada se zyada 6)" className="w-full text-sm border border-black/15 rounded-md py-2 pl-8 pr-2" />
@@ -338,7 +420,7 @@ export const AdminSocialPanel: React.FC = () => {
             ))}
           </div>
         )}
-        <button className={`${btn} bg-[#C5A059] text-black mt-3`} onClick={makeDraft} disabled={making}>
+        <button className={`${btn} bg-[#C5A059] text-black mt-3`} onClick={makeDraft} disabled={making || uploading > 0}>
           <Sparkles className="w-3.5 h-3.5" /> {making ? 'AI post bana raha hai...' : 'AI se post banao'}
         </button>
       </div>

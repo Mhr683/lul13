@@ -15,8 +15,10 @@ import { BLOCKED, LOCAL_BRANDS, graph, loadPicture, pageAccess, pkDate, pkHour }
 
 type Post = {
   id: string;
-  /** DAILY: the AI's own daily product post; IDEA: from the owner's idea */
+  /** DAILY: the AI's own daily product post; IDEA: from the owner's idea / own photos or video */
   kind: 'DAILY' | 'IDEA';
+  /** the owner's own video (public address): posted as a Facebook video and an Instagram Reel */
+  video?: string;
   day: string;
   idea?: string;
   productIds: string[];
@@ -34,7 +36,8 @@ type Post = {
   posted?: { facebook?: string; instagram?: string; errors?: string[] };
   usedAi?: boolean;
 };
-type Settings = { autoDaily: boolean; postHourPk: number };
+/** rules: the owner's standing instructions, followed in every post the AI writes */
+type Settings = { autoDaily: boolean; postHourPk: number; rules: string };
 type State = { posts: Post[]; settings: Settings; postedProducts: Record<string, string> };
 
 export type SocialManagerDeps = {
@@ -57,7 +60,7 @@ const str = (v: unknown, max: number) => String(v ?? '').replace(/\s+/g, ' ').tr
 
 export function registerSocialManager(app: express.Express, d: SocialManagerDeps) {
   const stateFile = path.join(process.cwd(), '.cache', 'social-manager.json');
-  let state: State = { posts: [], settings: { autoDaily: true, postHourPk: 20 }, postedProducts: {} };
+  let state: State = { posts: [], settings: { autoDaily: true, postHourPk: 20, rules: '' }, postedProducts: {} };
   try {
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
     state = { ...state, ...saved, settings: { ...state.settings, ...(saved.settings || {}) } };
@@ -127,7 +130,10 @@ export function registerSocialManager(app: express.Express, d: SocialManagerDeps
   const linkOf = (p: any) => `${d.publicOrigin()}/p/${encodeURIComponent(p.id)}`;
   const tail = (products: any[]) => {
     const lines: string[] = [];
-    if (products.length === 1) {
+    if (!products.length) {
+      // the owner's own photos / video without a product: the store's address
+      lines.push('🚚 Poore Pakistan mein delivery · Cash on Delivery', '', `🛒 Order karein: ${d.publicOrigin()}`);
+    } else if (products.length === 1) {
       const p = products[0];
       const price = d.priceOf(p);
       const was = Number(p.compareAtPrice) > price ? Number(p.compareAtPrice) : 0;
@@ -150,11 +156,24 @@ export function registerSocialManager(app: express.Express, d: SocialManagerDeps
       .map((t) => `#${t}`)
       .join(' ');
   };
-  /** The AI writes the opening and the feature lines in Roman Urdu; price, link and tags are added from the listing */
-  const writeCaption = async (products: any[], idea = ''): Promise<{ caption: string; usedAi: boolean }> => {
+  /** A small JPEG (base64) of a picture for the AI to look at */
+  const smallForAi = async (u: string) => {
+    const pic = await loadPicture(u.startsWith(d.publicOrigin()) ? u.slice(d.publicOrigin().length) : u, d.mediaDir, d.localOrigin);
+    if (!pic) return '';
+    try {
+      const sharp = (await import('sharp')).default;
+      return (await sharp(pic.buf).resize(384, 384, { fit: 'inside' }).jpeg({ quality: 72 }).toBuffer()).toString('base64');
+    } catch {
+      return '';
+    }
+  };
+  /**
+   * The AI writes the opening and the feature lines in Roman Urdu; price, link and tags are added from
+   * the listing. The owner's instructions (for this post, and the standing ones) come first.
+   */
+  const writeCaption = async (products: any[], idea = '', ownPictures: string[] = [], hasVideo = false): Promise<{ caption: string; usedAi: boolean }> => {
     const plain = () => {
-      const p = products[0];
-      const head = idea ? `✨ ${idea.slice(0, 120)}` : `✨ ${String(p.name).slice(0, 120)}`;
+      const head = idea ? `✨ ${idea.slice(0, 300)}` : `✨ ${String(products[0]?.name || d.settings()?.storeName || 'Anokha Shopping Hub').slice(0, 120)}`;
       return [head, '', ...tail(products), '', tagsOf(products)].join('\n');
     };
     try {
@@ -162,19 +181,23 @@ export function registerSocialManager(app: express.Express, d: SocialManagerDeps
         .slice(0, 6)
         .map((p, i) => `${i + 1}. "${String(p.name).slice(0, 160)}" (category ${p.category}): ${String(p.shortDescription || p.description || '').slice(0, 500)}`)
         .join('\n');
+      const thumbs = (await Promise.all(ownPictures.slice(0, 4).map(smallForAi))).filter(Boolean);
+      const rules = state.settings.rules.trim();
       const r = await d.getAI().models.generateContent({
         model: AI_MODEL,
         contents: [
           {
             role: 'user',
             parts: [
+              ...thumbs.map((data) => ({ inlineData: { mimeType: 'image/jpeg', data } })),
               {
                 text: `You write Facebook and Instagram posts for a Pakistani online shop, "${String(d.settings()?.storeName || 'Anokha Shopping Hub')}".
-${idea ? `The owner's idea for this post: "${idea.slice(0, 400)}"` : 'Post about this product.'}
-Product(s):
-${about}
-Write "body": the start of the post in Roman Urdu (Urdu in English letters, the way Pakistanis text, e.g. "Ab ghar ka kaam hua asaan!"), 3 to 6 short lines: an eye-catching first line, then the product's real features as lines starting with an emoji. Do NOT write the price, discount, delivery, link or hashtags (the shop adds them). Be honest: only features from the details above; never health or medical claims (no "dard khatam", "ilaaj", "wazan kam"), never "original" / "genuine" or a famous brand's name unless the product name already is that brand, no invented offers or warranties.
-Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit the product.`,
+${idea ? `THE OWNER'S INSTRUCTIONS FOR THIS POST (follow them exactly: what to say, the offer, the tone, the language, the length): "${idea.slice(0, 1200)}"` : 'Post about this product.'}
+${rules ? `THE OWNER'S STANDING RULES FOR EVERY POST (always follow them): "${rules.slice(0, 1200)}"` : ''}
+${thumbs.length ? `The attached picture(s) are the owner's own photos for this post${hasVideo ? ' (or stills of the video)' : ''}: describe what they really show.` : hasVideo ? 'The owner attached a video for this post.' : ''}
+${about ? `Product(s):\n${about}` : 'No product from the store is attached: write about what the owner says and shows.'}
+Write "body": the start of the post, 3 to 8 short lines: an eye-catching first line, then lines starting with an emoji. Language: Roman Urdu (Urdu in English letters, the way Pakistanis text, e.g. "Ab ghar ka kaam hua asaan!") unless the owner asks for another language. Do NOT write the product price, delivery line, link or hashtags (the shop adds them). An offer, discount or code the owner states above may be written exactly as the owner gave it; never invent one. Be honest: only features from the details, the pictures and the owner's words; never health or medical claims (no "dard khatam", "ilaaj", "wazan kam"), never "original" / "genuine" or a famous brand's name unless the product name already is that brand, no invented warranties.
+Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit the post.`,
               },
             ],
           },
@@ -191,11 +214,12 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
         .split('\n')
         .map((l) => l.trim())
         .filter(Boolean)
-        .slice(0, 8)
+        .slice(0, 10)
         .join('\n')
-        .slice(0, 900);
-      // an Urdu-script body is not what the owner asked for (Roman Urdu): the plain caption is used
-      if (body.length < 10 || /[؀-ۿ]/.test(body)) return { caption: plain(), usedAi: false };
+        .slice(0, 1400);
+      // Urdu script only when the owner asked for it (otherwise Roman Urdu): else the plain caption
+      const askedUrduScript = /[؀-ۿ]/.test(`${idea} ${state.settings.rules}`) || /urdu (script|font|harf|haroof)|اردو/i.test(`${idea} ${state.settings.rules}`);
+      if (body.length < 10 || (/[؀-ۿ]/.test(body) && !askedUrduScript)) return { caption: plain(), usedAi: false };
       const tags = (Array.isArray(j.tags) ? j.tags : []).map((t: unknown) => str(t, 30));
       return { caption: [body, '', ...tail(products), '', tagsOf(products, tags)].join('\n'), usedAi: true };
     } catch (err: any) {
@@ -205,15 +229,21 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
   };
 
   // ------------------------------------------------------------------ making a post
-  const makePost = async (kind: Post['kind'], products: any[], idea = ''): Promise<Post> => {
-    const images = await imagesFor(products);
-    if (!images.length) throw new Error('The product pictures could not be opened.');
-    const { caption, usedAi } = await writeCaption(products, idea);
+  /**
+   * own.pictures: the owner's uploaded photos (they come first, then the products' pictures; up to 4 in
+   * all). own.video: the owner's uploaded video (then the post is that video).
+   */
+  const makePost = async (kind: Post['kind'], products: any[], idea = '', own: { pictures?: string[]; video?: string } = {}): Promise<Post> => {
+    const ownPics = (await Promise.all((own.pictures || []).slice(0, 4).map(squareCopy))).filter(Boolean) as string[];
+    const images = own.video ? ownPics : [...ownPics, ...(ownPics.length >= 4 ? [] : (await imagesFor(products)).slice(0, 4 - ownPics.length))];
+    if (!images.length && !own.video) throw new Error('The pictures could not be opened.');
+    const { caption, usedAi } = await writeCaption(products, idea, own.pictures || [], Boolean(own.video));
     const p: Post = {
       id: crypto.randomBytes(8).toString('hex'),
       kind,
       day: pkDate(),
-      ...(idea ? { idea: idea.slice(0, 400) } : {}),
+      ...(idea ? { idea: idea.slice(0, 1200) } : {}),
+      ...(own.video ? { video: abs(own.video) } : {}),
       productIds: products.map((x) => x.id),
       productNames: products.map((x) => String(x.name).slice(0, 120)),
       caption,
@@ -242,7 +272,14 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
     const out: NonNullable<Post['posted']> = { ...(post.posted || {}), errors: [] };
     if (!pageId || !token) out.errors!.push('Facebook Page is not connected yet.');
     // Facebook: the pictures are uploaded unpublished, then one post carries them all
-    if (pageId && token && !out.facebook) {
+    if (pageId && token && !out.facebook && post.video) {
+      // the owner's video: a Facebook video post
+      try {
+        out.facebook = (await graph(`${pageId}/videos`, { file_url: post.video, description: post.caption, access_token: token })).id;
+      } catch (e: any) {
+        out.errors!.push(`Facebook: ${e.message}`);
+      }
+    } else if (pageId && token && !out.facebook) {
       try {
         const ids: string[] = [];
         for (const url of post.images) ids.push((await graph(`${pageId}/photos`, { url, published: 'false', access_token: token })).id);
@@ -257,7 +294,10 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
     if (igUser && token && !out.instagram) {
       try {
         let creation: string;
-        if (post.images.length === 1) {
+        if (post.video) {
+          // the owner's video: an Instagram Reel
+          creation = (await graph(`${igUser}/media`, { media_type: 'REELS', video_url: post.video, caption: post.caption, share_to_feed: 'true', access_token: token })).id;
+        } else if (post.images.length === 1) {
           creation = (await graph(`${igUser}/media`, { image_url: post.images[0], caption: post.caption, access_token: token })).id;
         } else {
           const children: string[] = [];
@@ -265,11 +305,13 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
           creation = (await graph(`${igUser}/media`, { media_type: 'CAROUSEL', children: children.join(','), caption: post.caption, access_token: token })).id;
         }
         let status = '';
-        for (let i = 0; i < 12 && status !== 'FINISHED'; i++) {
+        // a video takes Instagram a few minutes to process, pictures a few seconds
+        for (let i = 0; i < (post.video ? 60 : 12) && status !== 'FINISHED'; i++) {
           status = (await graph(creation, { fields: 'status_code', access_token: token }, 'GET')).status_code;
-          if (status === 'ERROR') throw new Error('Instagram could not process the pictures.');
-          if (status !== 'FINISHED') await new Promise((r) => setTimeout(r, 5000));
+          if (status === 'ERROR') throw new Error(post.video ? 'Instagram could not process the video (MP4, 3 seconds to 15 minutes).' : 'Instagram could not process the pictures.');
+          if (status !== 'FINISHED') await new Promise((r) => setTimeout(r, post.video ? 10_000 : 5000));
         }
+        if (status !== 'FINISHED') throw new Error('Instagram took too long to process it.');
         out.instagram = (await graph(`${igUser}/media_publish`, { creation_id: creation, access_token: token })).id;
       } catch (e: any) {
         out.errors!.push(`Instagram: ${e.message}`);
@@ -385,8 +427,41 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
   app.get('/api/admin/social', d.requireAdmin, async (_req, res) => {
     res.json({ success: true, settings: state.settings, posts: state.posts.slice(-30).reverse().map(view), connections: await connections().catch(() => null) });
   });
+  // The owner's own photo or video (from the phone or computer) for a post. Only files uploaded here can
+  // be put in a post. Cloudflare takes at most 100 MB in one upload.
+  const uploaded = new Set<string>();
+  app.post('/api/admin/social/upload', d.requireAdmin, express.raw({ type: () => true, limit: '100mb' }), async (req, res) => {
+    const type = String(req.headers['content-type'] || '').split(';')[0].toLowerCase();
+    const buf = req.body as Buffer;
+    if (!Buffer.isBuffer(buf) || buf.length < 1000) return res.status(400).json({ error: 'The file is empty.' });
+    try {
+      if (/^image\/(jpeg|jpg|png|webp|heic|heif)$/.test(type)) {
+        // stored as a JPEG (Instagram takes only JPEG), turned upright
+        const sharp = (await import('sharp')).default;
+        const jpg = await sharp(buf).rotate().resize(2048, 2048, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
+        const url = await d.storeMedia(jpg, 'jpg', 'image/jpeg');
+        uploaded.add(url);
+        return res.json({ success: true, kind: 'photo', url: abs(url) });
+      }
+      if (type === 'video/mp4' || type === 'video/quicktime') {
+        const url = await d.storeMedia(buf, type === 'video/mp4' ? 'mp4' : 'mov', type);
+        uploaded.add(url);
+        return res.json({ success: true, kind: 'video', url: abs(url) });
+      }
+      res.status(400).json({ error: 'Only photos (JPG, PNG, WEBP) and MP4 / MOV videos can be used.' });
+    } catch (e: any) {
+      console.warn('[social] upload failed:', e?.message);
+      res.status(500).json({ error: 'The file could not be saved. Try another photo or video.' });
+    }
+  });
+  const ownFile = (u: unknown) => {
+    const s = String(u || '');
+    const local = s.startsWith(d.publicOrigin()) ? s.slice(d.publicOrigin().length) : s;
+    return uploaded.has(local) ? local : uploaded.has(s) ? s : '';
+  };
   app.post('/api/admin/social/settings', d.requireAdmin, (req, res) => {
     const hour = Math.floor(Number(req.body?.postHourPk));
+    if (typeof req.body?.rules === 'string') state.settings.rules = req.body.rules.replace(/\r/g, '').slice(0, 1200);
     if (typeof req.body?.autoDaily === 'boolean') state.settings.autoDaily = req.body.autoDaily;
     if (hour >= 8 && hour <= 23) state.settings.postHourPk = hour;
     save();
@@ -404,18 +479,23 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
   });
   // A new post: from the owner's idea and chosen products, or the AI picks today's product
   app.post('/api/admin/social/draft', d.requireAdmin, async (req, res) => {
-    const idea = str(req.body?.idea, 400);
+    // the owner's instructions keep their line breaks
+    const idea = String(req.body?.idea ?? '').replace(/\r/g, '').trim().slice(0, 1200);
     const ids: string[] = Array.isArray(req.body?.productIds) ? req.body.productIds.map((x: unknown) => str(x, 128)).slice(0, 6) : [];
+    const photos = (Array.isArray(req.body?.photos) ? req.body.photos : []).map(ownFile).filter(Boolean).slice(0, 4) as string[];
+    const video = ownFile(req.body?.video);
     const live = new Map(d.liveProducts().map((p) => [p.id, p]));
     let products = ids.map((id) => live.get(id)).filter(allowed);
     if (ids.length && !products.length) return res.status(400).json({ error: 'These products cannot be posted on Facebook (out of stock, no picture, or not allowed by Facebook).' });
-    if (!products.length) {
+    // nothing given at all: the AI picks a product itself
+    if (!products.length && !photos.length && !video) {
       const p = pickDaily();
       if (!p) return res.status(409).json({ error: 'No new product is left to post. Pick products yourself.' });
       products = [p];
     }
     try {
-      res.json({ success: true, post: view(await makePost(idea || ids.length ? 'IDEA' : 'DAILY', products, idea)) });
+      const kind = idea || ids.length || photos.length || video ? 'IDEA' : 'DAILY';
+      res.json({ success: true, post: view(await makePost(kind, products, idea, { pictures: photos, video: video || undefined })) });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || 'Could not make the post.' });
     }
@@ -433,8 +513,9 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
       if (post.status !== 'DRAFT') return res.status(409).json({ error: 'Only a post that is not approved yet can be written again.' });
       const live = new Map(d.liveProducts().map((p) => [p.id, p]));
       const products = post.productIds.map((id) => live.get(id)).filter(Boolean);
-      if (!products.length) return res.status(409).json({ error: 'The product is no longer in the store.' });
-      const r = await writeCaption(products, post.idea || '');
+      if (post.productIds.length && !products.length) return res.status(409).json({ error: 'The product is no longer in the store.' });
+      // the AI looks at the post's pictures again (the owner's photos come first)
+      const r = await writeCaption(products, post.idea || '', post.images, Boolean(post.video));
       post.caption = r.caption;
       post.usedAi = r.usedAi;
     } else if (action === 'approve' || action === 'post-now') {

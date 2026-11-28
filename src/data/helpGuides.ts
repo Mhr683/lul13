@@ -618,7 +618,8 @@ export const HELP_GUIDES: Record<string, HelpGuide> = {
     steps: [
       '"Jure hue accounts" mein dekhein Facebook aur Instagram par ✔ hai. Accounts Facebook ke apne token se jurte hain, password kabhi kisi ko na dein.',
       '"AI roz ek tasveer wali post tayyar kare" on rakhein: subah 11 baje naye product ki post (4 tasveerein + Roman Urdu likhai) ban kar aap ko e-mail aati hai.',
-      'Apni post: idea likhein (jaise "Sardiyon ki sale"), chahein to products dhoond kar chunein, phir "AI se post banao".',
+      'Apni post: hidayat likhein (jaise "Sardiyon ki sale, 10% off code WINTER10, chhoti post likho"), chahein to products chunein aur "📷 Apni photo / video lagayein" se mobile ya PC se 4 photos ya 1 video (MP4, 100 MB se kam) lagayein, phir "AI se post banao". AI aap ki hidayat ke mutabiq likhta hai aur aap ki photos dekh kar unke baare mein likhta hai.',
+      '"Hamesha ki hidayat" mein woh baatein likhein jo har post mein maani jayein (jaise "Emoji kam lagao" ya "Aakhir mein WhatsApp number likho") aur "Hidayat save karein" dabayein.',
       'Post ki likhai khud badal sakte hain, ya "AI dobara likhe" dabayein.',
       '"Approve" = chune hue waqt par post (jaise 8 baje raat). "Abhi post karein" = foran. "Nahi" = nahi jayegi.',
       'TikTok, WhatsApp Channel, X, YouTube: "Copy likhai" aur "Tasveer" se khud lagayein.',
