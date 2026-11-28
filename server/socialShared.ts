@@ -21,16 +21,30 @@ export async function graph(pathname: string, params: Record<string, string>, me
  * META_PAGE_ID, META_PAGE_TOKEN, META_IG_USER_ID). A system-user token (Business Settings) is turned
  * into the Page's own token, which posting needs.
  */
-export async function pageAccess(): Promise<{ pageId: string; token: string; igUser: string }> {
+// The Instagram account linked to the Page, found through the Page itself (so the owner only links it
+// in Facebook's own settings, no id to copy). Looked up again at most every 10 minutes when missing.
+let igFound: { at: number; id: string } = { at: 0, id: '' };
+export async function pageAccess(o: { recheck?: boolean } = {}): Promise<{ pageId: string; token: string; igUser: string }> {
   const pageId = env('META_PAGE_ID');
   let token = env('META_PAGE_TOKEN');
-  const igUser = env('META_IG_USER_ID');
+  let igUser = env('META_IG_USER_ID');
   if (pageId && token) {
     try {
       const pt = (await graph(pageId, { fields: 'access_token', access_token: token }, 'GET')).access_token;
       if (pt) token = pt;
     } catch {
       /* already a Page token */
+    }
+    if (!igUser) {
+      if (o.recheck || (!igFound.id && Date.now() - igFound.at > 10 * 60_000)) {
+        try {
+          const r = await graph(pageId, { fields: 'instagram_business_account', access_token: token }, 'GET');
+          igFound = { at: Date.now(), id: String(r.instagram_business_account?.id || '') };
+        } catch {
+          igFound = { at: Date.now(), id: '' };
+        }
+      }
+      igUser = igFound.id;
     }
   }
   return { pageId, token, igUser };

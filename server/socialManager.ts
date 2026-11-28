@@ -368,9 +368,9 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
 
   // ------------------------------------------------------------------ connections
   let statusCache: { at: number; value: any } | null = null;
-  const connections = async () => {
-    if (statusCache && Date.now() - statusCache.at < 10 * 60_000) return statusCache.value;
-    const { pageId, token, igUser } = await pageAccess();
+  const connections = async (recheck = false) => {
+    if (!recheck && statusCache && Date.now() - statusCache.at < 10 * 60_000) return statusCache.value;
+    const { pageId, token, igUser } = await pageAccess({ recheck });
     const fb: any = { connected: false };
     const ig: any = { connected: false };
     if (pageId && token) {
@@ -459,6 +459,10 @@ Also give "tags": 3 to 5 hashtag words (English letters, no # sign) that suit th
     const local = s.startsWith(d.publicOrigin()) ? s.slice(d.publicOrigin().length) : s;
     return uploaded.has(local) ? local : uploaded.has(s) ? s : '';
   };
+  // "Check karein": looks again at what is linked to the Page (after the owner linked Instagram)
+  app.post('/api/admin/social/check', d.requireAdmin, async (_req, res) => {
+    res.json({ success: true, connections: await connections(true).catch(() => null) });
+  });
   app.post('/api/admin/social/settings', d.requireAdmin, (req, res) => {
     const hour = Math.floor(Number(req.body?.postHourPk));
     if (typeof req.body?.rules === 'string') state.settings.rules = req.body.rules.replace(/\r/g, '').slice(0, 1200);

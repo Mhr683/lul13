@@ -247,6 +247,136 @@ const PostCard: React.FC<{ post: Post; onChange: (p: Post) => void }> = ({ post,
   );
 };
 
+// ---------------------------------------------------------------- joining the accounts
+// Facebook's own settings do the joining (the owner logs in there himself); "Check karein" then finds
+// the account through the Page. No password or key is ever typed here.
+const ConnectAccounts: React.FC<{ conn: Conn; onConn: (c: Conn) => void }> = ({ conn, onConn }) => {
+  const { showToast } = useStore();
+  const [open, setOpen] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const check = async () => {
+    setChecking(true);
+    try {
+      const r = await api<{ connections: Conn }>('/api/admin/social/check', {});
+      onConn(r.connections);
+      showToast(r.connections?.instagram.connected ? `Instagram jur gaya: @${r.connections.instagram.username}` : 'Instagram abhi nazar nahi aaya. Qadam dobara dekhein, phir 1-2 minute baad check karein.');
+    } catch (e: any) {
+      showToast(e.message);
+    } finally {
+      setChecking(false);
+    }
+  };
+  const Steps: React.FC<{ items: React.ReactNode[] }> = ({ items }) => (
+    <ol className="space-y-2 mt-3">
+      {items.map((s, i) => (
+        <li key={i} className="flex gap-2.5 text-[13px]">
+          <span className="shrink-0 w-5 h-5 rounded-full bg-[#141413] text-white text-[11px] font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
+          <span>{s}</span>
+        </li>
+      ))}
+    </ol>
+  );
+  const accounts = [
+    {
+      id: 'fb',
+      name: 'Facebook Page',
+      icon: '📘',
+      ok: !!conn?.facebook.connected,
+      detail: conn?.facebook.connected ? conn.facebook.name || 'Jura hua' : 'Abhi jura nahi',
+      err: conn?.facebook.error,
+      how: <Steps items={['Facebook Page website se jura hua hai. Kuch karne ki zaroorat nahi.', 'Agar yahan "Nahi jura" aaye to mujhe (Claude ko) batayein: Page ka naya token lagana hoga.']} />,
+    },
+    {
+      id: 'ig',
+      name: 'Instagram',
+      icon: '📸',
+      ok: !!conn?.instagram.connected,
+      detail: conn?.instagram.connected ? `@${conn.instagram.username}` : 'Abhi jura nahi: posts sirf Facebook par jati hain',
+      err: conn?.instagram.error,
+      how: (
+        <>
+          <Steps
+            items={[
+              <>
+                Phone par <b>Instagram app</b> kholein → apni profile → ☰ → <b>Settings</b> → <b>Account type and tools</b> → <b>Switch to professional account</b> → <b>Business</b> chunein. (Pehle se Business ho to agla qadam.)
+              </>,
+              <>
+                Neeche wala button dabayein. Facebook khulega: wahan <b>Anokha Shopping Hub</b> Page chunein → <b>Linked accounts</b> → <b>Instagram</b> → <b>Connect account</b>. Instagram ka login aap khud karein.
+              </>,
+              <>
+                Wapas aa kar <b>"Check karein"</b> dabayein. Jur gaya to yahan ✔ aa jayega aur posts Instagram par bhi jayengi.
+              </>,
+            ]}
+          />
+          <div className="flex flex-wrap gap-2 mt-4">
+            <a className={btnDark} href="https://www.facebook.com/settings/?tab=linked_instagram" target="_blank" rel="noreferrer">
+              Facebook mein Instagram jorein ↗
+            </a>
+            <button className={btnMain} onClick={check} disabled={checking}>
+              <RefreshCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} /> Check karein
+            </button>
+          </div>
+        </>
+      ),
+    },
+    {
+      id: 'wa',
+      name: 'WhatsApp (aap ko "Yes/No" ke message)',
+      icon: '💬',
+      ok: !!conn?.whatsapp.connected,
+      detail: conn?.whatsapp.connected ? 'Jura hua: nayi video / post ka message aap ke WhatsApp par aata hai' : 'Abhi sirf e-mail aati hai',
+      how: <Steps items={['WhatsApp jura hua hai. Kuch karne ki zaroorat nahi.']} />,
+    },
+    {
+      id: 'other',
+      name: 'TikTok · YouTube · X · WhatsApp Channel',
+      icon: '🎵',
+      ok: false,
+      manual: true,
+      detail: 'Abhi khud share karein',
+      how: (
+        <Steps
+          items={[
+            'In ko jorne ke liye un companiyon ki manzoori (approval) chahiye hoti hai. Woh hum baad mein karenge.',
+            'Tab tak: har post ke neeche "Likhai copy" aur "Download" dabayein, phir app mein post kar ke likhai Paste kar dein.',
+            'Rozana video ke page par bhi TikTok / WhatsApp / X ke share buttons hain.',
+          ]}
+        />
+      ),
+    },
+  ];
+  return (
+    <div className={`${box} p-5`}>
+      <h3 className="text-[15px] font-extrabold mb-1">Accounts jorein</h3>
+      <p className="text-[12px] text-[#575653] mb-3">Har account par dabayein aur qadam dekhein. Accounts Facebook ke apne tareeqe se jurte hain: password kabhi yahan ya kisi ko na dein.</p>
+      <div className="space-y-2">
+        {accounts.map((a) => (
+          <div key={a.id} className="border border-black/10 rounded-xl">
+            <button className="w-full flex items-center gap-3 p-3 text-left cursor-pointer" onClick={() => setOpen(open === a.id ? null : a.id)}>
+              <span className="text-xl">{a.icon}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-bold">{a.name}</span>
+                <span className="block text-[12px] text-[#575653] truncate">{a.detail}</span>
+              </span>
+              <span
+                className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full ${a.ok ? 'bg-emerald-100 text-emerald-800' : (a as any).manual ? 'bg-stone-100 text-stone-600' : 'bg-rose-100 text-rose-700'}`}
+              >
+                {a.ok ? '✔ Jura hua' : (a as any).manual ? 'Khud share' : 'Jorein →'}
+              </span>
+            </button>
+            {open === a.id && (
+              <div className="px-4 pb-4 border-t border-black/5">
+                {a.how}
+                {a.err && <p className="text-[11px] text-rose-700 mt-2">Facebook ka jawab: {a.err}</p>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // ---------------------------------------------------------------- the panel
 export const AdminSocialPanel: React.FC = () => {
   const { showToast } = useStore();
@@ -724,31 +854,7 @@ export const AdminSocialPanel: React.FC = () => {
       {/* ------------------------------------------------ SETTINGS */}
       {tab === 'SETTINGS' && (
         <div className="space-y-4">
-          <div className={`${box} p-5`}>
-            <h3 className="text-[15px] font-extrabold mb-1">Jure hue accounts</h3>
-            <p className="text-[12px] text-[#575653] mb-3">Accounts Facebook ke apne tareeqe (token) se jurte hain. Password kabhi kisi ko na dein.</p>
-            {[
-              { name: 'Facebook Page', ok: !!conn?.facebook.connected, detail: conn?.facebook.connected ? conn.facebook.name || '' : 'Abhi jura nahi', err: conn?.facebook.error },
-              { name: 'Instagram', ok: !!conn?.instagram.connected, detail: conn?.instagram.connected ? `@${conn.instagram.username}` : 'Abhi jura nahi: posts sirf Facebook par jayengi. Jorne ke liye: Instagram ko Business/Creator account banayein, phir Facebook Page → Settings → Linked accounts → Instagram → Connect. Phir mujhe batayein.', err: conn?.instagram.error },
-              { name: 'WhatsApp (aap ko "Yes/No" ke message)', ok: !!conn?.whatsapp.connected, detail: conn?.whatsapp.connected ? 'Jura hua' : 'Abhi sirf e-mail aati hai' },
-              { name: 'TikTok · WhatsApp Channel · X · YouTube', ok: false, detail: 'Har post mein "Likhai copy" aur "Download" se khud lagayein', manual: true },
-            ].map((a) => (
-              <div key={a.name} className="flex items-start justify-between gap-3 py-2.5 border-b border-black/5 last:border-0">
-                <div>
-                  <div className="text-sm font-bold">{a.name}</div>
-                  <div className="text-[12px] text-[#575653]">{a.detail}</div>
-                  {a.err && <div className="text-[11px] text-rose-700 mt-0.5">{a.err}</div>}
-                </div>
-                <span
-                  className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full ${
-                    a.ok ? 'bg-emerald-100 text-emerald-800' : (a as any).manual ? 'bg-stone-100 text-stone-600' : 'bg-rose-100 text-rose-700'
-                  }`}
-                >
-                  {a.ok ? '✔ Jura hua' : (a as any).manual ? 'Khud share' : '✗ Nahi jura'}
-                </span>
-              </div>
-            ))}
-          </div>
+          <ConnectAccounts conn={conn} onConn={setConn} />
 
           <div className={`${box} p-5 space-y-4`}>
             <h3 className="text-[15px] font-extrabold">Rozana ka kaam</h3>
